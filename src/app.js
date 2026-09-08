@@ -758,20 +758,20 @@ async function initApplication() {
   const compactDevice = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
   const constrainedWeb = isWebMode && (compactDevice || deviceMemory <= 4);
   const mapPerformance = constrainedWeb
-    ? { workers: 2, demCache: 256, tileCache: 256, prefetch: 0 }
+    ? { workers: 2, demCache: 512, tileCache: 512, prefetch: 0 }
     : isWebMode
-      ? { workers: Math.min(3, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 900, tileCache: 900, prefetch: 1 }
-      : { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 1200, tileCache: 1200, prefetch: 1 };
+      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 1800, tileCache: 1800, prefetch: 1 }
+      : { workers: Math.min(8, Math.max(4, (navigator.hardwareConcurrency || 8))), demCache: 6000, tileCache: 6000, prefetch: 2 };
   maplibregl.workerCount = mapPerformance.workers;
 
-  // 初始化 DEM 高程数据源 (工作站模式：扩大高程网格缓存至 5000 片，反复缩放平移零延迟)
+  // 初始化 DEM 高程数据源 (工作站满血模式：扩大高程网格缓存至 6000 片，反复缩放平移零延迟)
   const demSource = new mlcontour.DemSource({
     url: demUrl,
     encoding: 'terrarium',
     maxzoom: 12,
     worker: true,
     cacheSize: mapPerformance.demCache,
-    timeoutMs: 12000
+    timeoutMs: 16000
   });
   demSource.setupMaplibre(maplibregl);
 

@@ -9,16 +9,17 @@ try {
   originalFs = require('original-fs');
 } catch (e) {}
 
-// 启用工业 GIS 工作站级极限硬件与多核加速架构 (前台运行时满血 60FPS+ 硬件加速；最小化或后台时自适应节能)
+// 启用工业 GIS 工作站级极限硬件与多核加速架构 (前台满血 60FPS+ 硬件加速，性能优先，多占内存与硬盘；后台/最小化自适应节能)
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('high-dpi-support', '1'); // 启用 Windows 高分屏原生 DPI 硬件级抗锯齿与精准光标缩放
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('enable-zero-copy'); // 启用零拷贝栅格化，解码后的 DEM 与瓦片直接映射进显存，杜绝内存中转抖动
-app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization');
-app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
-app.commandLine.appendSwitch('disk-cache-size', '2147483648'); // 2GB 浏览器缓存；离线瓦片仍保存在独立 offline-tiles
-app.commandLine.appendSwitch('media-cache-size', '268435456');
+app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,UseSkiaRenderer');
+app.commandLine.appendSwitch('num-raster-threads', '8'); // 启用 8 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
+app.commandLine.appendSwitch('disk-cache-size', '8589934592'); // 8GB 磁盘缓存，确保大范围切片永久极速留存
+app.commandLine.appendSwitch('media-cache-size', '1073741824'); // 1GB 多媒体/纹理缓存
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192'); // 解锁 V8 8GB 超大堆内存，彻底消除 GC 停顿与性能惩罚
 
 let mainWindow;
 
@@ -126,8 +127,8 @@ function saveOfflineManifest(data, replaceProvinces = false) {
 
 // 高频切片内存 LRU：同时限制数量和真实字节数，避免少量大瓦片把进程推入换页。
 const memoryTileCache = new Map();
-const MAX_MEMORY_TILES = 12000;
-const MAX_MEMORY_TILE_BYTES = 512 * 1024 * 1024;
+const MAX_MEMORY_TILES = 50000;
+const MAX_MEMORY_TILE_BYTES = 2048 * 1024 * 1024; // 2GB 内存专用高速热缓存，零磁盘 IO 延迟
 let memoryTileCacheBytes = 0;
 
 function getCachedTile(key) {
