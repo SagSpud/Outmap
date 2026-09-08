@@ -2455,14 +2455,21 @@ body.web-mode #manage-modal {
   background: #fee2e2;
 }
 
-/* 高德地图风格：途径点列表与终点之间的内联加号添加框 */
+/* 高德地图风格：途径点列表与终点之间的内联加号添加框与地图选点栏 */
+.route-add-via-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px 0;
+}
+
 .route-add-via-inline {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 28px;
-  margin: 4px 0 6px 0;
   background: rgba(248, 250, 252, 0.92);
   border: 1px dashed #cbd5e1;
   border-radius: 6px;
@@ -2497,6 +2504,57 @@ body.web-mode #manage-modal {
 .route-add-via-inline .inline-plus-text {
   letter-spacing: 0.2px;
 }
+
+.route-pick-via-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.route-pick-via-inline-btn:hover {
+  background: #f0fdf4;
+  border-color: #34c759;
+  color: #15803d;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(52, 199, 89, 0.15);
+}
+
+.route-pick-via-inline-btn:active {
+  transform: scale(0.98);
+}
+
+.route-pick-via-inline-btn.picking,
+.route-add-via-inline.picking {
+  background: #ecfdf5 !important;
+  border-color: #10b981 !important;
+  border-style: solid !important;
+  color: #047857 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3) !important;
+  animation: pulsePickingVia 1.4s infinite ease-in-out;
+}
+
+@keyframes pulsePickingVia {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.1);
+  }
+}
+
 
 /* 全局高层级共享路线浮动联想下拉框 (彻底避免被滚动容器剪切) */
 .route-floating-dropdown {

@@ -782,8 +782,7 @@ async function initApplication() {
     zoom: 4.45,
     pitch: 50,
     bearing: 0,
-    minZoom: 4.1, // 缩放锁定在中国大陆框架黄金视野，防止无意义过度缩放看到南半球/澳大利亚
-    maxBounds: [[65.0, 14.0], [145.0, 56.0]], // 中国大陆框架地理边界约束（南限14°N，绝不漂移至赤道与澳洲）
+    minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxPitch: 85,
     fadeDuration: 0, // 彻底消除跨层级缩放时的 300ms 标签淡入淡出闪烁
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
@@ -1881,6 +1880,9 @@ if (typeof window !== 'undefined') {
 // 彻底根除两阶段二次位移、落地拉回抖动与滚轮缩放时的漂移干扰
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (!map || !targetCoords || targetCoords.length < 2) return;
+  if (typeof map.resize === 'function') {
+    map.resize();
+  }
   const lng = Number(targetCoords[0]);
   const lat = Number(targetCoords[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
@@ -2144,11 +2146,10 @@ function setupOfficeHeaderInteractions(map) {
   btnCloseMobileEle?.addEventListener('click', handleCloseMobileEle);
   btnCloseMobileEle?.addEventListener('touchend', handleCloseMobileEle);
 
-  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (改善手机端易点空白收起的体验)
+  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (路线规划面板不因点地图收起，仅由ESC或关闭按钮收起)
   map.on('click', () => {
-    if (pickingRoutePt || isContinuousPicking) return;
+    if (pickingRoutePt) return;
     const toClose = [
-      document.getElementById('route-panel'),
       document.getElementById('favorites-drawer'),
       document.getElementById('mobile-ele-sheet'),
       document.getElementById('waypoint-modal'),
@@ -2745,12 +2746,11 @@ function setupProvinceDropdown(map) {
   const renderListContent = () => {
     provMenuList.innerHTML = '';
 
-    // 1. 置顶“全国总览”大胶囊
+    // 1. 置顶“全国总览”大胶囊 (不再显示特定角度，视角与全局设置保持一致)
     const allChinaBtn = document.createElement('div');
     allChinaBtn.className = 'prov-all-china-btn';
     allChinaBtn.innerHTML = `
       <span class="p-name">🇨🇳 全国总览</span>
-      <span class="p-tag">45° 3D 视角</span>
     `;
     allChinaBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -3808,7 +3808,8 @@ function setupCloudSync(map) {
 function flyToProvince(map, key) {
   const prov = PROVINCES_DATA[key];
   if (!prov) return;
-  const targetPitch = key === 'china' ? 50 : (isPitchLocked ? map.getPitch() : prov.pitch);
+  // 全国总览与各省视角严格遵从全局锁定状态：锁定了50就是50，锁定了60就是60，绝不强制重置锁定
+  const targetPitch = isPitchLocked ? map.getPitch() : (key === 'china' ? (map.getPitch() || 50) : prov.pitch);
   map.flyTo({
     center: prov.center,
     zoom: prov.zoom,
@@ -3816,13 +3817,6 @@ function flyToProvince(map, key) {
     bearing: 0,
     duration: 2200
   });
-  if (key === 'china') {
-    setTimeout(() => {
-      if (typeof updatePitchLockFn === 'function') {
-        updatePitchLockFn(true, 50);
-      }
-    }, 2250);
-  }
   const regionEl = document.getElementById('status-region');
   if (regionEl) {
     if (key === 'china') {
@@ -5117,7 +5111,11 @@ function renderRouteGeometry(map, pathCoords) {
       data: routeGeojson
     });
 
-    // 1. 底层高对比柔白轮廓外壳 (在黄/橙色国道省道、高速公路与卫星底图上形成清晰隔离带，彻底杜绝重合混淆)
+    // 清除历史多余图层 (消除旧版本可能残留的高光细线与半透明发光)
+    if (map.getLayer('outdoor-route-inner-core')) map.removeLayer('outdoor-route-inner-core');
+    if (map.getLayer('outdoor-route-glow')) map.removeLayer('outdoor-route-glow');
+
+    // 1. Apple Maps 原生纯实心深绿描边轮廓 (100% 不透明度实心，线接/线头全圆角，杜绝重合模糊)
     map.addLayer({
       id: 'outdoor-route-casing',
       type: 'line',
@@ -5127,30 +5125,13 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#ffffff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 5.0, 10, 7.5, 14, 10.5],
-        'line-opacity': 0.98
+        'line-color': '#166534',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.2, 10, 8.8, 14, 12.2],
+        'line-opacity': 1.0
       }
     });
 
-    // 2. Apple Maps 路线柔和落影：提供层次，不使用霓虹发光
-    map.addLayer({
-      id: 'outdoor-route-glow',
-      type: 'line',
-      source: 'outdoor-route-source',
-      layout: {
-        'line-cap': 'round',
-        'line-join': 'round'
-      },
-      paint: {
-        'line-color': '#157f3b',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 5.5, 10, 8.2, 14, 11.4],
-        'line-opacity': 0.24,
-        'line-blur': 1.4
-      }
-    });
-
-    // 3. Apple 系统绿主路线（自驾/骑行/徒步统一）
+    // 2. Apple Maps 标志性原生高饱和纯实心翠绿路线丝带 (零透明度、零半透明外晕、零内嵌白条)
     map.addLayer({
       id: 'outdoor-route-line',
       type: 'line',
@@ -5161,24 +5142,8 @@ function renderRouteGeometry(map, pathCoords) {
       },
       paint: {
         'line-color': '#34c759',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3.1, 10, 4.7, 14, 6.8],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.2, 10, 6.2, 14, 9.0],
         'line-opacity': 1.0
-      }
-    });
-
-    // 4. 细白高光模拟 Apple Maps 的清晰丝带边缘
-    map.addLayer({
-      id: 'outdoor-route-inner-core',
-      type: 'line',
-      source: 'outdoor-route-source',
-      layout: {
-        'line-cap': 'round',
-        'line-join': 'round'
-      },
-      paint: {
-        'line-color': '#f4fff6',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.7, 10, 1.0, 14, 1.35],
-        'line-opacity': 0.58
       }
     });
   }
@@ -5451,8 +5416,10 @@ function setupOutdoorRouteSystem(map) {
 
   currentOutdoorMap = map;
 
-  // 高德地图风格：途径点列表与终点之间的内联加号添加框
+  // 高德地图风格：途径点列表与终点之间的内联加号添加框与地图选点按钮
   const btnAddViaInline = document.getElementById('btn-add-via-inline');
+  const btnPickViaInline = document.getElementById('btn-pick-via-inline');
+
   const handleAddVia = () => {
     addViaPoint(map, null, '');
     const container = document.getElementById('route-via-list');
@@ -5463,7 +5430,28 @@ function setupOutdoorRouteSystem(map) {
       }
     }
   };
+
+  const triggerInlineMapPick = () => {
+    hideRouteFloatingDropdown();
+    pickingRoutePt = 'via';
+    targetViaIndexForPick = null;
+    map.getCanvas().style.cursor = 'crosshair';
+    btnPickViaInline?.classList.add('picking');
+    btnAddViaInline?.classList.add('picking');
+    if (btnPickViaInline) {
+      btnPickViaInline.innerHTML = '<span class="pick-icon">🎯</span><span class="pick-text">点选地图...</span>';
+    }
+  };
+
   btnAddViaInline?.addEventListener('click', handleAddVia);
+  btnAddViaInline?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    triggerInlineMapPick();
+  });
+  btnPickViaInline?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    triggerInlineMapPick();
+  });
   btnAddViaPoint?.addEventListener('click', handleAddVia);
 
   // 绑定起点与终点输入框 (支持拼音/汉字联想及回车直达)
@@ -5549,6 +5537,11 @@ function setupOutdoorRouteSystem(map) {
         addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
       }
       targetViaIndexForPick = null;
+      btnPickViaInline?.classList.remove('picking');
+      btnAddViaInline?.classList.remove('picking');
+      if (btnPickViaInline) {
+        btnPickViaInline.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+      }
       if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
     }
     pickingRoutePt = null;
@@ -6264,6 +6257,18 @@ function setupGlobalKeyboardDispatcher() {
       // 5. 路线规划面板
       const routePanel = document.getElementById('route-panel');
       if (routePanel && routePanel.style.display !== 'none') {
+        if (pickingRoutePt) {
+          pickingRoutePt = null;
+          if (currentOutdoorMap) currentOutdoorMap.getCanvas().style.cursor = '';
+          const btnPick = document.getElementById('btn-pick-via-inline');
+          const btnAdd = document.getElementById('btn-add-via-inline');
+          btnPick?.classList.remove('picking');
+          btnAdd?.classList.remove('picking');
+          if (btnPick) btnPick.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return;
+        }
         hideRouteFloatingDropdown();
         smoothClosePanel(routePanel);
         e.stopPropagation();
