@@ -1658,7 +1658,7 @@ async function queryLocationCandidates(keyword) {
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       icon: '🎯',
-      zoom: 15.0
+      zoom: 14.5
     }];
   }
 
@@ -1854,7 +1854,7 @@ async function queryLocationCandidates(keyword) {
                   coords: [lng, lat],
                   icon,
                   type,
-                  zoom: 15.0
+                  zoom: 14.5
                 });
               }
             });
@@ -1877,22 +1877,17 @@ if (typeof window !== 'undefined') {
 }
 
 // 自动触发地形高程重对齐与渲染微刷新
-// 彻底根除浏览器端“DEM 切片晚到导致的图层被地表掩埋/覆盖，需手动拖拽才清晰”的渲染漏洞
+// 自动触发地形高程重对齐与渲染微刷新 (纯 WebGL 硬件重绘，0ms 物理抖动，彻底杜绝屏幕跳动与微震)
 function triggerTerrainRealign(map) {
   if (!map) return;
-  if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
-  if (!map.isMoving()) {
-    map.panBy([0.5, 0], { duration: 0 });
-    requestAnimationFrame(() => {
-      map.panBy([-0.5, 0], { duration: 0 });
-      if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
-    });
+  if (typeof map.triggerRepaint === 'function') {
+    map.triggerRepaint();
   }
 }
 window.triggerTerrainRealign = triggerTerrainRealign;
 
 // 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
-// 彻底根除两阶段二次位移、落地拉回抖动与滚轮缩放时的漂移干扰
+// 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (!map || !targetCoords || targetCoords.length < 2) return;
   if (typeof map.resize === 'function') {
@@ -1902,36 +1897,75 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const lat = Number(targetCoords[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-  const zoom = Number.isFinite(options.zoom) ? options.zoom : 15.0;
+  const zoom = Number.isFinite(options.zoom) ? options.zoom : 14.5;
   const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
   const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() || 0);
   const centered = Boolean(options.centered);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const duration = reducedMotion ? 0 : (options.duration ?? 800);
+  const duration = reducedMotion ? 0 : (options.duration ?? 900);
+
+  let cameraCenter = [lng, lat];
+
+  if (!centered) {
+    const container = map.getContainer() || {};
+    const screenHeight = Math.max(320, container.clientHeight || window.innerHeight || 720);
+    const pitchRad = (curPitch || 0) * Math.PI / 180;
+    const fovRad = 36.87 * Math.PI / 180;
+    const d0 = 0.5 / Math.tan(fovRad / 2) * screenHeight;
+
+    // 黄金视口定位：2D 下 ratioY 设为 0.56，3D (50°) 下设为 0.59
+    // 经三维针孔透视光线反求交，使图钉平稳停靠在视口中偏下黄金锚点，上方操作卡片恰好居于屏幕垂直正中黄金视区
+    const ratioY = pitchRad === 0 ? 0.56 : (0.56 + (pitchRad / (Math.PI / 2)) * 0.045);
+    const dy = screenHeight * (ratioY - 0.5);
+
+    const denom = d0 * Math.cos(pitchRad) - dy * Math.sin(pitchRad);
+    const groundY = denom > 1e-4 ? (d0 * dy) / denom : dy;
+
+    const scale = 512 * Math.pow(2, zoom);
+    const sinLat = Math.sin(lat * Math.PI / 180);
+    const yWorld = (0.5 - 0.25 * Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI) * scale;
+
+    const dxWorld = groundY * Math.sin(curBearing * Math.PI / 180);
+    const dyWorld = -groundY * Math.cos(curBearing * Math.PI / 180);
+
+    const camX = ((lng + 180) / 360) * scale + dxWorld;
+    const camY = yWorld + dyWorld;
+
+    const camLng = (camX / scale) * 360 - 180;
+    const normY = camY / scale;
+    const y2 = (180 - normY * 360) * Math.PI / 180;
+    const camLat = 360 * Math.atan(Math.exp(y2)) / Math.PI - 90;
+
+    if (Number.isFinite(camLng) && Number.isFinite(camLat)) {
+      cameraCenter = [camLng, camLat];
+    }
+  }
 
   map.stop();
   map.flyTo({
-    center: [lng, lat],
+    center: cameraCenter,
     zoom,
     pitch: curPitch,
     bearing: curBearing,
     offset: [0, 0],
-    curve: 1.1,
-    speed: 1.5,
+    curve: 1.42, // van Wijk 理论最优平滑曲率，彻底杜绝 minZoom 截断与出界失控
+    speed: 1.2,
     duration,
     essential: true
   });
 
-  // 飞跃落地后自动触发地形高程重对齐与渲染微刷新
-  // 彻底根除浏览器端“DEM 切片晚到导致的图层被地表掩埋/覆盖，需手动拖拽才清晰”的渲染漏洞
-  map.once('moveend', () => {
+  let arrivalTriggered = false;
+  const handleArrival = () => {
+    if (arrivalTriggered) return;
+    arrivalTriggered = true;
     triggerTerrainRealign(map);
-    setTimeout(() => triggerTerrainRealign(map), 300);
-    setTimeout(() => triggerTerrainRealign(map), 600);
-    map.once('idle', () => {
-      triggerTerrainRealign(map);
-    });
-  });
+    if (typeof options.onArrival === 'function') {
+      options.onArrival();
+    }
+  };
+
+  map.once('moveend', handleArrival);
+  setTimeout(handleArrival, duration + 60);
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
 
@@ -2359,13 +2393,13 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-    // 点击图钉重新飞到此处自适应偏下居中 (zoom 15, offset: [0, 0])
+    // 点击图钉重新飞到此处自适应居中 (zoom 14.5)
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() || 50;
-        flyToLocationPrecisely(map, validCoords, { zoom: 15.0, pitch: curPitch, duration: 700 });
+        flyToLocationPrecisely(map, validCoords, { zoom: 14.5, pitch: curPitch, duration: 600 });
       });
     }
 
@@ -2449,17 +2483,49 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    const targetZoom = isProv ? (item.zoom || 7.2) : 15.0;
+    // 智能层级适配：省份 7.2，地级市 12.0，名山 13.5，地标/建筑/小区 14.5 (视野更舒展立体，根除 15 级过度贴地导致的透视压迫畸变)
+    let targetZoom = 14.5;
+    if (isProv) {
+      targetZoom = item.zoom || 7.2;
+    } else if (item.type === 'city') {
+      targetZoom = item.zoom || 12.0;
+    } else if (item.type === 'mountain') {
+      targetZoom = item.zoom || 13.5;
+    } else if (item.type === 'waypoint') {
+      targetZoom = item.zoom || 14.2;
+    } else if (typeof item.zoom === 'number') {
+      targetZoom = item.zoom;
+    }
+
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+
+    // 智能跨度感知：从全国总览 (zoom 4.45) 远距飞跃时，采用 1600ms 丝滑平稳巡航，落地后才弹出卡片，彻底根除“在屏幕底部出界又被拉回”；同城近距飞跃则立即响应
+    const curZoom = map.getZoom();
+    const curCenter = map.getCenter();
+    const distDeg = Math.hypot((curCenter.lng || 104.5) - lng, (curCenter.lat || 36.0) - lat);
+    const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
+    const flightDuration = isLongFlight ? 1600 : 750;
+
+    if (isLongFlight) {
+      // 远距起飞时立即清除旧卡片，避免在大地图底部生成突兀半截卡片并横穿屏幕
+      if (currentLandingMarker) {
+        currentLandingMarker.remove();
+        currentLandingMarker = null;
+      }
+    } else {
+      // 近距瞬时切换
+      showLandingMarker(validCoords, item.name, item.desc);
+    }
 
     flyToLocationPrecisely(map, validCoords, {
       zoom: targetZoom,
       pitch: targetPitch,
       centered: isProv,
-      duration: 900
+      duration: flightDuration,
+      onArrival: () => {
+        showLandingMarker(validCoords, item.name, item.desc);
+      }
     });
-
-    showLandingMarker(validCoords, item.name, item.desc);
   }
 
   // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史)
@@ -3805,11 +3871,6 @@ function flyToProvince(map, key) {
   });
   map.once('moveend', () => {
     triggerTerrainRealign(map);
-    setTimeout(() => triggerTerrainRealign(map), 300);
-    setTimeout(() => triggerTerrainRealign(map), 600);
-    map.once('idle', () => {
-      triggerTerrainRealign(map);
-    });
   });
   const regionEl = document.getElementById('status-region');
   if (regionEl) {
@@ -4660,7 +4721,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            flyToLocationPrecisely(map, item.coords, { zoom: 15.0, pitch: map.getPitch() || 50, duration: 700 });
+            flyToLocationPrecisely(map, item.coords, { zoom: 14.5, pitch: map.getPitch() || 50, duration: 700 });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
@@ -4672,7 +4733,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
 
     if (item.coords) {
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-      flyToLocationPrecisely(map, item.coords, { zoom: 15.0, pitch: targetPitch, duration: 850 });
+      flyToLocationPrecisely(map, item.coords, { zoom: 14.5, pitch: targetPitch, duration: 850 });
     }
   };
 
@@ -4985,7 +5046,7 @@ function addViaPoint(map, coords, label) {
     el.innerText = idx;
     el.addEventListener('click', () => {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: 15.0, pitch: curPitch, duration: 700 });
+      flyToLocationPrecisely(m, coords, { zoom: 14.5, pitch: curPitch, duration: 700 });
     });
 
     marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -5048,7 +5109,7 @@ function setRouteStartPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: 15.0, pitch: curPitch, duration: 700 });
+      flyToLocationPrecisely(m, coords, { zoom: 14.5, pitch: curPitch, duration: 700 });
     }
   });
   if (m) {
@@ -5075,7 +5136,7 @@ function setRouteEndPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: 15.0, pitch: curPitch, duration: 700 });
+      flyToLocationPrecisely(m, coords, { zoom: 14.5, pitch: curPitch, duration: 700 });
     }
   });
   if (m) {
@@ -5545,7 +5606,7 @@ function setupOutdoorRouteSystem(map) {
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
             const curPitch = map.getPitch() || 50;
-            flyToLocationPrecisely(map, [lng, lat], { zoom: 15.0, pitch: curPitch, duration: 700 });
+            flyToLocationPrecisely(map, [lng, lat], { zoom: 14.5, pitch: curPitch, duration: 700 });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
