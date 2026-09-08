@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.2.15" />
+  <link rel="stylesheet" href="style.css?v=1.2.16" />
   <script src="vendor/maplibre-gl.js"></script>
   <script src="vendor/maplibre-contour.js"></script>
 </head>
@@ -255,8 +255,11 @@
           <div class="route-points-box">
             <div class="route-point-row">
               <span class="pt-tag start">起</span>
-              <input type="text" id="route-start-input" class="route-pt-input" placeholder="在地图上点选起点 (或输入地名)..." />
-              <button class="btn-pick-pt" id="btn-pick-start" title="在地图上点选起点">📍 点选</button>
+              <div class="route-input-wrap">
+                <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入地名搜索 (或地图点选)..." autocomplete="off" />
+                <div class="route-search-dropdown" id="route-start-dropdown" style="display: none;"></div>
+              </div>
+              <button class="btn-pick-pt" id="btn-pick-start" title="搜索地点或在地图上点选">🔍 搜索</button>
             </div>
 
             <!-- 中间动态途径点列表 (支持几十个点平滑衔接) -->
@@ -264,8 +267,11 @@
 
             <div class="route-point-row">
               <span class="pt-tag end">终</span>
-              <input type="text" id="route-end-input" class="route-pt-input" placeholder="在地图上点选终点 (或输入地名)..." />
-              <button class="btn-pick-pt" id="btn-pick-end" title="在地图上点选终点">📍 点选</button>
+              <div class="route-input-wrap">
+                <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入地名搜索 (或地图点选)..." autocomplete="off" />
+                <div class="route-search-dropdown" id="route-end-dropdown" style="display: none;"></div>
+              </div>
+              <button class="btn-pick-pt" id="btn-pick-end" title="搜索地点或在地图上点选">🔍 搜索</button>
             </div>
           </div>
 
@@ -281,9 +287,15 @@
           </div>
 
           <div class="route-actions-row">
-            <button class="modal-btn primary" id="btn-calc-route">⚡ 智能规划</button>
-            <button class="modal-btn secondary-sm" id="btn-save-route" title="将当前规划路线保存到我的收藏夹">💾 存路线</button>
-            <button class="modal-btn secondary-sm" id="btn-export-gpx" title="将当前路线导出为标准 GPX 轨迹文件">📥 导出GPX</button>
+            <button class="modal-btn primary" id="btn-calc-route">规划</button>
+            <div class="route-export-dropdown-wrap">
+              <button class="modal-btn secondary-sm" id="btn-route-export-trigger" title="导出路线">导出 ▾</button>
+              <div class="route-export-menu" id="route-export-menu" style="display: none;">
+                <button class="route-export-menu-item" id="btn-save-route">💾 存到收藏夹</button>
+                <button class="route-export-menu-item" id="btn-export-gpx">📥 导出 GPX</button>
+              </div>
+            </div>
+            <button class="modal-btn secondary-sm" id="btn-route-details-toggle" title="展开/收起路线详情">详情 ▾</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route" title="清空所有点与路线">清空</button>
           </div>
 
@@ -297,21 +309,24 @@
               <div class="stat-lbl">预估耗时</div>
               <div class="stat-num" id="stat-route-time">--</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-lbl">累计爬升</div>
+            <div class="stat-card stat-card-clickable" id="stat-card-ascent" title="点击展开海拔剖面图">
+              <div class="stat-lbl">累计爬升 📈</div>
               <div class="stat-num green" id="stat-route-ascent">+-- m</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-lbl">累计下降</div>
+            <div class="stat-card stat-card-clickable" id="stat-card-descent" title="点击展开海拔剖面图">
+              <div class="stat-lbl">累计下降 📉</div>
               <div class="stat-num red" id="stat-route-descent">--- m</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-lbl">最高海拔</div>
+            <div class="stat-card stat-card-clickable" id="stat-card-maxele" title="点击展开海拔剖面图">
+              <div class="stat-lbl">最高海拔 🏔️</div>
               <div class="stat-num blue" id="stat-route-maxele">-- m</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-lbl">最低海拔</div>
+            <div class="stat-card stat-card-clickable" id="stat-card-minele" title="点击展开海拔剖面图">
+              <div class="stat-lbl">最低海拔 🏞️</div>
               <div class="stat-num gray" id="stat-route-minele">-- m</div>
+            </div>
+            <div class="stat-chart-hint" id="stat-toggle-chart-btn" title="切换海拔剖面图">
+              <span>📈 点击海拔卡片展开 / 收起海拔变化图</span>
             </div>
           </div>
 
@@ -678,6 +693,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=1.2.15"></script>
+  <script src="app.js?v=1.2.16"></script>
 </body>
 </html>

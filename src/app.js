@@ -1326,6 +1326,165 @@ function setupOfficeHeaderInteractions(map) {
     if (provTriggerBtn) provTriggerBtn.classList.remove('active');
   });
 
+// =========================================================
+// 智能地理编码与地点候选中枢 (中国境内坐标/城市/名山/小区全域检索)
+// =========================================================
+let activeSearchAbort = null;
+
+// 坐标解析器 (支持 "117.12, 36.45" / "36.45, 117.12" / "117.12 36.45")
+function parseCoordinates(str) {
+  const clean = str.replace(/[°NSEWnsew,]/g, ' ').trim();
+  const parts = clean.split(/\s+/).map(Number).filter(n => !isNaN(n));
+  if (parts.length >= 2) {
+    let [a, b] = parts;
+    let lng, lat;
+    if (a >= 73 && a <= 136 && b >= 3 && b <= 54) {
+      lng = a; lat = b;
+    } else if (b >= 73 && b <= 136 && a >= 3 && a <= 54) {
+      lng = b; lat = a;
+    } else if (a >= -180 && a <= 180 && b >= -90 && b <= 90) {
+      lng = a; lat = b;
+    } else {
+      return null;
+    }
+    return { coords: [lng, lat], title: `坐标 (${lng.toFixed(4)}°, ${lat.toFixed(4)}°)` };
+  }
+  return null;
+}
+
+// 综合检索引擎：本地字典 + 在线高精地理编码 (严格仅限中国境内数据，坚决剔除一切外国地点)
+async function queryLocationCandidates(keyword) {
+  const q = keyword.trim();
+  if (!q) {
+    return [];
+  }
+
+  const coordMatch = parseCoordinates(q);
+  if (coordMatch) {
+    return [{
+      name: coordMatch.title,
+      desc: 'GPS 经纬度绝对坐标',
+      coords: coordMatch.coords,
+      icon: '🎯',
+      zoom: 15.0
+    }];
+  }
+
+  const localMatches = [];
+
+  // 1. 省份匹配
+  if (typeof PROVINCES_DATA !== 'undefined') {
+    Object.keys(PROVINCES_DATA).forEach(k => {
+      const p = PROVINCES_DATA[k];
+      if (p.name.includes(q) || (p.en && p.en.toLowerCase().includes(q.toLowerCase())) || (p.pinyin && p.pinyin.toLowerCase().includes(q.toLowerCase()))) {
+        localMatches.push({
+          name: p.name,
+          desc: '行政区划 · ' + (p.en || p.name),
+          coords: p.center,
+          icon: '🚩',
+          zoom: p.zoom
+        });
+      }
+    });
+  }
+
+  // 2. 名山匹配
+  if (typeof MOUNTAIN_POIS !== 'undefined') {
+    MOUNTAIN_POIS.forEach(m => {
+      if (m.name.includes(q)) {
+        localMatches.push({
+          name: m.name,
+          desc: `著名山峰 · 海拔 ${m.ele}米`,
+          coords: m.coords,
+          icon: '🏔️',
+          type: 'mountain',
+          zoom: 13.8
+        });
+      }
+    });
+  }
+
+  // 3. 重点城市匹配
+  if (typeof MAJOR_CITIES !== 'undefined') {
+    MAJOR_CITIES.forEach(c => {
+      if (c.name.includes(q) || (c.en && c.en.toLowerCase().includes(q.toLowerCase()))) {
+        localMatches.push({
+          name: c.name,
+          desc: '重点地标城市 · ' + (c.en || ''),
+          coords: c.coords,
+          icon: '🏙️',
+          type: 'city',
+          zoom: 12.0
+        });
+      }
+    });
+  }
+
+  // 4. 在线全量 OSM Photon 地理编码检索 (限定中国境内 BBox: [73.5, 18.0, 135.1, 53.6])
+  if (activeSearchAbort) activeSearchAbort.abort();
+  activeSearchAbort = new AbortController();
+
+  try {
+    const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=15`;
+    const resp = await fetch(onlineUrl, {
+      signal: activeSearchAbort.signal,
+      headers: { 'User-Agent': 'Outmap/1.0' }
+    });
+
+    if (resp.ok) {
+      const geojson = await resp.json();
+      if (geojson && geojson.features) {
+        geojson.features.forEach(f => {
+          const p = f.properties;
+          const coords = f.geometry.coordinates;
+          if (!coords || coords.length < 2) return;
+
+          const inChinaBbox = coords[0] >= 73.0 && coords[0] <= 136.0 && coords[1] >= 18.0 && coords[1] <= 54.0;
+          const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
+          if (!inChinaBbox || !isCountryCn) return;
+
+          const name = p.name || p.street || p.city || q;
+          const parts = [p.country, p.state, p.city, p.district, p.locality].filter(Boolean);
+          const desc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
+
+          let icon = '📍';
+          let type = 'poi';
+          const osmValue = (p.osm_value || '').toLowerCase();
+
+          if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑')) {
+            icon = '🏘️';
+            type = 'community';
+          } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
+            icon = '🏔️';
+            type = 'mountain';
+          } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
+            icon = '🏫';
+          } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
+            icon = '🏥';
+          } else if (osmValue.includes('city') || osmValue.includes('town')) {
+            icon = '🏙️';
+          }
+
+          if (!localMatches.some(m => m.name === name && Math.abs(m.coords[0] - coords[0]) < 0.005)) {
+            localMatches.push({
+              name,
+              desc,
+              coords,
+              icon,
+              type,
+              zoom: type === 'community' ? 15.5 : 14.0
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    // 离线环境平滑回退
+  }
+
+  return localMatches.slice(0, 10);
+}
+
   // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/名山/城市全量POI检索与回车直达)
   const searchTrigger = document.getElementById('btn-search-trigger');
   const searchPopover = document.getElementById('search-popover');
@@ -1335,7 +1494,6 @@ function setupOfficeHeaderInteractions(map) {
 
   let currentSearchResults = [];
   let searchDebounceTimer = null;
-  let activeSearchAbort = null;
   let currentLandingMarker = null;
 
   function getSearchHistory() {
@@ -1436,27 +1594,6 @@ function setupOfficeHeaderInteractions(map) {
     }, 7000);
   }
 
-  // 坐标解析器 (支持 "117.12, 36.45" / "36.45, 117.12" / "117.12 36.45")
-  function parseCoordinates(str) {
-    const clean = str.replace(/[°NSEWnsew,]/g, ' ').trim();
-    const parts = clean.split(/\s+/).map(Number).filter(n => !isNaN(n));
-    if (parts.length >= 2) {
-      let [a, b] = parts;
-      let lng, lat;
-      if (a >= 73 && a <= 136 && b >= 3 && b <= 54) {
-        lng = a; lat = b;
-      } else if (b >= 73 && b <= 136 && a >= 3 && a <= 54) {
-        lng = b; lat = a;
-      } else if (a >= -180 && a <= 180 && b >= -90 && b <= 90) {
-        lng = a; lat = b;
-      } else {
-        return null;
-      }
-      return { coords: [lng, lat], title: `坐标 (${lng.toFixed(4)}°, ${lat.toFixed(4)}°)` };
-    }
-    return null;
-  }
-
   function renderSearchResults(items) {
     currentSearchResults = items;
     if (!resultsContainer) return;
@@ -1512,136 +1649,6 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     showLandingMarker(item.coords, item.name);
-  }
-
-  // 综合检索引擎：本地字典 + 在线高精地理编码 (严格仅限中国境内数据，坚决剔除一切外国地点)
-  async function queryLocationCandidates(keyword) {
-    const q = keyword.trim();
-    if (!q) {
-      return [];
-    }
-
-    const coordMatch = parseCoordinates(q);
-    if (coordMatch) {
-      return [{
-        name: coordMatch.title,
-        desc: 'GPS 经纬度绝对坐标',
-        coords: coordMatch.coords,
-        icon: '🎯',
-        zoom: 15.0
-      }];
-    }
-
-    const localMatches = [];
-
-    // 1. 省份匹配
-    Object.keys(PROVINCES_DATA).forEach(k => {
-      const p = PROVINCES_DATA[k];
-      if (p.name.includes(q) || (p.en && p.en.toLowerCase().includes(q.toLowerCase())) || (p.pinyin && p.pinyin.toLowerCase().includes(q.toLowerCase()))) {
-        localMatches.push({
-          name: p.name,
-          desc: '行政区划 · ' + (p.en || p.name),
-          coords: p.center,
-          icon: '🚩',
-          zoom: p.zoom
-        });
-      }
-    });
-
-    // 2. 名山匹配
-    MOUNTAIN_POIS.forEach(m => {
-      if (m.name.includes(q)) {
-        localMatches.push({
-          name: m.name,
-          desc: `著名山峰 · 海拔 ${m.ele}米`,
-          coords: m.coords,
-          icon: '🏔️',
-          type: 'mountain',
-          zoom: 13.8
-        });
-      }
-    });
-
-    // 3. 重点城市匹配
-    MAJOR_CITIES.forEach(c => {
-      if (c.name.includes(q) || c.en.toLowerCase().includes(q.toLowerCase())) {
-        localMatches.push({
-          name: c.name,
-          desc: '重点地标城市 · ' + c.en,
-          coords: c.coords,
-          icon: '🏙️',
-          type: 'city',
-          zoom: 12.0
-        });
-      }
-    });
-
-    // 4. 在线全量 OSM Photon 地理编码检索 (限定中国境内 BBox: [73.5, 18.0, 135.1, 53.6]，全量覆盖小区、商场、学校、道路、村落)
-    if (activeSearchAbort) activeSearchAbort.abort();
-    activeSearchAbort = new AbortController();
-
-    try {
-      const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=15`;
-      const resp = await fetch(onlineUrl, {
-        signal: activeSearchAbort.signal,
-        headers: { 'User-Agent': 'Outmap/1.0' }
-      });
-
-      if (resp.ok) {
-        const geojson = await resp.json();
-        if (geojson && geojson.features) {
-          geojson.features.forEach(f => {
-            const p = f.properties;
-            const coords = f.geometry.coordinates;
-            if (!coords || coords.length < 2) return;
-
-            // 严密双重校验：经纬度中国境内包围盒 + 国家代码校验 (严防国外近似地名渗入)
-            const inChinaBbox = coords[0] >= 73.0 && coords[0] <= 136.0 && coords[1] >= 18.0 && coords[1] <= 54.0;
-            const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
-            if (!inChinaBbox || !isCountryCn) return;
-
-            const name = p.name || p.street || p.city || q;
-            const parts = [p.country, p.state, p.city, p.district, p.locality].filter(Boolean);
-            const desc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
-
-            let icon = '📍';
-            let type = 'poi';
-            const osmValue = (p.osm_value || '').toLowerCase();
-            const osmKey = (p.osm_key || '').toLowerCase();
-
-            if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑')) {
-              icon = '🏘️';
-              type = 'community';
-            } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
-              icon = '🏔️';
-              type = 'mountain';
-            } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
-              icon = '🏫';
-            } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
-              icon = '🏥';
-            } else if (osmValue.includes('city') || osmValue.includes('town')) {
-              icon = '🏙️';
-            }
-
-            // 避免完全相同名称的重复项
-            if (!localMatches.some(m => m.name === name && Math.abs(m.coords[0] - coords[0]) < 0.005)) {
-              localMatches.push({
-                name,
-                desc,
-                coords,
-                icon,
-                type,
-                zoom: type === 'community' ? 15.5 : 14.0
-              });
-            }
-          });
-        }
-      }
-    } catch (e) {
-      // 离线环境平滑回退
-    }
-
-    return localMatches.slice(0, 10);
   }
 
   // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史)
@@ -3960,10 +3967,10 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
     isRealRoad
   };
 
-  if (statsBox) statsBox.style.display = 'grid';
-  if (chartSection) chartSection.style.display = 'flex';
-
-  drawElevationChart(canvas, currentProfileData);
+  // 海拔剖面图默认隐藏 (桌面与浏览器端均遵循，点击详情内海拔信息时才滑出)
+  if (chartSection && chartSection.style.display !== 'none') {
+    drawElevationChart(canvas, currentProfileData);
+  }
 
   if (shouldFitBounds && pathCoords.length > 0) {
     const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
@@ -4058,12 +4065,21 @@ function setupOutdoorRouteSystem(map) {
   const btnCloseRoute = document.getElementById('btn-close-route-panel');
   const startInput = document.getElementById('route-start-input');
   const endInput = document.getElementById('route-end-input');
+  const startDropdown = document.getElementById('route-start-dropdown');
+  const endDropdown = document.getElementById('route-end-dropdown');
   const btnPickStart = document.getElementById('btn-pick-start');
   const btnPickEnd = document.getElementById('btn-pick-end');
   const btnAddViaPoint = document.getElementById('btn-add-via-point');
   const btnContinuousPick = document.getElementById('btn-continuous-pick');
   const btnCalcRoute = document.getElementById('btn-calc-route');
   const btnClearRoute = document.getElementById('btn-clear-route');
+
+  // 导出下拉与详情折叠按钮
+  const btnRouteExportTrigger = document.getElementById('btn-route-export-trigger');
+  const routeExportMenu = document.getElementById('route-export-menu');
+  const btnRouteDetailsToggle = document.getElementById('btn-route-details-toggle');
+  const btnSaveRoute = document.getElementById('btn-save-route');
+  const btnExportGpx = document.getElementById('btn-export-gpx');
 
   const statsBox = document.getElementById('route-stats-box');
   const chartSection = document.getElementById('route-chart-section');
@@ -4077,6 +4093,9 @@ function setupOutdoorRouteSystem(map) {
 
   btnCloseRoute?.addEventListener('click', () => {
     routePanel.style.display = 'none';
+    if (startDropdown) startDropdown.style.display = 'none';
+    if (endDropdown) endDropdown.style.display = 'none';
+    if (routeExportMenu) routeExportMenu.style.display = 'none';
   });
 
   // 出行方式切换 (自驾、骑行、徒步)
@@ -4113,18 +4132,152 @@ function setupOutdoorRouteSystem(map) {
     if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>等待地图点击...</span>';
   });
 
-  // 点选起点 / 终点
-  btnPickStart?.addEventListener('click', () => {
-    pickingRoutePt = 'start';
-    map.getCanvas().style.cursor = 'crosshair';
-    btnPickStart.innerText = '等待点击...';
-  });
+  // 抽象绑定起终点输入框的实时自动搜索与点选
+  function bindRoutePointInput(inputEl, dropdownEl, btnEl, pointType) {
+    if (!inputEl || !dropdownEl) return;
+    let searchTimer = null;
+    let activeCandidates = [];
 
-  btnPickEnd?.addEventListener('click', () => {
-    pickingRoutePt = 'end';
-    map.getCanvas().style.cursor = 'crosshair';
-    btnPickEnd.innerText = '等待点击...';
-  });
+    const closeDropdown = () => {
+      dropdownEl.style.display = 'none';
+      dropdownEl.innerHTML = '';
+      activeCandidates = [];
+    };
+
+    const triggerMapPick = () => {
+      closeDropdown();
+      pickingRoutePt = pointType;
+      map.getCanvas().style.cursor = 'crosshair';
+      if (btnEl) btnEl.innerText = '等待点击...';
+    };
+
+    const selectCandidate = (item) => {
+      inputEl.value = item.name;
+      closeDropdown();
+      if (pointType === 'start') {
+        setRouteStartPoint(map, item.coords, item.name);
+      } else if (pointType === 'end') {
+        setRouteEndPoint(map, item.coords, item.name);
+      }
+      map.flyTo({
+        center: item.coords,
+        zoom: Math.max(map.getZoom(), 11),
+        duration: 1200
+      });
+    };
+
+    const renderCandidates = (items, keyword) => {
+      activeCandidates = items || [];
+      dropdownEl.innerHTML = '';
+
+      if (!items || items.length === 0) {
+        dropdownEl.innerHTML = `
+          <div class="route-search-empty">未匹配到“${keyword || ''}”，支持城市/小区/名山</div>
+          <div class="route-search-item route-search-pick-map">
+            <span class="route-search-item-icon">📍</span>
+            <div class="route-search-item-info">
+              <div class="route-search-item-name">在 3D 地图上点选</div>
+              <div class="route-search-item-desc">点击后在地图上拾取该点</div>
+            </div>
+          </div>
+        `;
+        const pickRow = dropdownEl.querySelector('.route-search-pick-map');
+        pickRow?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          triggerMapPick();
+        });
+      } else {
+        items.forEach((item, idx) => {
+          const row = document.createElement('div');
+          row.className = 'route-search-item' + (idx === 0 ? ' active' : '');
+          row.innerHTML = `
+            <span class="route-search-item-icon">${item.icon || '📍'}</span>
+            <div class="route-search-item-info">
+              <div class="route-search-item-name">${item.name}</div>
+              <div class="route-search-item-desc">${item.desc || '中国境内地点'}</div>
+            </div>
+          `;
+          row.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectCandidate(item);
+          });
+          dropdownEl.appendChild(row);
+        });
+
+        const mapPickRow = document.createElement('div');
+        mapPickRow.className = 'route-search-item route-search-pick-map';
+        mapPickRow.innerHTML = `
+          <span class="route-search-item-icon">📍</span>
+          <div class="route-search-item-info">
+            <div class="route-search-item-name">在 3D 地图上点选</div>
+            <div class="route-search-item-desc">点击后在地图上拾取精确坐标</div>
+          </div>
+        `;
+        mapPickRow.addEventListener('click', (e) => {
+          e.stopPropagation();
+          triggerMapPick();
+        });
+        dropdownEl.appendChild(mapPickRow);
+      }
+      dropdownEl.style.display = 'flex';
+    };
+
+    inputEl.addEventListener('input', () => {
+      const val = (inputEl.value || '').trim();
+      clearTimeout(searchTimer);
+      if (!val) {
+        closeDropdown();
+        return;
+      }
+      searchTimer = setTimeout(async () => {
+        const results = await queryLocationCandidates(val);
+        renderCandidates(results, val);
+      }, 200);
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeCandidates.length > 0) {
+          selectCandidate(activeCandidates[0]);
+        } else {
+          const val = (inputEl.value || '').trim();
+          if (val) {
+            queryLocationCandidates(val).then(res => {
+              if (res && res.length > 0) {
+                selectCandidate(res[0]);
+              } else {
+                renderCandidates([], val);
+              }
+            });
+          }
+        }
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+      }
+    });
+
+    btnEl?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const val = (inputEl.value || '').trim();
+      if (val) {
+        const results = await queryLocationCandidates(val);
+        renderCandidates(results, val);
+      } else {
+        triggerMapPick();
+      }
+    });
+
+    inputEl.addEventListener('focus', () => {
+      const val = (inputEl.value || '').trim();
+      if (val && dropdownEl.style.display === 'none') {
+        queryLocationCandidates(val).then(res => renderCandidates(res, val));
+      }
+    });
+  }
+
+  bindRoutePointInput(startInput, startDropdown, btnPickStart, 'start');
+  bindRoutePointInput(endInput, endDropdown, btnPickEnd, 'end');
 
   // 地图点击：智能响应连续拾点模式与单点模式
   map.on('click', e => {
@@ -4138,7 +4291,6 @@ function setupOutdoorRouteSystem(map) {
       } else if (!routeEndCoord) {
         setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
       } else {
-        // 将原先的终点顺延转为途径点，将新点击的点作为最新终点，实现沿途无缝连续画线！
         const oldEndCoord = routeEndCoord;
         const oldEndName = routeEndName;
         addViaPoint(map, oldEndCoord, oldEndName || `途径点 ${routeViaPoints.length + 1}`);
@@ -4153,10 +4305,10 @@ function setupOutdoorRouteSystem(map) {
 
     if (pickingRoutePt === 'start') {
       setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
-      if (btnPickStart) btnPickStart.innerText = '📍 点选';
+      if (btnPickStart) btnPickStart.innerText = '🔍 搜索';
     } else if (pickingRoutePt === 'end') {
       setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
-      if (btnPickEnd) btnPickEnd.innerText = '📍 点选';
+      if (btnPickEnd) btnPickEnd.innerText = '🔍 搜索';
     } else if (pickingRoutePt === 'via') {
       addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
       if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
@@ -4164,15 +4316,67 @@ function setupOutdoorRouteSystem(map) {
     pickingRoutePt = null;
   });
 
-  // 生成路线按钮 (若空则加载经典示例路线)
+  // 1. 规划按钮 (无⚡图标)
   btnCalcRoute?.addEventListener('click', () => {
     if (!routeStartCoord || !routeEndCoord) {
-      setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)');
-      addViaPoint(map, [103.6210, 31.0020], '都江堰 (紫坪铺水库)');
-      addViaPoint(map, [103.1250, 31.0260], '卧龙巴朗山垭口 (4481m)');
-      setRouteEndPoint(map, [102.8360, 30.9980], '四姑娘山镇 (蜀山之后)');
+      if (!routeStartCoord && !routeEndCoord) {
+        setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)');
+        addViaPoint(map, [103.6210, 31.0020], '都江堰 (紫坪铺水库)');
+        addViaPoint(map, [103.1250, 31.0260], '卧龙巴朗山垭口 (4481m)');
+        setRouteEndPoint(map, [102.8360, 30.9980], '四姑娘山镇 (蜀山之后)');
+      } else {
+        alert('请先设定完整的起点和终点！');
+        return;
+      }
     }
     autoPlanMultiPointRoute(map, true);
+  });
+
+  // 2. 导出下拉菜单切换 (存到收藏夹、导出GPX)
+  btnRouteExportTrigger?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!routeExportMenu) return;
+    const isShown = routeExportMenu.style.display !== 'none';
+    routeExportMenu.style.display = isShown ? 'none' : 'flex';
+  });
+
+  // 3. 详情切换按钮 (展开/收起 距离与海拔等详情)
+  btnRouteDetailsToggle?.addEventListener('click', () => {
+    if (!statsBox) return;
+    const isHidden = statsBox.style.display === 'none';
+    statsBox.style.display = isHidden ? 'grid' : 'none';
+    btnRouteDetailsToggle.innerText = isHidden ? '收起详情 ▴' : '详情 ▾';
+  });
+
+  // 4. 海拔变化图交互联动：海拔图默认彻底隐藏，点击详情中海拔指标时才展开
+  const toggleElevationChart = () => {
+    if (!chartSection) return;
+    const isHidden = chartSection.style.display === 'none';
+    if (isHidden) {
+      chartSection.style.display = 'flex';
+      drawElevationChart(canvas, currentProfileData);
+    } else {
+      chartSection.style.display = 'none';
+    }
+  };
+
+  document.getElementById('stat-card-ascent')?.addEventListener('click', toggleElevationChart);
+  document.getElementById('stat-card-descent')?.addEventListener('click', toggleElevationChart);
+  document.getElementById('stat-card-maxele')?.addEventListener('click', toggleElevationChart);
+  document.getElementById('stat-card-minele')?.addEventListener('click', toggleElevationChart);
+  document.getElementById('stat-toggle-chart-btn')?.addEventListener('click', toggleElevationChart);
+
+  // 5. 点击页面空白或地图自动关闭下拉菜单
+  document.addEventListener('click', (e) => {
+    if (routeExportMenu && !routeExportMenu.contains(e.target) && e.target !== btnRouteExportTrigger) {
+      routeExportMenu.style.display = 'none';
+    }
+    if (startDropdown && !startDropdown.contains(e.target) && e.target !== startInput && e.target !== btnPickStart) {
+      startDropdown.style.display = 'none';
+    }
+    if (endDropdown && !endDropdown.contains(e.target) && e.target !== endInput && e.target !== btnPickEnd) {
+      endDropdown.style.display = 'none';
+    }
   });
 
   // 清空所有点与路线
@@ -4198,17 +4402,22 @@ function setupOutdoorRouteSystem(map) {
 
     if (startInput) startInput.value = '';
     if (endInput) endInput.value = '';
+    if (btnPickStart) btnPickStart.innerText = '🔍 搜索';
+    if (btnPickEnd) btnPickEnd.innerText = '🔍 搜索';
+    if (startDropdown) startDropdown.style.display = 'none';
+    if (endDropdown) endDropdown.style.display = 'none';
+    if (routeExportMenu) routeExportMenu.style.display = 'none';
+    if (btnRouteDetailsToggle) btnRouteDetailsToggle.innerText = '详情 ▾';
     renderViaList(map);
 
     if (statsBox) statsBox.style.display = 'none';
     if (chartSection) chartSection.style.display = 'none';
     currentPlannedRouteCoords = [];
+    currentProfileData = [];
     currentRouteMetrics = null;
   });
 
   // 路线保存与 GPX 导出处理
-  const btnSaveRoute = document.getElementById('btn-save-route');
-  const btnExportGpx = document.getElementById('btn-export-gpx');
   const saveRouteModal = document.getElementById('save-route-modal');
   const btnCloseSaveRouteModal = document.getElementById('btn-close-save-route-modal');
   const btnCancelSaveRoute = document.getElementById('btn-cancel-save-route');
@@ -4219,6 +4428,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 点击【💾 存路线】
   btnSaveRoute?.addEventListener('click', () => {
+    if (routeExportMenu) routeExportMenu.style.display = 'none';
     if (!routeStartCoord || !routeEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
       alert('请先在地图上设定起点和终点，生成路线后再保存！');
       return;
@@ -4285,6 +4495,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 点击【📥 导出GPX】(当前规划路线)
   btnExportGpx?.addEventListener('click', () => {
+    if (routeExportMenu) routeExportMenu.style.display = 'none';
     if (!routeStartCoord || !routeEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
       alert('请先设定起点和终点并生成路线后再导出 GPX！');
       return;

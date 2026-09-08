@@ -1997,17 +1997,103 @@ html, body {
 .pt-tag.start { background: #16a34a; }
 .pt-tag.end { background: #ef4444; }
 
+.route-input-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+
 .route-pt-input {
+  width: 100%;
   flex: 1;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
   padding: 5px 8px;
   font-size: 11.5px;
   outline: none;
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .route-pt-input:focus {
   border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+/* 路线输入框实时联想搜索候选下拉列表 */
+.route-search-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 1200;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.route-search-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  text-align: left;
+}
+
+.route-search-item:hover, .route-search-item.active {
+  background: #f0f9ff;
+}
+
+.route-search-item-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.route-search-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-search-item-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-search-item-desc {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-search-empty {
+  padding: 10px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.route-search-pick-map {
+  border-top: 1px dashed #e2e8f0;
+  margin-top: 2px;
+  padding-top: 6px;
+  color: #0284c7;
+  font-weight: 600;
 }
 
 .btn-pick-pt {
@@ -2020,6 +2106,7 @@ html, body {
   color: #334155;
   cursor: pointer;
   white-space: nowrap;
+  transition: all 0.12s ease;
 }
 
 .btn-pick-pt:hover {
@@ -2151,6 +2238,58 @@ html, body {
   gap: 6px;
 }
 
+.route-actions-row .modal-btn {
+  flex: 1;
+}
+
+.route-export-dropdown-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+
+.route-export-dropdown-wrap .modal-btn {
+  width: 100%;
+}
+
+.route-export-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 125px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  z-index: 1250;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.route-export-menu-item {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  transition: background 0.12s ease;
+}
+
+.route-export-menu-item:hover {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
 .modal-btn.full {
   flex: 1;
 }
@@ -2164,6 +2303,12 @@ html, body {
   font-weight: 600;
   color: #475569;
   cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.modal-btn.secondary-sm:hover {
+  background: #e2e8f0;
+  color: #1e293b;
 }
 
 .route-stats-grid {
@@ -2178,6 +2323,36 @@ html, body {
   border-radius: 6px;
   padding: 6px 8px;
   text-align: center;
+}
+
+.stat-card-clickable {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stat-card-clickable:hover {
+  background: #f0f9ff;
+  border-color: #38bdf8;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.12);
+}
+
+.stat-chart-hint {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 10.5px;
+  color: #0284c7;
+  background: #f0f9ff;
+  border: 1px dashed #bae6fd;
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.stat-chart-hint:hover {
+  background: #e0f2fe;
+  border-color: #0284c7;
 }
 
 .stat-card .stat-lbl {
@@ -3409,6 +3584,16 @@ body.web-mode .office-prov-group {
     justify-content: center !important;
     text-align: center !important;
     white-space: nowrap !important;
+  }
+
+  .route-export-dropdown-wrap {
+    width: 100% !important;
+  }
+
+  .route-export-dropdown-wrap .modal-btn {
+    height: 100% !important;
+    padding: 8px 2px !important;
+    font-size: 11px !important;
   }
 
   .route-stats-grid {
