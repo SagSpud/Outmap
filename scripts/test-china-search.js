@@ -2,6 +2,8 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const assert = require('assert');
 
+app.commandLine.appendSwitch('disable-features', 'Win32kLockdown');
+
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
     show: false,

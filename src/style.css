@@ -3574,6 +3574,60 @@ body.web-mode #manage-modal {
   display: inline-block;
 }
 
+.prov-chip-item.ready-full {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.prov-chip-item.ready-partial {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+
+.prov-chip-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  user-select: none;
+  transition: all 0.12s ease;
+}
+
+.prov-chip-badge.full {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+  font-weight: 700;
+}
+
+.prov-chip-badge.partial {
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #7dd3fc;
+  font-weight: 600;
+}
+
+.prov-chip-badge.empty {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+  font-weight: 500;
+}
+
+.prov-chip-item.checked .prov-chip-badge.empty {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+
+
 /* 单行内联表单行 (离线层级与下载图层放到同一行) */
 .form-row-inline {
   display: flex;

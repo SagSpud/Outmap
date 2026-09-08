@@ -2638,10 +2638,13 @@ async function syncOfflineManifest() {
   if (window.electronAPI && window.electronAPI.getOfflineManifest) {
     try {
       let manifest = await window.electronAPI.getOfflineManifest();
-      if (manifest && manifest.provinces) {
-        offlineProvCache = manifest.provinces;
-        // 清理由于历史遗留探测错误导致的 33 省全虚假选中问题：如果本地磁盘实际切片极少 (< 500)，强行清空虚假省份记录
-        if (totalOfflineCount < 500 && Object.keys(offlineProvCache).length > 2) {
+      if (manifest && typeof manifest.provinces === 'object') {
+        offlineProvCache = manifest.provinces || {};
+        // 彻底清理由于历史遗留判定导致的虚假标记问题：
+        // 若磁盘实际总切片数不足以支撑标记的省份包（例如全机切片不足 8000 块却标记了 L14，或切片少于 1000 块却标记多省已就绪）
+        const hasSuspiciousL14 = Object.values(offlineProvCache).some(p => p && p.maxZ >= 14 && totalOfflineCount < 8000);
+        const hasTooManyProvsForSmallCache = totalOfflineCount < 1000 && Object.keys(offlineProvCache).length > 1;
+        if (hasSuspiciousL14 || hasTooManyProvsForSmallCache) {
           offlineProvCache = {};
           if (window.electronAPI.saveOfflineManifest) {
             await window.electronAPI.saveOfflineManifest({ provinces: {} }, true);
@@ -2653,7 +2656,9 @@ async function syncOfflineManifest() {
     } catch (e) {}
   }
   const cached = getOfflineProvState();
-  if (totalOfflineCount < 500 && Object.keys(cached).length > 2) {
+  const hasSuspiciousL14 = Object.values(cached).some(p => p && p.maxZ >= 14 && totalOfflineCount < 8000);
+  const hasTooManyProvsForSmallCache = totalOfflineCount < 1000 && Object.keys(cached).length > 1;
+  if (hasSuspiciousL14 || hasTooManyProvsForSmallCache) {
     offlineProvCache = {};
     try { localStorage.setItem('outmap_offline_provinces', '{}'); } catch (e) {}
     return offlineProvCache;
@@ -3051,6 +3056,7 @@ function setupPyramidModal(map) {
   const updateCounter = () => {
     const keys = getSelectedKeys();
     const totalCount = Object.keys(PROVINCES_DATA).filter(k => k !== 'china').length;
+    const offlineState = getOfflineProvState();
     if (counterBadge) {
       if (keys.length === totalCount) {
         counterBadge.innerText = `全选 (${keys.length} 省)`;
@@ -3065,6 +3071,14 @@ function setupPyramidModal(map) {
       } else if (keys.length === totalCount) {
         dropdownSummary.innerText = '全国 34 个省/直辖市/自治区 (已全选)';
         dropdownSummary.style.color = '#1e293b';
+      } else if (keys.length === 1) {
+        const k = keys[0];
+        const name = PROVINCES_DATA[k]?.name || k;
+        const s = offlineState[k];
+        const maxZ = s ? (s.maxZ || 0) : 0;
+        const statusText = maxZ >= 14 ? ' · 已全量就绪 (L14)' : (maxZ >= 10 ? ` · 已就绪 (L${maxZ})` : ' · 未下载');
+        dropdownSummary.innerText = `${name}${statusText}`;
+        dropdownSummary.style.color = '#1e293b';
       } else {
         const names = keys.map(k => PROVINCES_DATA[k]?.name || k).filter(Boolean);
         if (names.length <= 4) {
@@ -3077,7 +3091,7 @@ function setupPyramidModal(map) {
     }
   };
 
-  // 渲染全国省份网格 (去除字母前缀，已就绪带发光绿点；默认仅勾选当前所在单个省份，绝不全选)
+  // 渲染全国省份网格 (使用显式 L14/L12/未下载 徽章替代模糊单点；默认仅勾选当前所在单个省份，绝不全选)
   const renderProvinceGrid = () => {
     if (!multiGrid) return;
     multiGrid.innerHTML = '';
@@ -3111,11 +3125,14 @@ function setupPyramidModal(map) {
     sortedKeys.forEach(k => {
       const p = PROVINCES_DATA[k];
       const saved = offlineState[k];
-      const isReady = saved && saved.maxZ >= 10;
+      const maxZ = saved ? (saved.maxZ || 0) : 0;
+      const isFull = maxZ >= 14;
+      const isPartial = maxZ >= 10 && maxZ < 14;
       const isDefaultChecked = (k === defaultKey);
 
       const label = document.createElement('label');
-      label.className = `prov-chip-item${isReady ? ' ready' : ''}${isDefaultChecked ? ' checked' : ''}`;
+      const readyClass = isFull ? ' ready-full' : (isPartial ? ' ready-partial' : '');
+      label.className = `prov-chip-item${readyClass}${isDefaultChecked ? ' checked' : ''}`;
       label.dataset.key = k;
 
       const chk = document.createElement('input');
@@ -3136,10 +3153,21 @@ function setupPyramidModal(map) {
       spanName.innerText = p.name;
       label.appendChild(spanName);
 
-      const spanDot = document.createElement('span');
-      spanDot.className = 'prov-chip-dot';
-      spanDot.title = isReady ? '该省份基础离线包已就绪' : '未下载完整离线包';
-      label.appendChild(spanDot);
+      const badge = document.createElement('span');
+      if (isFull) {
+        badge.className = 'prov-chip-badge full';
+        badge.innerText = 'L14';
+        badge.title = `${p.name}已完整下载全部层级 (L1-L14 全路网与POI)`;
+      } else if (isPartial) {
+        badge.className = 'prov-chip-badge partial';
+        badge.innerText = `L${maxZ}`;
+        badge.title = `${p.name}已就绪至 L${maxZ}，可扩充至 L14`;
+      } else {
+        badge.className = 'prov-chip-badge empty';
+        badge.innerText = '未下载';
+        badge.title = `${p.name}未下载离线包`;
+      }
+      label.appendChild(badge);
 
       multiGrid.appendChild(label);
     });
@@ -3198,7 +3226,7 @@ function setupPyramidModal(map) {
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
     const offlineState = getOfflineProvState();
 
-    // 1. 刷新各个层级卡片中的纯正翠绿微光圆点 ● (若已选省份全部在该层级已就绪，显示翠绿发光点)
+    // 1. 刷新各个层级卡片中的纯正翠绿微光圆点 ● (仅当所选省份在该层级全部已下载时才点亮绿色)
     [10, 11, 12, 13, 14].forEach(z => {
       const dot = document.getElementById(`zoom-dot-${z}`);
       if (dot) {
@@ -3207,6 +3235,7 @@ function setupPyramidModal(map) {
           return s && (s.maxZ || 0) >= z;
         });
         dot.classList.toggle('ready', isReadyForZ);
+        dot.title = isReadyForZ ? `所选省份在 L${z} 已完整下载` : `所选省份在 L${z} 尚未下载`;
       }
     });
 
@@ -3247,13 +3276,13 @@ function setupPyramidModal(map) {
       if (downloadVec) requestedLayerLevels.push(vectorSavedMaxZ);
       const requestedSavedMaxZ = requestedLayerLevels.length > 0 ? Math.min(...requestedLayerLevels) : 0;
 
-      if (requestedSavedMaxZ > 0) hasAnySaved = true;
+      if (requestedSavedMaxZ >= 10) hasAnySaved = true;
       if (requestedSavedMaxZ < minSavedZ) minSavedZ = requestedSavedMaxZ;
 
       if (requestedSavedMaxZ < maxZ) {
         allReady = false;
         const [minLon, maxLon, minLat, maxLat] = prov.bbox;
-        const startZ = requestedSavedMaxZ > 0 ? requestedSavedMaxZ + 1 : 0;
+        const startZ = requestedSavedMaxZ >= 10 ? requestedSavedMaxZ + 1 : 0;
         for (let z = startZ; z <= maxZ; z++) {
           const n = 1 << z;
           const x1 = Math.max(0, Math.floor((minLon + 180) / 360 * n));
@@ -3279,7 +3308,7 @@ function setupPyramidModal(map) {
       statSize.innerText = '0 MB';
       if (provStatusTag) {
         provStatusTag.style.display = 'inline-flex';
-        provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 已全部就绪';
+        provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 所选省份在 L${maxZ} 已全部就绪`;
       }
       btnStart.style.display = 'none';
       if (btnUpdate) {
@@ -3301,16 +3330,16 @@ function setupPyramidModal(map) {
 
       if (provStatusTag) {
         provStatusTag.style.display = 'inline-flex';
-        if (hasAnySaved && minSavedZ > 0) {
-          provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 已下载 L1-L${minSavedZ}，将扩至 L${maxZ}`;
+        if (hasAnySaved && minSavedZ >= 10) {
+          provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 已就绪至 L${minSavedZ}，将扩充下载至 L${maxZ}`;
         } else {
-          provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 将下载至 L${maxZ}`;
+          provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 待下载至 L${maxZ}`;
         }
       }
 
       btnStart.style.display = 'inline-block';
       btnStart.disabled = false;
-      btnStart.innerText = hasAnySaved ? `扩充下载 (至 L${maxZ})` : `开始下载 (至 L${maxZ})`;
+      btnStart.innerText = (hasAnySaved && minSavedZ >= 10) ? `扩充下载 (至 L${maxZ})` : `开始下载 (至 L${maxZ})`;
       if (btnUpdate) btnUpdate.style.display = 'none';
       if (btnRetry) btnRetry.style.display = 'none';
       if (btnDone) btnDone.style.display = 'none';

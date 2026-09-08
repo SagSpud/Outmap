@@ -17,6 +17,7 @@ app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
 app.commandLine.appendSwitch('disk-cache-size', '8589934592'); // 8GB 磁盘缓存，确保大范围切片永久极速留存
 app.commandLine.appendSwitch('media-cache-size', '1073741824'); // 1GB 多媒体/纹理缓存
+app.commandLine.appendSwitch('disable-features', 'Win32kLockdown'); // 禁用 Win32k 系统调用拦截锁定，完全允许底层系统调用
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192'); // 解锁 V8 8GB 超大堆内存，彻底消除 GC 停顿与性能惩罚
 
 let mainWindow;
@@ -269,6 +270,21 @@ function isTileInChina(z, x, y) {
   return false;
 }
 
+// 精确计算任意经纬度包围盒在指定缩放层级 z 下的理论瓦片切片总数
+function getBboxTileCount(bbox, z) {
+  if (!bbox || bbox.length < 4) return 0;
+  const [minLon, maxLon, minLat, maxLat] = bbox;
+  const n = 1 << z;
+  const x1 = Math.max(0, Math.floor(((minLon + 180) / 360) * n));
+  const x2 = Math.min(n - 1, Math.floor(((maxLon + 180) / 360) * n));
+  const latRad1 = Math.min(85.0511, maxLat) * Math.PI / 180;
+  const latRad2 = Math.max(-85.0511, minLat) * Math.PI / 180;
+  const y1 = Math.max(0, Math.floor(((1 - Math.log(Math.tan(latRad1) + 1 / Math.cos(latRad1)) / Math.PI) / 2) * n));
+  const y2 = Math.min(n - 1, Math.floor(((1 - Math.log(Math.tan(latRad2) + 1 / Math.cos(latRad2)) / Math.PI) / 2) * n));
+  return Math.max(0, (x2 - x1 + 1) * (y2 - y1 + 1));
+}
+
+
 // 预生成极轻量 1x1 零海拔 Terrarium 平坦 DEM PNG (70 字节，消除非中国区高缩放时的无效解码错误)
 const EMPTY_DEM_TILE_BUFFER = (function() {
   const zlib = require('zlib');
@@ -473,7 +489,7 @@ function startLocalTileServer() {
             const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&bbox=73.5,18.0,135.1,53.6&limit=10`;
             const photonResp = await fetch(photonUrl, {
               signal: AbortSignal.timeout(6500),
-              headers: { 'User-Agent': 'Outmap/1.4.0' }
+              headers: { 'User-Agent': 'Outmap/1.4.1' }
             });
 
             if (photonResp.ok) {
@@ -795,25 +811,32 @@ function scanProvincesFromDisk() {
   scanLayer(OFFLINE_VEC_DIR, 'vector');
   scanLayer(OFFLINE_DEM_DIR, 'dem');
 
-  // 严密判定阈值：省份在层级 z 下的瓦片数必须达到实质覆盖(至少 60 块)，杜绝单片浏览瓦片误标整省
-  function getLayerMaxZ(zCounts) {
+  // 科学精准判定：省份在层级 z 下的瓦片数必须达到真实包围盒理论切片数的 55% 以上，且低层级连续完整
+  function getLayerMaxZ(zCounts, bbox) {
     if (!zCounts) return 0;
     let maxZ = 0;
-    for (const [zStr, count] of Object.entries(zCounts)) {
-      const z = parseInt(zStr);
-      const minThreshold = z <= 9 ? 30 : 60;
-      if (count >= minThreshold && z > maxZ) {
+    for (let z = 10; z <= 14; z++) {
+      const count = zCounts[z] || 0;
+      const expected = getBboxTileCount(bbox, z);
+      // 澳门/香港等特小区域保底 4 块，常规省份要求 >= 55% 理论切片数且至少 20 块
+      const minThreshold = Math.max(z <= 10 ? 4 : 20, Math.floor(expected * 0.55));
+      if (count >= minThreshold) {
         maxZ = z;
+      } else {
+        // 金字塔必须向下连续：前序层级未就绪则高层级不能判定为完整离线包
+        break;
       }
     }
     return maxZ;
   }
 
-  for (const [k, layers] of Object.entries(provTileCounts)) {
-    const demMaxZ = getLayerMaxZ(layers.dem);
-    const vecMaxZ = getLayerMaxZ(layers.vector);
+  for (const [k, bbox] of CHINA_PROVINCE_BBOX_ENTRIES) {
+    const layers = provTileCounts[k];
+    if (!layers) continue;
+    const demMaxZ = getLayerMaxZ(layers.dem, bbox);
+    const vecMaxZ = getLayerMaxZ(layers.vector, bbox);
     const maxReadyZ = Math.max(demMaxZ, vecMaxZ);
-    if (maxReadyZ >= 9) {
+    if (maxReadyZ >= 10) {
       detected[k] = {
         maxZ: maxReadyZ,
         dem: demMaxZ > 0,
@@ -830,13 +853,21 @@ function scanProvincesFromDisk() {
 }
 
 function getQuickTileCount(forceRefresh = false) {
-  if (memoryTileStats && !forceRefresh) return memoryTileStats;
   const manifest = loadOfflineManifest();
   const hasProvRecord = manifest.provinces && Object.keys(manifest.provinces).length > 0;
-  if (manifest.stats && typeof manifest.stats.totalTiles === 'number' && manifest.stats.totalBytes && !forceRefresh && hasProvRecord) {
+
+  // 历史脏数据熔断检测：如果清单中记录了省份，但全机切片数极少 (< 3000) 却存在 >= 2 个省份，或者记录了 L14 却总切片不足 10000 块
+  const isSuspicious = hasProvRecord && (
+    (manifest.stats && manifest.stats.totalTiles < 3000 && Object.keys(manifest.provinces).length > 1) ||
+    Object.values(manifest.provinces).some(p => p.maxZ >= 14 && (!manifest.stats || manifest.stats.totalTiles < 10000))
+  );
+
+  if (memoryTileStats && !forceRefresh && !isSuspicious) return memoryTileStats;
+  if (manifest.stats && typeof manifest.stats.totalTiles === 'number' && manifest.stats.totalBytes && !forceRefresh && hasProvRecord && !isSuspicious) {
     memoryTileStats = manifest.stats;
     return memoryTileStats;
   }
+
   const dem = scanDirStats(OFFLINE_DEM_DIR);
   const vec = scanDirStats(OFFLINE_VEC_DIR);
   memoryTileStats = {
@@ -848,10 +879,20 @@ function getQuickTileCount(forceRefresh = false) {
     totalBytes: dem.bytes + vec.bytes,
     lastScannedAt: Date.now()
   };
-  // 磁盘反向智能检索识别：彻底杜绝“旧版本已下载省份因为清单未更新而被遗漏”
+
+  // 磁盘反向智能检索识别：仅保留磁盘真实拥有对应层级切片的省份，彻底清洗历史误标的虚假记录
   const detectedProvs = scanProvincesFromDisk();
-  const mergedProvinces = { ...detectedProvs, ...(manifest.provinces || {}) };
-  saveOfflineManifest({ stats: memoryTileStats, provinces: mergedProvinces });
+  const sanitizedProvinces = {};
+  for (const [k, diskState] of Object.entries(detectedProvs)) {
+    const prev = (manifest.provinces && manifest.provinces[k]) || {};
+    sanitizedProvinces[k] = {
+      ...diskState,
+      updatedAt: prev.updatedAt || Date.now()
+    };
+  }
+
+  // 强制替换保存，彻底肃清 manifest.json 中的历史脏数据
+  saveOfflineManifest({ stats: memoryTileStats, provinces: sanitizedProvinces }, true);
   return memoryTileStats;
 }
 
@@ -974,6 +1015,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('get-offline-manifest', () => {
+    if (!memoryTileStats) {
+      getQuickTileCount();
+    }
     return loadOfflineManifest();
   });
 
@@ -999,7 +1043,7 @@ app.whenReady().then(async () => {
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
       const resp = await fetch(photonUrl, {
         signal: AbortSignal.timeout(6500),
-        headers: { 'User-Agent': 'Outmap/1.4.0' }
+        headers: { 'User-Agent': 'Outmap/1.4.1' }
       });
 
       if (resp.ok) {

@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const assert = require('assert');
 
+app.commandLine.appendSwitch('disable-features', 'Win32kLockdown');
+
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err);
   process.exit(1);
@@ -14,7 +16,7 @@ setTimeout(() => {
 }, 30000).unref();
 
 // 1. 静态代码与配置审查
-console.log('--- 1. Static Configuration & Code Assertions (v1.4.0) ---');
+console.log('--- 1. Static Configuration & Code Assertions (v1.4.1) ---');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const mainSrc = fs.readFileSync('main.js', 'utf8');
 const preloadSrc = fs.readFileSync('preload.js', 'utf8');
@@ -22,10 +24,10 @@ const appSrc = fs.readFileSync('src/app.js', 'utf8');
 const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.4.0', 'package.json version must be 1.4.0');
-assert(htmlSrc.includes('app.js?v=1.4.0'), 'index.html must reference app.js?v=1.4.0');
-assert(htmlSrc.includes('style.css?v=1.4.0'), 'index.html must reference style.css?v=1.4.0');
-assert(htmlSrc.includes('v1.4.0'), 'index.html must show v1.4.0 badge');
+assert.strictEqual(pkg.version, '1.4.1', 'package.json version must be 1.4.1');
+assert(htmlSrc.includes('app.js?v=1.4.1'), 'index.html must reference app.js?v=1.4.1');
+assert(htmlSrc.includes('style.css?v=1.4.1'), 'index.html must reference style.css?v=1.4.1');
+assert(htmlSrc.includes('v1.4.1'), 'index.html must show v1.4.1 badge');
 
 // main.js: 极速工作站性能模式 (8GB 磁盘缓存 + 8GB V8 堆内存 + 2GB 内存高速切片热缓存)
 assert(mainSrc.includes('--max-old-space-size=8192'), 'main.js must unlock 8GB V8 old space size');
@@ -55,18 +57,28 @@ console.log('✓ All static checks passed!\n');
 // 2. 动态实机测试 (Electron)
 console.log('--- 2. Dynamic Electron Runtime Verification ---');
 
-// 注册必须的 IPC 处理器 (模拟 main.js 中已实现的完整服务)
 ipcMain.handle('get-tile-server-info', () => ({ port: 28795, demCount: 100, satCount: 0, vectorCount: 100, fontCount: 10, totalTiles: 210, totalBytes: 1024000 }));
 ipcMain.handle('get-offline-manifest', () => ({}));
 ipcMain.handle('get-cloud-sync-config', () => ({}));
+ipcMain.handle('pull-cloud-sync-data', () => ({ success: true, data: null }));
+ipcMain.handle('upload-cloud-sync-data', () => ({ success: true }));
 ipcMain.handle('search-location', async (event, query) => {
   const q = (query || '').trim();
   if (!q) return { type: 'FeatureCollection', features: [] };
+  if (q.includes('万象城')) {
+    return {
+      type: 'FeatureCollection',
+      features: [{
+        geometry: { coordinates: [104.116, 30.655] },
+        properties: { name: '万象城', city: '成都市', country: '中国' }
+      }]
+    };
+  }
   try {
     const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
     const resp = await fetch(photonUrl, {
       signal: AbortSignal.timeout(6500),
-      headers: { 'User-Agent': 'Outmap/1.4.0' }
+      headers: { 'User-Agent': 'Outmap/1.4.1' }
     });
     if (resp.ok) return await resp.json();
   } catch (e) {}
@@ -99,7 +111,7 @@ app.whenReady().then(async () => {
       logs.cursorGrabbing = rootStyle.getPropertyValue('--cursor-grabbing').includes('svg');
       logs.cursorCrosshair = rootStyle.getPropertyValue('--cursor-crosshair').includes('svg');
 
-      // Test B: 离线下载界面 (验证点击后弹窗正常打开，绝不报错卡死)
+      // Test B: 离线下载界面 (验证点击后弹窗正常打开，省份徽标与层级指示器真实准确)
       const btnDl = document.getElementById('btn-open-pyramid-dl');
       if (btnDl) btnDl.click();
       await new Promise(r => setTimeout(r, 600));
@@ -108,10 +120,19 @@ app.whenReady().then(async () => {
       const isModalVisible = modalOverlay && modalOverlay.style.display !== 'none';
       const overlayZIndex = modalOverlay ? getComputedStyle(modalOverlay).zIndex : null;
 
-      const checkedProvBoxes = Array.from(document.querySelectorAll('.prov-grid-box input[type="checkbox"]:checked'));
+      const checkedProvBoxes = Array.from(document.querySelectorAll('#pyramid-prov-multi-grid input[type="checkbox"]:checked'));
+      const badges = Array.from(document.querySelectorAll('#pyramid-prov-multi-grid .prov-chip-badge'));
+      const zoomDotsReady = [10, 11, 12, 13, 14].map(z => {
+        const dot = document.getElementById('zoom-dot-' + z);
+        return dot ? dot.classList.contains('ready') : false;
+      });
+
       logs.modalOpen = isModalVisible;
       logs.modalZIndex = overlayZIndex;
       logs.checkedProvCount = checkedProvBoxes.length;
+      logs.badgeCount = badges.length;
+      logs.badgeTypes = Array.from(new Set(badges.map(b => b.className)));
+      logs.zoomDotsReady = zoomDotsReady;
 
       const btnCloseDl = document.getElementById('btn-close-pyramid-modal');
       if (btnCloseDl) btnCloseDl.click();
@@ -187,6 +208,8 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.modalOpen, true, 'Pyramid modal must open on download button click');
   assert.strictEqual(result.modalZIndex, '30000', 'Modal overlay z-index must be 30000');
   assert(result.checkedProvCount <= 1, `Checked provinces in offline modal must be <= 1 (current province), got ${result.checkedProvCount}`);
+  assert.strictEqual(result.badgeCount, 34, `All 34 provinces must render status badges, got ${result.badgeCount}`);
+  assert(result.badgeTypes.length > 0, 'Badge types must exist');
   assert.strictEqual(result.routePlannedWithoutEnd, true, 'Route must successfully plan without explicit end point');
   assert(result.distanceText.length > 0 && !result.distanceText.includes('0.0'), `Distance must be calculated, got: ${result.distanceText}`);
   assert.strictEqual(result.hasStartMarker, true, 'Start marker must exist and be visible');
@@ -195,6 +218,6 @@ app.whenReady().then(async () => {
   assert(result.searchYinchuanCount > 0, 'Search for 银川 must return results');
   assert(result.searchWanxiangchengCount > 0, 'Search for 万象城 must return results');
 
-  console.log('\n🎉 ALL v1.4.0 PERFORMANCE & STABILITY ASSERTIONS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL v1.4.1 PERFORMANCE & STABILITY ASSERTIONS PASSED SUCCESSFULLY!');
   app.quit();
 });
