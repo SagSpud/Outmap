@@ -7,41 +7,41 @@
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
 // 1. 全国 34 省级行政区中心、地理外包围盒 (按首字母拼音 A-Z 严格排序，含港澳台)
 const PROVINCES_DATA = {
-  china: { name: '全国总览', en: 'ALL CHINA 3D', pinyin: 'Quanguo', pinyinGroup: 'Top', center: [104.5, 34.0], zoom: 4.0, pitch: 50, bbox: [73.5, 135.1, 3.4, 53.6] },
-  anhui: { name: '安徽省', en: 'Anhui', pinyin: 'Anhui', pinyinGroup: 'A', center: [117.2, 31.8], zoom: 7.2, pitch: 60, bbox: [114.8, 119.6, 29.7, 34.6] },
-  aomen: { name: '澳门特别行政区', en: 'Macao', pinyin: 'Aomen', pinyinGroup: 'A', center: [113.5439, 22.1987], zoom: 11.5, pitch: 55, bbox: [113.52, 113.60, 22.10, 22.22] },
-  beijing: { name: '北京市', en: 'Beijing', pinyin: 'Beijing', pinyinGroup: 'B', center: [116.4, 39.9], zoom: 9.2, pitch: 62, bbox: [115.4, 117.5, 39.4, 41.1] },
-  chongqing: { name: '重庆市', en: 'Chongqing', pinyin: 'Chongqing', pinyinGroup: 'C', center: [106.5, 29.5], zoom: 8.0, pitch: 62, bbox: [105.3, 110.2, 28.2, 32.2] },
-  fujian: { name: '福建省', en: 'Fujian', pinyin: 'Fujian', pinyinGroup: 'F', center: [118.0, 26.0], zoom: 7.2, pitch: 60, bbox: [115.8, 120.7, 23.5, 28.3] },
-  gansu: { name: '甘肃省', en: 'Gansu', pinyin: 'Gansu', pinyinGroup: 'G', center: [100.0, 38.0], zoom: 6.2, pitch: 60, bbox: [92.2, 108.7, 32.5, 42.8] },
-  guangdong: { name: '广东省', en: 'Guangdong', pinyin: 'Guangdong', pinyinGroup: 'G', center: [113.3, 23.1], zoom: 7.2, pitch: 55, bbox: [109.6, 117.3, 20.2, 25.5] },
-  guangxi: { name: '广西壮族自治区', en: 'Guangxi', pinyin: 'Guangxi', pinyinGroup: 'G', center: [108.5, 23.8], zoom: 7.0, pitch: 60, bbox: [104.4, 112.1, 20.9, 26.4] },
-  guizhou: { name: '贵州省', en: 'Guizhou', pinyin: 'Guizhou', pinyinGroup: 'G', center: [106.7, 26.8], zoom: 7.2, pitch: 62, bbox: [103.6, 109.6, 24.6, 29.2] },
-  hainan: { name: '海南省', en: 'Hainan', pinyin: 'Hainan', pinyinGroup: 'H', center: [109.8, 19.2], zoom: 8.0, pitch: 58, bbox: [108.6, 111.1, 18.1, 20.2] },
-  hebei: { name: '河北省', en: 'Hebei', pinyin: 'Hebei', pinyinGroup: 'H', center: [115.0, 38.0], zoom: 7.0, pitch: 58, bbox: [113.4, 119.8, 36.0, 42.6] },
-  heilongjiang: { name: '黑龙江省', en: 'Heilongjiang', pinyin: 'Heilongjiang', pinyinGroup: 'H', center: [127.0, 47.0], zoom: 6.0, pitch: 55, bbox: [121.2, 135.1, 43.4, 53.6] },
-  henan: { name: '河南省', en: 'Henan', pinyin: 'Henan', pinyinGroup: 'H', center: [113.6, 34.0], zoom: 7.2, pitch: 58, bbox: [110.3, 116.6, 31.4, 36.4] },
-  hubei: { name: '湖北省', en: 'Hubei', pinyin: 'Hubei', pinyinGroup: 'H', center: [112.5, 31.0], zoom: 7.2, pitch: 60, bbox: [108.3, 116.1, 29.0, 33.3] },
-  hunan: { name: '湖南省', en: 'Hunan', pinyin: 'Hunan', pinyinGroup: 'H', center: [112.0, 27.5], zoom: 7.2, pitch: 60, bbox: [108.8, 114.2, 24.6, 30.1] },
-  jilin: { name: '吉林省', en: 'Jilin', pinyin: 'Jilin', pinyinGroup: 'J', center: [126.0, 43.5], zoom: 6.8, pitch: 58, bbox: [121.6, 131.3, 40.8, 46.3] },
-  jiangsu: { name: '江苏省', en: 'Jiangsu', pinyin: 'Jiangsu', pinyinGroup: 'J', center: [119.8, 33.0], zoom: 7.2, pitch: 50, bbox: [116.3, 121.9, 30.7, 35.1] },
-  jiangxi: { name: '江西省', en: 'Jiangxi', pinyin: 'Jiangxi', pinyinGroup: 'J', center: [115.8, 27.8], zoom: 7.2, pitch: 60, bbox: [113.5, 118.5, 24.5, 30.1] },
-  liaoning: { name: '辽宁省', en: 'Liaoning', pinyin: 'Liaoning', pinyinGroup: 'L', center: [123.0, 41.5], zoom: 7.2, pitch: 58, bbox: [118.8, 125.8, 38.7, 43.5] },
-  neimenggu: { name: '内蒙古自治区', en: 'Inner Mongolia', pinyin: 'Neimenggu', pinyinGroup: 'N', center: [112.0, 44.0], zoom: 5.5, pitch: 55, bbox: [97.2, 126.1, 37.4, 53.4] },
-  ningxia: { name: '宁夏回族自治区', en: 'Ningxia', pinyin: 'Ningxia', pinyinGroup: 'N', center: [106.2, 37.2], zoom: 7.5, pitch: 60, bbox: [104.3, 107.7, 35.2, 39.4] },
-  qinghai: { name: '青海省', en: 'Qinghai', pinyin: 'Qinghai', pinyinGroup: 'Q', center: [96.0, 35.5], zoom: 6.2, pitch: 58, bbox: [89.4, 103.1, 31.6, 39.3] },
-  shandong: { name: '山东省', en: 'Shandong', pinyin: 'Shandong', pinyinGroup: 'S', center: [117.5, 36.4], zoom: 7.6, pitch: 60, bbox: [114.8, 122.7, 34.3, 38.4] },
-  shanxi: { name: '山西省', en: 'Shanxi', pinyin: 'Shanxi', pinyinGroup: 'S', center: [112.5, 37.8], zoom: 7.0, pitch: 60, bbox: [110.2, 114.5, 34.6, 40.7] },
-  shaanxi: { name: '陕西省', en: 'Shaanxi', pinyin: 'Shaanxi', pinyinGroup: 'S', center: [108.9, 34.3], zoom: 7.2, pitch: 60, bbox: [105.5, 111.2, 31.7, 39.6] },
-  shanghai: { name: '上海市', en: 'Shanghai', pinyin: 'Shanghai', pinyinGroup: 'S', center: [121.5, 31.2], zoom: 10.0, pitch: 50, bbox: [120.8, 122.2, 30.7, 31.9] },
-  sichuan: { name: '四川省', en: 'Sichuan', pinyin: 'Sichuan', pinyinGroup: 'S', center: [102.8, 30.5], zoom: 7.2, pitch: 62, bbox: [97.3, 108.5, 26.0, 34.3] },
-  taiwan: { name: '台湾省', en: 'Taiwan', pinyin: 'Taiwan', pinyinGroup: 'T', center: [121.0, 23.8], zoom: 8.0, pitch: 65, bbox: [119.9, 122.1, 21.8, 25.4] },
-  tianjin: { name: '天津市', en: 'Tianjin', pinyin: 'Tianjin', pinyinGroup: 'T', center: [117.2, 39.1], zoom: 9.5, pitch: 50, bbox: [116.7, 118.1, 38.5, 40.3] },
-  xizang: { name: '西藏自治区', en: 'Tibet', pinyin: 'Xizang', pinyinGroup: 'X', center: [88.5, 31.0], zoom: 6.0, pitch: 60, bbox: [78.4, 99.1, 26.8, 36.5] },
-  xianggang: { name: '香港特别行政区', en: 'Hong Kong', pinyin: 'Xianggang', pinyinGroup: 'X', center: [114.1654, 22.2753], zoom: 11.0, pitch: 55, bbox: [113.83, 114.44, 22.15, 22.56] },
-  xinjiang: { name: '新疆维吾尔自治区', en: 'Xinjiang', pinyin: 'Xinjiang', pinyinGroup: 'X', center: [85.0, 41.5], zoom: 5.8, pitch: 58, bbox: [73.5, 96.4, 34.3, 49.2] },
-  yunnan: { name: '云南省', en: 'Yunnan', pinyin: 'Yunnan', pinyinGroup: 'Y', center: [101.5, 25.0], zoom: 7.0, pitch: 62, bbox: [97.5, 106.2, 21.1, 29.2] },
-  zhejiang: { name: '浙江省', en: 'Zhejiang', pinyin: 'Zhejiang', pinyinGroup: 'Z', center: [120.2, 29.2], zoom: 7.5, pitch: 60, bbox: [118.0, 123.0, 27.0, 31.3] }
+  china: { name: '全国总览', en: 'ALL CHINA 3D', pinyin: 'Quanguo', py: 'qg', pinyinGroup: 'Top', center: [104.5, 34.0], zoom: 4.0, pitch: 50, bbox: [73.5, 135.1, 3.4, 53.6] },
+  anhui: { name: '安徽省', en: 'Anhui', pinyin: 'Anhui', py: 'ah', pinyinGroup: 'A', center: [117.2, 31.8], zoom: 7.2, pitch: 60, bbox: [114.8, 119.6, 29.7, 34.6] },
+  aomen: { name: '澳门特别行政区', en: 'Macao', pinyin: 'Aomen', py: 'am', pinyinGroup: 'A', center: [113.5439, 22.1987], zoom: 11.5, pitch: 55, bbox: [113.52, 113.60, 22.10, 22.22] },
+  beijing: { name: '北京市', en: 'Beijing', pinyin: 'Beijing', py: 'bj', pinyinGroup: 'B', center: [116.4, 39.9], zoom: 9.2, pitch: 62, bbox: [115.4, 117.5, 39.4, 41.1] },
+  chongqing: { name: '重庆市', en: 'Chongqing', pinyin: 'Chongqing', py: 'cq', pinyinGroup: 'C', center: [106.5, 29.5], zoom: 8.0, pitch: 62, bbox: [105.3, 110.2, 28.2, 32.2] },
+  fujian: { name: '福建省', en: 'Fujian', pinyin: 'Fujian', py: 'fj', pinyinGroup: 'F', center: [118.0, 26.0], zoom: 7.2, pitch: 60, bbox: [115.8, 120.7, 23.5, 28.3] },
+  gansu: { name: '甘肃省', en: 'Gansu', pinyin: 'Gansu', py: 'gs', pinyinGroup: 'G', center: [100.0, 38.0], zoom: 6.2, pitch: 60, bbox: [92.2, 108.7, 32.5, 42.8] },
+  guangdong: { name: '广东省', en: 'Guangdong', pinyin: 'Guangdong', py: 'gd', pinyinGroup: 'G', center: [113.3, 23.1], zoom: 7.2, pitch: 55, bbox: [109.6, 117.3, 20.2, 25.5] },
+  guangxi: { name: '广西壮族自治区', en: 'Guangxi', pinyin: 'Guangxi', py: 'gx', pinyinGroup: 'G', center: [108.5, 23.8], zoom: 7.0, pitch: 60, bbox: [104.4, 112.1, 20.9, 26.4] },
+  guizhou: { name: '贵州省', en: 'Guizhou', pinyin: 'Guizhou', py: 'gz', pinyinGroup: 'G', center: [106.7, 26.8], zoom: 7.2, pitch: 62, bbox: [103.6, 109.6, 24.6, 29.2] },
+  hainan: { name: '海南省', en: 'Hainan', pinyin: 'Hainan', py: 'hn', pinyinGroup: 'H', center: [109.8, 19.2], zoom: 8.0, pitch: 58, bbox: [108.6, 111.1, 18.1, 20.2] },
+  hebei: { name: '河北省', en: 'Hebei', pinyin: 'Hebei', py: 'hb', pinyinGroup: 'H', center: [115.0, 38.0], zoom: 7.0, pitch: 58, bbox: [113.4, 119.8, 36.0, 42.6] },
+  heilongjiang: { name: '黑龙江省', en: 'Heilongjiang', pinyin: 'Heilongjiang', py: 'hlj', pinyinGroup: 'H', center: [127.0, 47.0], zoom: 6.0, pitch: 55, bbox: [121.2, 135.1, 43.4, 53.6] },
+  henan: { name: '河南省', en: 'Henan', pinyin: 'Henan', py: 'hn', pinyinGroup: 'H', center: [113.6, 34.0], zoom: 7.2, pitch: 58, bbox: [110.3, 116.6, 31.4, 36.4] },
+  hubei: { name: '湖北省', en: 'Hubei', pinyin: 'Hubei', py: 'hb', pinyinGroup: 'H', center: [112.5, 31.0], zoom: 7.2, pitch: 60, bbox: [108.3, 116.1, 29.0, 33.3] },
+  hunan: { name: '湖南省', en: 'Hunan', pinyin: 'Hunan', py: 'hn', pinyinGroup: 'H', center: [112.0, 27.5], zoom: 7.2, pitch: 60, bbox: [108.8, 114.2, 24.6, 30.1] },
+  jilin: { name: '吉林省', en: 'Jilin', pinyin: 'Jilin', py: 'jl', pinyinGroup: 'J', center: [126.0, 43.5], zoom: 6.8, pitch: 58, bbox: [121.6, 131.3, 40.8, 46.3] },
+  jiangsu: { name: '江苏省', en: 'Jiangsu', pinyin: 'Jiangsu', py: 'js', pinyinGroup: 'J', center: [119.8, 33.0], zoom: 7.2, pitch: 50, bbox: [116.3, 121.9, 30.7, 35.1] },
+  jiangxi: { name: '江西省', en: 'Jiangxi', pinyin: 'Jiangxi', py: 'jx', pinyinGroup: 'J', center: [115.8, 27.8], zoom: 7.2, pitch: 60, bbox: [113.5, 118.5, 24.5, 30.1] },
+  liaoning: { name: '辽宁省', en: 'Liaoning', pinyin: 'Liaoning', py: 'ln', pinyinGroup: 'L', center: [123.0, 41.5], zoom: 7.2, pitch: 58, bbox: [118.8, 125.8, 38.7, 43.5] },
+  neimenggu: { name: '内蒙古自治区', en: 'Inner Mongolia', pinyin: 'Neimenggu', py: 'nmg', pinyinGroup: 'N', center: [112.0, 44.0], zoom: 5.5, pitch: 55, bbox: [97.2, 126.1, 37.4, 53.4] },
+  ningxia: { name: '宁夏回族自治区', en: 'Ningxia', pinyin: 'Ningxia', py: 'nx', pinyinGroup: 'N', center: [106.2, 37.2], zoom: 7.5, pitch: 60, bbox: [104.3, 107.7, 35.2, 39.4] },
+  qinghai: { name: '青海省', en: 'Qinghai', pinyin: 'Qinghai', py: 'qh', pinyinGroup: 'Q', center: [96.0, 35.5], zoom: 6.2, pitch: 58, bbox: [89.4, 103.1, 31.6, 39.3] },
+  shandong: { name: '山东省', en: 'Shandong', pinyin: 'Shandong', py: 'sd', pinyinGroup: 'S', center: [117.5, 36.4], zoom: 7.6, pitch: 60, bbox: [114.8, 122.7, 34.3, 38.4] },
+  shanxi: { name: '山西省', en: 'Shanxi', pinyin: 'Shanxi', py: 'sx', pinyinGroup: 'S', center: [112.5, 37.8], zoom: 7.0, pitch: 60, bbox: [110.2, 114.5, 34.6, 40.7] },
+  shaanxi: { name: '陕西省', en: 'Shaanxi', pinyin: 'Shaanxi', py: 'sx', pinyinGroup: 'S', center: [108.9, 34.3], zoom: 7.2, pitch: 60, bbox: [105.5, 111.2, 31.7, 39.6] },
+  shanghai: { name: '上海市', en: 'Shanghai', pinyin: 'Shanghai', py: 'sh', pinyinGroup: 'S', center: [121.5, 31.2], zoom: 10.0, pitch: 50, bbox: [120.8, 122.2, 30.7, 31.9] },
+  sichuan: { name: '四川省', en: 'Sichuan', pinyin: 'Sichuan', py: 'sc', pinyinGroup: 'S', center: [102.8, 30.5], zoom: 7.2, pitch: 62, bbox: [97.3, 108.5, 26.0, 34.3] },
+  taiwan: { name: '台湾省', en: 'Taiwan', pinyin: 'Taiwan', py: 'tw', pinyinGroup: 'T', center: [121.0, 23.8], zoom: 8.0, pitch: 65, bbox: [119.9, 122.1, 21.8, 25.4] },
+  tianjin: { name: '天津市', en: 'Tianjin', pinyin: 'Tianjin', py: 'tj', pinyinGroup: 'T', center: [117.2, 39.1], zoom: 9.5, pitch: 50, bbox: [116.7, 118.1, 38.5, 40.3] },
+  xizang: { name: '西藏自治区', en: 'Tibet', pinyin: 'Xizang', py: 'xz', pinyinGroup: 'X', center: [88.5, 31.0], zoom: 6.0, pitch: 60, bbox: [78.4, 99.1, 26.8, 36.5] },
+  xianggang: { name: '香港特别行政区', en: 'Hong Kong', pinyin: 'Xianggang', py: 'xg', pinyinGroup: 'X', center: [114.1654, 22.2753], zoom: 11.0, pitch: 55, bbox: [113.83, 114.44, 22.15, 22.56] },
+  xinjiang: { name: '新疆维吾尔自治区', en: 'Xinjiang', pinyin: 'Xinjiang', py: 'xj', pinyinGroup: 'X', center: [85.0, 41.5], zoom: 5.8, pitch: 58, bbox: [73.5, 96.4, 34.3, 49.2] },
+  yunnan: { name: '云南省', en: 'Yunnan', pinyin: 'Yunnan', py: 'yn', pinyinGroup: 'Y', center: [101.5, 25.0], zoom: 7.0, pitch: 62, bbox: [97.5, 106.2, 21.1, 29.2] },
+  zhejiang: { name: '浙江省', en: 'Zhejiang', pinyin: 'Zhejiang', py: 'zj', pinyinGroup: 'Z', center: [120.2, 29.2], zoom: 7.5, pitch: 60, bbox: [118.0, 123.0, 27.0, 31.3] }
 };
 
 function escapeHtml(str) {
@@ -56,45 +56,385 @@ function escapeHtml(str) {
 
 // 2. 重点地标城市与著名乡镇
 const MAJOR_CITIES = [
-  { name: '北京市', en: 'Beijing', coords: [116.4074, 39.9042] },
-  { name: '上海市', en: 'Shanghai', coords: [121.4737, 31.2304] },
-  { name: '济南市', en: 'Jinan', coords: [117.0009, 36.6758] },
-  { name: '青岛市', en: 'Qingdao', coords: [120.3826, 36.0671] },
-  { name: '泰安市', en: 'Taian', coords: [117.1290, 36.1949] },
-  { name: '成都市', en: 'Chengdu', coords: [104.0668, 30.5728] },
-  { name: '新安镇', en: 'Xin\'an', coords: [102.7241, 30.3120] },
-  { name: '四姑娘山镇', en: 'Siguniangshan', coords: [102.8360, 30.9980] },
-  { name: '康定市', en: 'Kangding', coords: [101.9647, 30.0489] },
-  { name: '重庆市', en: 'Chongqing', coords: [106.5516, 29.5630] },
-  { name: '拉萨市', en: 'Lhasa', coords: [91.1172, 29.6469] },
-  { name: '昆明市', en: 'Kunming', coords: [102.8329, 24.8801] },
-  { name: '丽江市', en: 'Lijiang', coords: [100.2330, 26.8721] },
-  { name: '西安市', en: 'Xian', coords: [108.9402, 34.3416] },
-  { name: '乌鲁木齐市', en: 'Urumqi', coords: [87.6177, 43.7928] },
-  { name: '西宁市', en: 'Xining', coords: [101.7789, 36.6231] },
-  { name: '兰州市', en: 'Lanzhou', coords: [103.8343, 36.0611] },
-  { name: '武汉市', en: 'Wuhan', coords: [114.3055, 30.5928] },
-  { name: '广州市', en: 'Guangzhou', coords: [113.2644, 23.1291] },
-  { name: '台北市', en: 'Taipei', coords: [121.5654, 25.0330] }
+  { name: "北京市", pinyin: "beijing", py: "bj", coords: [116.4074, 39.9042], province: "北京市" },
+  { name: "上海市", pinyin: "shanghai", py: "sh", coords: [121.4737, 31.2304], province: "上海市" },
+  { name: "天津市", pinyin: "tianjin", py: "tj", coords: [117.2008, 39.0842], province: "天津市" },
+  { name: "重庆市", pinyin: "chongqing", py: "cq", coords: [106.5516, 29.563], province: "重庆市" },
+  { name: "济南市", pinyin: "jinan", py: "jn", coords: [117.0009, 36.6758], province: "山东省" },
+  { name: "青岛市", pinyin: "qingdao", py: "qd", coords: [120.3826, 36.0671], province: "山东省" },
+  { name: "淄博市", pinyin: "zibo", py: "zb", coords: [118.0476, 36.8149], province: "山东省" },
+  { name: "枣庄市", pinyin: "zaozhuang", py: "zz", coords: [117.5579, 34.8564], province: "山东省" },
+  { name: "东营市", pinyin: "dongying", py: "dy", coords: [118.6647, 37.4346], province: "山东省" },
+  { name: "烟台市", pinyin: "yantai", py: "yt", coords: [121.3914, 37.5388], province: "山东省" },
+  { name: "潍坊市", pinyin: "weifang", py: "wf", coords: [119.1071, 36.7093], province: "山东省" },
+  { name: "济宁市", pinyin: "jining", py: "jn", coords: [116.5872, 35.4154], province: "山东省" },
+  { name: "泰安市", pinyin: "taian", py: "ta", coords: [117.129, 36.1949], province: "山东省" },
+  { name: "威海市", pinyin: "weihai", py: "wh", coords: [122.1164, 37.5097], province: "山东省" },
+  { name: "日照市", pinyin: "rizhao", py: "rz", coords: [119.4612, 35.4286], province: "山东省" },
+  { name: "临沂市", pinyin: "linyi", py: "ly", coords: [118.3564, 35.1047], province: "山东省" },
+  { name: "德州市", pinyin: "dezhou", py: "dz", coords: [116.3075, 37.454], province: "山东省" },
+  { name: "聊城市", pinyin: "liaocheng", py: "lc", coords: [115.9804, 36.456], province: "山东省" },
+  { name: "滨州市", pinyin: "binzhou", py: "bz", coords: [118.017, 37.3835], province: "山东省" },
+  { name: "菏泽市", pinyin: "heze", py: "hz", coords: [115.4694, 35.2465], province: "山东省" },
+  { name: "曲阜市", pinyin: "qufu", py: "qf", coords: [116.9865, 35.5807], province: "山东省" },
+  { name: "石家庄市", pinyin: "shijiazhuang", py: "sjz", coords: [114.5149, 38.0423], province: "河北省" },
+  { name: "唐山市", pinyin: "tangshan", py: "ts", coords: [118.1754, 39.6352], province: "河北省" },
+  { name: "秦皇岛市", pinyin: "qinhuangdao", py: "qhd", coords: [119.5866, 39.9425], province: "河北省" },
+  { name: "邯郸市", pinyin: "handan", py: "hd", coords: [114.4907, 36.6123], province: "河北省" },
+  { name: "邢台市", pinyin: "xingtai", py: "xt", coords: [114.5089, 37.0682], province: "河北省" },
+  { name: "保定市", pinyin: "baoding", py: "bd", coords: [115.4824, 38.8677], province: "河北省" },
+  { name: "张家口市", pinyin: "zhangjiakou", py: "zjk", coords: [114.8841, 40.8119], province: "河北省" },
+  { name: "承德市", pinyin: "chengde", py: "cd", coords: [117.9392, 40.9762], province: "河北省" },
+  { name: "沧州市", pinyin: "cangzhou", py: "cz", coords: [116.8575, 38.3106], province: "河北省" },
+  { name: "廊坊市", pinyin: "langfang", py: "lf", coords: [116.7044, 39.5239], province: "河北省" },
+  { name: "衡水市", pinyin: "hengshui", py: "hs", coords: [115.6659, 37.7351], province: "河北省" },
+  { name: "雄安新区", pinyin: "xiongan", py: "xa", coords: [115.9856, 38.9944], province: "河北省" },
+  { name: "太原市", pinyin: "taiyuan", py: "ty", coords: [112.5492, 37.857], province: "山西省" },
+  { name: "大同市", pinyin: "datong", py: "dt", coords: [113.2953, 40.0903], province: "山西省" },
+  { name: "阳泉市", pinyin: "yangquan", py: "yq", coords: [113.5833, 37.8611], province: "山西省" },
+  { name: "长治市", pinyin: "changzhi", py: "cz", coords: [113.1136, 36.1911], province: "山西省" },
+  { name: "晋城市", pinyin: "jincheng", py: "jc", coords: [112.8513, 35.4976], province: "山西省" },
+  { name: "朔州市", pinyin: "shuozhou", py: "sz", coords: [112.4334, 39.3313], province: "山西省" },
+  { name: "晋中市", pinyin: "jinzhong", py: "jz", coords: [112.7365, 37.6965], province: "山西省" },
+  { name: "运城市", pinyin: "yuncheng", py: "yc", coords: [111.004, 35.0264], province: "山西省" },
+  { name: "忻州市", pinyin: "xinzhou", py: "xz", coords: [112.7335, 38.4177], province: "山西省" },
+  { name: "临汾市", pinyin: "linfen", py: "lf", coords: [111.5179, 36.0841], province: "山西省" },
+  { name: "吕梁市", pinyin: "lvliang", py: "ll", coords: [111.1343, 37.5244], province: "山西省" },
+  { name: "平遥古城", pinyin: "pingyao", py: "py", coords: [112.1887, 37.2023], province: "山西省" },
+  { name: "南京市", pinyin: "nanjing", py: "nj", coords: [118.7969, 32.0603], province: "江苏省" },
+  { name: "无锡市", pinyin: "wuxi", py: "wx", coords: [120.3017, 31.5747], province: "江苏省" },
+  { name: "徐州市", pinyin: "xuzhou", py: "xz", coords: [117.1848, 34.2618], province: "江苏省" },
+  { name: "常州市", pinyin: "changzhou", py: "cz", coords: [119.9469, 31.7728], province: "江苏省" },
+  { name: "苏州市", pinyin: "suzhou", py: "sz", coords: [120.6195, 31.2994], province: "江苏省" },
+  { name: "南通市", pinyin: "nantong", py: "nt", coords: [120.8943, 31.9802], province: "江苏省" },
+  { name: "连云港市", pinyin: "lianyungang", py: "lyg", coords: [119.1788, 34.6], province: "江苏省" },
+  { name: "淮安市", pinyin: "huaian", py: "ha", coords: [119.0213, 33.5975], province: "江苏省" },
+  { name: "盐城市", pinyin: "yancheng", py: "yc", coords: [120.1399, 33.3776], province: "江苏省" },
+  { name: "扬州市", pinyin: "yangzhou", py: "yz", coords: [119.421, 32.3932], province: "江苏省" },
+  { name: "镇江市", pinyin: "zhenjiang", py: "zj", coords: [119.4528, 32.2044], province: "江苏省" },
+  { name: "泰州市", pinyin: "taizhou", py: "tz", coords: [119.9152, 32.4849], province: "江苏省" },
+  { name: "宿迁市", pinyin: "suqian", py: "sq", coords: [118.2752, 33.963], province: "江苏省" },
+  { name: "杭州市", pinyin: "hangzhou", py: "hz", coords: [120.1536, 30.2875], province: "浙江省" },
+  { name: "宁波市", pinyin: "ningbo", py: "nb", coords: [121.5498, 29.8684], province: "浙江省" },
+  { name: "温州市", pinyin: "wenzhou", py: "wz", coords: [120.6721, 28.0006], province: "浙江省" },
+  { name: "嘉兴市", pinyin: "jiaxing", py: "jx", coords: [120.7509, 30.7627], province: "浙江省" },
+  { name: "湖州市", pinyin: "huzhou", py: "hz", coords: [120.1024, 30.8672], province: "浙江省" },
+  { name: "绍兴市", pinyin: "shaoxing", py: "sx", coords: [120.5821, 30.0024], province: "浙江省" },
+  { name: "金华市", pinyin: "jinhua", py: "jh", coords: [119.6495, 29.0895], province: "浙江省" },
+  { name: "衢州市", pinyin: "quzhou", py: "qz", coords: [118.8726, 28.9417], province: "浙江省" },
+  { name: "舟山市", pinyin: "zhoushan", py: "zs", coords: [122.1069, 29.9978], province: "浙江省" },
+  { name: "台州市", pinyin: "taizhou", py: "tz", coords: [121.4286, 28.6614], province: "浙江省" },
+  { name: "丽水市", pinyin: "lishui", py: "ls", coords: [119.9218, 28.452], province: "浙江省" },
+  { name: "义乌市", pinyin: "yiwu", py: "yw", coords: [120.0745, 29.3056], province: "浙江省" },
+  { name: "合肥市", pinyin: "hefei", py: "hf", coords: [117.283, 31.8612], province: "安徽省" },
+  { name: "芜湖市", pinyin: "wuhu", py: "wh", coords: [118.3765, 31.3263], province: "安徽省" },
+  { name: "蚌埠市", pinyin: "bengbu", py: "bb", coords: [117.3632, 32.9397], province: "安徽省" },
+  { name: "淮南市", pinyin: "huainan", py: "hn", coords: [116.9999, 32.6255], province: "安徽省" },
+  { name: "马鞍山市", pinyin: "maanshan", py: "mas", coords: [118.5079, 31.6894], province: "安徽省" },
+  { name: "淮北市", pinyin: "huaibei", py: "hb", coords: [116.7946, 33.9717], province: "安徽省" },
+  { name: "铜陵市", pinyin: "tongling", py: "tl", coords: [117.8166, 30.9299], province: "安徽省" },
+  { name: "安庆市", pinyin: "anqing", py: "aq", coords: [117.0536, 30.5288], province: "安徽省" },
+  { name: "黄山市", pinyin: "huangshan", py: "hs", coords: [118.3173, 29.7092], province: "安徽省" },
+  { name: "滁州市", pinyin: "chuzhou", py: "cz", coords: [118.3162, 32.3036], province: "安徽省" },
+  { name: "阜阳市", pinyin: "fuyang", py: "fy", coords: [115.8197, 32.897], province: "安徽省" },
+  { name: "宿州市", pinyin: "suzhou", py: "sz", coords: [116.9841, 33.6339], province: "安徽省" },
+  { name: "六安市", pinyin: "liuan", py: "la", coords: [116.5077, 31.7529], province: "安徽省" },
+  { name: "亳州市", pinyin: "bozhou", py: "bz", coords: [115.7829, 33.8693], province: "安徽省" },
+  { name: "池州市", pinyin: "chizhou", py: "cz", coords: [117.4892, 30.656], province: "安徽省" },
+  { name: "宣城市", pinyin: "xuancheng", py: "xc", coords: [118.7579, 30.9457], province: "安徽省" },
+  { name: "福州市", pinyin: "fuzhou", py: "fz", coords: [119.3062, 26.0753], province: "福建省" },
+  { name: "厦门市", pinyin: "xiamen", py: "xm", coords: [118.1102, 24.4905], province: "福建省" },
+  { name: "莆田市", pinyin: "putian", py: "pt", coords: [119.0076, 25.431], province: "福建省" },
+  { name: "三明市", pinyin: "sanming", py: "sm", coords: [117.635, 26.2654], province: "福建省" },
+  { name: "泉州市", pinyin: "quanzhou", py: "qz", coords: [118.5894, 24.9089], province: "福建省" },
+  { name: "漳州市", pinyin: "zhangzhou", py: "zz", coords: [117.6618, 24.5109], province: "福建省" },
+  { name: "南平市", pinyin: "nanping", py: "np", coords: [118.1785, 26.642], province: "福建省" },
+  { name: "龙岩市", pinyin: "longyan", py: "ly", coords: [117.0298, 25.0916], province: "福建省" },
+  { name: "宁德市", pinyin: "ningde", py: "nd", coords: [119.5271, 26.6592], province: "福建省" },
+  { name: "武夷山市", pinyin: "wuyishan", py: "wys", coords: [118.0315, 27.7554], province: "福建省" },
+  { name: "南昌市", pinyin: "nanchang", py: "nc", coords: [115.8921, 28.6765], province: "江西省" },
+  { name: "景德镇市", pinyin: "jingdezhen", py: "jdz", coords: [117.2147, 29.2926], province: "江西省" },
+  { name: "萍乡市", pinyin: "pingxiang", py: "px", coords: [113.8546, 27.6229], province: "江西省" },
+  { name: "九江市", pinyin: "jiujiang", py: "jj", coords: [115.9928, 29.712], province: "江西省" },
+  { name: "新余市", pinyin: "xinyu", py: "xy", coords: [114.9308, 27.8108], province: "江西省" },
+  { name: "鹰潭市", pinyin: "yingtan", py: "yt", coords: [117.0338, 28.2386], province: "江西省" },
+  { name: "赣州市", pinyin: "ganzhou", py: "gz", coords: [114.9403, 25.851], province: "江西省" },
+  { name: "吉安市", pinyin: "jian", py: "ja", coords: [114.9864, 27.1117], province: "江西省" },
+  { name: "宜春市", pinyin: "yichun", py: "yc", coords: [114.3911, 27.8043], province: "江西省" },
+  { name: "抚州市", pinyin: "fuzhou", py: "fz", coords: [116.3584, 27.9839], province: "江西省" },
+  { name: "上饶市", pinyin: "shangrao", py: "sr", coords: [117.9712, 28.4444], province: "江西省" },
+  { name: "婺源县", pinyin: "wuyuan", py: "wy", coords: [117.8611, 29.2483], province: "江西省" },
+  { name: "郑州市", pinyin: "zhengzhou", py: "zz", coords: [113.6654, 34.758], province: "河南省" },
+  { name: "开封市", pinyin: "kaifeng", py: "kf", coords: [114.3414, 34.797], province: "河南省" },
+  { name: "洛阳市", pinyin: "luoyang", py: "ly", coords: [112.4345, 34.663], province: "河南省" },
+  { name: "平顶山市", pinyin: "pingdingshan", py: "pds", coords: [113.3077, 33.7352], province: "河南省" },
+  { name: "安阳市", pinyin: "anyang", py: "ay", coords: [114.3525, 36.1034], province: "河南省" },
+  { name: "鹤壁市", pinyin: "hebi", py: "hb", coords: [114.2954, 35.7482], province: "河南省" },
+  { name: "新乡市", pinyin: "xinxiang", py: "xx", coords: [113.8839, 35.3026], province: "河南省" },
+  { name: "焦作市", pinyin: "jiaozuo", py: "jz", coords: [113.2383, 35.239], province: "河南省" },
+  { name: "濮阳市", pinyin: "puyang", py: "py", coords: [115.0413, 35.7682], province: "河南省" },
+  { name: "许昌市", pinyin: "xuchang", py: "xc", coords: [113.8261, 34.023], province: "河南省" },
+  { name: "漯河市", pinyin: "luohe", py: "lh", coords: [114.0264, 33.5759], province: "河南省" },
+  { name: "三门峡市", pinyin: "sanmenxia", py: "smx", coords: [111.1944, 34.7773], province: "河南省" },
+  { name: "南阳市", pinyin: "nanyang", py: "ny", coords: [112.5409, 32.9908], province: "河南省" },
+  { name: "商丘市", pinyin: "shangqiu", py: "sq", coords: [115.6554, 34.4192], province: "河南省" },
+  { name: "信阳市", pinyin: "xinyang", py: "xy", coords: [114.075, 32.1233], province: "河南省" },
+  { name: "周口市", pinyin: "zhoukou", py: "zk", coords: [114.6497, 33.6204], province: "河南省" },
+  { name: "驻马店市", pinyin: "zhumadian", py: "zmd", coords: [114.0247, 32.9802], province: "河南省" },
+  { name: "武汉市", pinyin: "wuhan", py: "wh", coords: [114.3055, 30.5928], province: "湖北省" },
+  { name: "黄石市", pinyin: "huangshi", py: "hs", coords: [115.077, 30.2201], province: "湖北省" },
+  { name: "十堰市", pinyin: "shiyan", py: "sy", coords: [110.7879, 32.6469], province: "湖北省" },
+  { name: "宜昌市", pinyin: "yichang", py: "yc", coords: [111.2908, 30.7026], province: "湖北省" },
+  { name: "襄阳市", pinyin: "xiangyang", py: "xy", coords: [112.1441, 32.0424], province: "湖北省" },
+  { name: "鄂州市", pinyin: "ezhou", py: "ez", coords: [114.8906, 30.3965], province: "湖北省" },
+  { name: "荆门市", pinyin: "jingmen", py: "jm", coords: [112.2043, 31.0354], province: "湖北省" },
+  { name: "孝感市", pinyin: "xiaogan", py: "xg", coords: [113.9267, 30.9264], province: "湖北省" },
+  { name: "荆州市", pinyin: "jingzhou", py: "jz", coords: [112.2381, 30.3268], province: "湖北省" },
+  { name: "黄冈市", pinyin: "huanggang", py: "hg", coords: [114.8794, 30.4477], province: "湖北省" },
+  { name: "咸宁市", pinyin: "xianning", py: "xn", coords: [114.3288, 29.8328], province: "湖北省" },
+  { name: "随州市", pinyin: "suizhou", py: "sz", coords: [113.3738, 31.7179], province: "湖北省" },
+  { name: "恩施土家族苗族自治州", pinyin: "enshi", py: "es", coords: [109.4869, 30.2831], province: "湖北省" },
+  { name: "神农架林区", pinyin: "shennongjia", py: "snj", coords: [110.6715, 31.7444], province: "湖北省" },
+  { name: "长沙市", pinyin: "changsha", py: "cs", coords: [112.9388, 28.2282], province: "湖南省" },
+  { name: "株洲市", pinyin: "zhuzhou", py: "zz", coords: [113.1517, 27.8358], province: "湖南省" },
+  { name: "湘潭市", pinyin: "xiangtan", py: "xt", coords: [112.9441, 27.8297], province: "湖南省" },
+  { name: "衡阳市", pinyin: "hengyang", py: "hy", coords: [112.6077, 26.9004], province: "湖南省" },
+  { name: "邵阳市", pinyin: "shaoyang", py: "sy", coords: [111.4692, 27.2378], province: "湖南省" },
+  { name: "岳阳市", pinyin: "yueyang", py: "yy", coords: [113.1329, 29.3703], province: "湖南省" },
+  { name: "常德市", pinyin: "changde", py: "cd", coords: [111.6913, 29.0402], province: "湖南省" },
+  { name: "张家界市", pinyin: "zhangjiajie", py: "zjj", coords: [110.4799, 29.1274], province: "湖南省" },
+  { name: "益阳市", pinyin: "yiyang", py: "yy", coords: [112.355, 28.5701], province: "湖南省" },
+  { name: "郴州市", pinyin: "chenzhou", py: "cz", coords: [113.032, 25.7936], province: "湖南省" },
+  { name: "永州市", pinyin: "yongzhou", py: "yz", coords: [111.608, 26.4345], province: "湖南省" },
+  { name: "怀化市", pinyin: "huaihua", py: "hh", coords: [109.9782, 27.5501], province: "湖南省" },
+  { name: "娄底市", pinyin: "loudi", py: "ld", coords: [111.994, 27.7281], province: "湖南省" },
+  { name: "湘西土家族苗族自治州", pinyin: "xiangxi", py: "xx", coords: [109.7397, 28.312], province: "湖南省" },
+  { name: "凤凰古城", pinyin: "fenghuang", py: "fh", coords: [109.6015, 27.9542], province: "湖南省" },
+  { name: "广州市", pinyin: "guangzhou", py: "gz", coords: [113.2644, 23.1291], province: "广东省" },
+  { name: "深圳市", pinyin: "shenzhen", py: "sz", coords: [114.0579, 22.5431], province: "广东省" },
+  { name: "珠海市", pinyin: "zhuhai", py: "zh", coords: [113.5767, 22.2707], province: "广东省" },
+  { name: "汕头市", pinyin: "shantou", py: "st", coords: [116.6819, 23.3541], province: "广东省" },
+  { name: "佛山市", pinyin: "foshan", py: "fs", coords: [113.122, 23.0288], province: "广东省" },
+  { name: "江门市", pinyin: "jiangmen", py: "jm", coords: [113.0815, 22.5787], province: "广东省" },
+  { name: "湛江市", pinyin: "zhanjiang", py: "zj", coords: [110.3649, 21.2749], province: "广东省" },
+  { name: "茂名市", pinyin: "maoming", py: "mm", coords: [110.9192, 21.6598], province: "广东省" },
+  { name: "肇庆市", pinyin: "zhaoqing", py: "zq", coords: [112.4725, 23.0515], province: "广东省" },
+  { name: "惠州市", pinyin: "huizhou", py: "hz", coords: [114.4172, 23.097], province: "广东省" },
+  { name: "梅州市", pinyin: "meizhou", py: "mz", coords: [116.1176, 24.2991], province: "广东省" },
+  { name: "汕尾市", pinyin: "shanwei", py: "sw", coords: [115.3642, 22.7745], province: "广东省" },
+  { name: "河源市", pinyin: "heyuan", py: "hy", coords: [114.6978, 23.7463], province: "广东省" },
+  { name: "阳江市", pinyin: "yangjiang", py: "yj", coords: [111.9751, 21.8566], province: "广东省" },
+  { name: "清远市", pinyin: "qingyuan", py: "qy", coords: [113.0512, 23.685], province: "广东省" },
+  { name: "东莞市", pinyin: "dongguan", py: "dg", coords: [113.7518, 23.0207], province: "广东省" },
+  { name: "中山市", pinyin: "zhongshan", py: "zs", coords: [113.3824, 22.5211], province: "广东省" },
+  { name: "潮州市", pinyin: "chaozhou", py: "cz", coords: [116.6323, 23.6617], province: "广东省" },
+  { name: "揭阳市", pinyin: "jieyang", py: "jy", coords: [116.3557, 23.5438], province: "广东省" },
+  { name: "云浮市", pinyin: "yunfu", py: "yf", coords: [112.0444, 22.9298], province: "广东省" },
+  { name: "成都市", pinyin: "chengdu", py: "cd", coords: [104.0668, 30.5728], province: "四川省" },
+  { name: "绵阳市", pinyin: "mianyang", py: "my", coords: [104.7417, 31.464], province: "四川省" },
+  { name: "自贡市", pinyin: "zigong", py: "zg", coords: [104.7734, 29.3528], province: "四川省" },
+  { name: "攀枝花市", pinyin: "panzhihua", py: "pzh", coords: [101.716, 26.5804], province: "四川省" },
+  { name: "泸州市", pinyin: "luzhou", py: "lz", coords: [105.4433, 28.8891], province: "四川省" },
+  { name: "德阳市", pinyin: "deyang", py: "dy", coords: [104.3986, 31.127], province: "四川省" },
+  { name: "广元市", pinyin: "guangyuan", py: "gy", coords: [105.8297, 32.4337], province: "四川省" },
+  { name: "遂宁市", pinyin: "suining", py: "sn", coords: [105.5713, 30.5133], province: "四川省" },
+  { name: "内江市", pinyin: "neijiang", py: "nj", coords: [105.0661, 29.5871], province: "四川省" },
+  { name: "乐山市", pinyin: "leshan", py: "ls", coords: [103.7613, 29.582], province: "四川省" },
+  { name: "南充市", pinyin: "nanchong", py: "nc", coords: [106.0829, 30.7953], province: "四川省" },
+  { name: "眉山市", pinyin: "meishan", py: "ms", coords: [103.8318, 30.0483], province: "四川省" },
+  { name: "宜宾市", pinyin: "yibin", py: "yb", coords: [104.6308, 28.7602], province: "四川省" },
+  { name: "广安市", pinyin: "guangan", py: "ga", coords: [106.6334, 30.4564], province: "四川省" },
+  { name: "达州市", pinyin: "dazhou", py: "dz", coords: [107.5023, 31.2095], province: "四川省" },
+  { name: "雅安市", pinyin: "yaan", py: "ya", coords: [103.001, 29.9877], province: "四川省" },
+  { name: "巴中市", pinyin: "bazhong", py: "bz", coords: [106.7537, 31.8588], province: "四川省" },
+  { name: "资阳市", pinyin: "ziyang", py: "zy", coords: [104.6419, 30.1222], province: "四川省" },
+  { name: "阿坝藏族羌族自治州", pinyin: "aba", py: "ab", coords: [102.2214, 31.9056], province: "四川省" },
+  { name: "甘孜藏族自治州", pinyin: "ganzi", py: "gz", coords: [101.9638, 30.0507], province: "四川省" },
+  { name: "凉山彝族自治州", pinyin: "liangshan", py: "ls", coords: [102.2587, 27.8868], province: "四川省" },
+  { name: "康定市", pinyin: "kangding", py: "kd", coords: [101.9647, 30.0489], province: "四川省" },
+  { name: "四姑娘山镇", pinyin: "siguniangshan", py: "sgns", coords: [102.836, 30.998], province: "四川省" },
+  { name: "都江堰市", pinyin: "dujiangyan", py: "djy", coords: [103.6194, 30.9982], province: "四川省" },
+  { name: "西昌市", pinyin: "xichang", py: "xc", coords: [102.2641, 27.8953], province: "四川省" },
+  { name: "稻城县", pinyin: "daocheng", py: "dc", coords: [100.2981, 29.0378], province: "四川省" },
+  { name: "九寨沟县", pinyin: "jiuzhaigou", py: "jzg", coords: [104.2366, 33.2632], province: "四川省" },
+  { name: "西安市", pinyin: "xian", py: "xa", coords: [108.9402, 34.3416], province: "陕西省" },
+  { name: "铜川市", pinyin: "tongchuan", py: "tc", coords: [108.9631, 35.0833], province: "陕西省" },
+  { name: "宝鸡市", pinyin: "baoji", py: "bj", coords: [107.1449, 34.3693], province: "陕西省" },
+  { name: "咸阳市", pinyin: "xianyang", py: "xy", coords: [108.7051, 34.3299], province: "陕西省" },
+  { name: "渭南市", pinyin: "weinan", py: "wn", coords: [109.5028, 34.4994], province: "陕西省" },
+  { name: "延安市", pinyin: "yanan", py: "ya", coords: [109.4908, 36.5965], province: "陕西省" },
+  { name: "汉中市", pinyin: "hanzhong", py: "hz", coords: [107.0286, 33.0777], province: "陕西省" },
+  { name: "榆林市", pinyin: "yulin", py: "yl", coords: [109.7412, 38.2901], province: "陕西省" },
+  { name: "安康市", pinyin: "ankang", py: "ak", coords: [109.0293, 32.6903], province: "陕西省" },
+  { name: "商洛市", pinyin: "shangluo", py: "sl", coords: [109.9397, 33.8683], province: "陕西省" },
+  { name: "昆明市", pinyin: "kunming", py: "km", coords: [102.8329, 24.8801], province: "云南省" },
+  { name: "曲靖市", pinyin: "qujing", py: "qj", coords: [103.7978, 25.5015], province: "云南省" },
+  { name: "玉溪市", pinyin: "yuxi", py: "yx", coords: [102.5439, 24.3504], province: "云南省" },
+  { name: "保山市", pinyin: "baoshan", py: "bs", coords: [99.1671, 25.1205], province: "云南省" },
+  { name: "昭通市", pinyin: "zhaotong", py: "zt", coords: [103.7172, 27.3369], province: "云南省" },
+  { name: "丽江市", pinyin: "lijiang", py: "lj", coords: [100.233, 26.8721], province: "云南省" },
+  { name: "普洱市", pinyin: "puer", py: "pe", coords: [100.9723, 22.7773], province: "云南省" },
+  { name: "临沧市", pinyin: "lincang", py: "lc", coords: [100.0869, 23.8866], province: "云南省" },
+  { name: "楚雄彝族自治州", pinyin: "chuxiong", py: "cx", coords: [101.546, 25.0419], province: "云南省" },
+  { name: "红河哈尼族彝族自治州", pinyin: "honghe", py: "hh", coords: [103.3842, 23.3668], province: "云南省" },
+  { name: "文山壮族苗族自治州", pinyin: "wenshan", py: "ws", coords: [104.2441, 23.3695], province: "云南省" },
+  { name: "西双版纳傣族自治州", pinyin: "xishuangbanna", py: "xsbn", coords: [100.7979, 22.0017], province: "云南省" },
+  { name: "大理白族自治州", pinyin: "dali", py: "dl", coords: [100.2256, 25.5894], province: "云南省" },
+  { name: "德宏傣族景颇族自治州", pinyin: "dehong", py: "dh", coords: [98.5784, 24.4367], province: "云南省" },
+  { name: "怒江傈僳族自治州", pinyin: "nujiang", py: "nj", coords: [98.8543, 25.8509], province: "云南省" },
+  { name: "迪庆藏族自治州", pinyin: "diqing", py: "dq", coords: [99.7065, 27.8268], province: "云南省" },
+  { name: "香格里拉市", pinyin: "xianggelila", py: "xgll", coords: [99.7073, 27.8251], province: "云南省" },
+  { name: "腾冲市", pinyin: "tengchong", py: "tc", coords: [98.4941, 25.0254], province: "云南省" },
+  { name: "贵阳市", pinyin: "guiyang", py: "gy", coords: [106.7135, 26.5783], province: "贵州省" },
+  { name: "六盘水市", pinyin: "liupanshui", py: "lps", coords: [104.8467, 26.5846], province: "贵州省" },
+  { name: "遵义市", pinyin: "zunyi", py: "zy", coords: [106.9373, 27.7066], province: "贵州省" },
+  { name: "安顺市", pinyin: "anshun", py: "as", coords: [105.9321, 26.2455], province: "贵州省" },
+  { name: "毕节市", pinyin: "bijie", py: "bj", coords: [105.285, 27.3017], province: "贵州省" },
+  { name: "铜仁市", pinyin: "tongren", py: "tr", coords: [109.1915, 27.7183], province: "贵州省" },
+  { name: "黔西南布依族苗族自治州", pinyin: "qianxinan", py: "qxn", coords: [104.8979, 25.0881], province: "贵州省" },
+  { name: "黔东南苗族侗族自治州", pinyin: "qiandongnan", py: "qdn", coords: [107.9775, 26.5834], province: "贵州省" },
+  { name: "黔南布依族苗族自治州", pinyin: "qiannan", py: "qn", coords: [107.5172, 26.2582], province: "贵州省" },
+  { name: "拉萨市", pinyin: "lasa", py: "ls", coords: [91.1172, 29.6469], province: "西藏自治区" },
+  { name: "日喀则市", pinyin: "rikaze", py: "rkz", coords: [88.8851, 29.2675], province: "西藏自治区" },
+  { name: "昌都市", pinyin: "changdu", py: "cd", coords: [97.1785, 31.1369], province: "西藏自治区" },
+  { name: "林芝市", pinyin: "linzhi", py: "lz", coords: [94.3623, 29.6547], province: "西藏自治区" },
+  { name: "山南市", pinyin: "shannan", py: "sn", coords: [91.7665, 29.2361], province: "西藏自治区" },
+  { name: "那曲市", pinyin: "naqu", py: "nq", coords: [92.0602, 31.476], province: "西藏自治区" },
+  { name: "阿里地区", pinyin: "ali", py: "al", coords: [80.1055, 32.5037], province: "西藏自治区" },
+  { name: "兰州市", pinyin: "lanzhou", py: "lz", coords: [103.8343, 36.0611], province: "甘肃省" },
+  { name: "嘉峪关市", pinyin: "jiayuguan", py: "jyg", coords: [98.2773, 39.7865], province: "甘肃省" },
+  { name: "金昌市", pinyin: "jinchang", py: "jc", coords: [102.1879, 38.5142], province: "甘肃省" },
+  { name: "白银市", pinyin: "baiyin", py: "by", coords: [104.1736, 36.5456], province: "甘肃省" },
+  { name: "天水市", pinyin: "tianshui", py: "ts", coords: [105.7249, 34.5785], province: "甘肃省" },
+  { name: "武威市", pinyin: "wuwei", py: "ww", coords: [102.6347, 37.9299], province: "甘肃省" },
+  { name: "张掖市", pinyin: "zhangye", py: "zy", coords: [100.4555, 38.9328], province: "甘肃省" },
+  { name: "平凉市", pinyin: "pingliang", py: "pl", coords: [106.6847, 35.5427], province: "甘肃省" },
+  { name: "酒泉市", pinyin: "jiuquan", py: "jq", coords: [98.5108, 39.744], province: "甘肃省" },
+  { name: "庆阳市", pinyin: "qingyang", py: "qy", coords: [107.6384, 35.7342], province: "甘肃省" },
+  { name: "定西市", pinyin: "dingxi", py: "dx", coords: [104.6263, 35.5796], province: "甘肃省" },
+  { name: "陇南市", pinyin: "longnan", py: "ln", coords: [104.9294, 33.3886], province: "甘肃省" },
+  { name: "临夏回族自治州", pinyin: "linxia", py: "lx", coords: [103.212, 35.5994], province: "甘肃省" },
+  { name: "甘南藏族自治州", pinyin: "gannan", py: "gn", coords: [102.911, 34.9864], province: "甘肃省" },
+  { name: "敦煌市", pinyin: "dunhuang", py: "dh", coords: [94.662, 40.1421], province: "甘肃省" },
+  { name: "西宁市", pinyin: "xining", py: "xn", coords: [101.7789, 36.6231], province: "青海省" },
+  { name: "海东市", pinyin: "haidong", py: "hd", coords: [102.1033, 36.5029], province: "青海省" },
+  { name: "海北藏族自治州", pinyin: "haibei", py: "hb", coords: [100.9011, 36.9594], province: "青海省" },
+  { name: "黄南藏族自治州", pinyin: "huangnan", py: "hn", coords: [102.0152, 35.5177], province: "青海省" },
+  { name: "海南藏族自治州", pinyin: "hainan", py: "hn", coords: [100.6195, 36.2804], province: "青海省" },
+  { name: "果洛藏族自治州", pinyin: "guoluo", py: "gl", coords: [100.2421, 34.4736], province: "青海省" },
+  { name: "玉树藏族自治州", pinyin: "yushu", py: "ys", coords: [97.0085, 33.0062], province: "青海省" },
+  { name: "海西蒙古族藏族自治州", pinyin: "haixi", py: "hx", coords: [97.3708, 37.3746], province: "青海省" },
+  { name: "格尔木市", pinyin: "geermu", py: "gem", coords: [94.9033, 36.4024], province: "青海省" },
+  { name: "银川市", pinyin: "yinchuan", py: "yc", coords: [106.2781, 38.4664], province: "宁夏回族自治区" },
+  { name: "石嘴山市", pinyin: "shizuishan", py: "szs", coords: [106.3762, 39.0133], province: "宁夏回族自治区" },
+  { name: "吴忠市", pinyin: "wuzhong", py: "wz", coords: [106.1994, 37.9862], province: "宁夏回族自治区" },
+  { name: "固原市", pinyin: "guyuan", py: "gy", coords: [106.2852, 36.0046], province: "宁夏回族自治区" },
+  { name: "中卫市", pinyin: "zhongwei", py: "zw", coords: [105.1896, 37.5149], province: "宁夏回族自治区" },
+  { name: "乌鲁木齐市", pinyin: "wulumuqi", py: "wlmq", coords: [87.6177, 43.7928], province: "新疆维吾尔自治区" },
+  { name: "克拉玛依市", pinyin: "kelamayi", py: "klmy", coords: [84.8739, 45.5959], province: "新疆维吾尔自治区" },
+  { name: "吐鲁番市", pinyin: "tulufan", py: "tlf", coords: [89.1841, 42.9476], province: "新疆维吾尔自治区" },
+  { name: "哈密市", pinyin: "hami", py: "hm", coords: [93.5132, 42.8332], province: "新疆维吾尔自治区" },
+  { name: "昌吉回族自治州", pinyin: "changji", py: "cj", coords: [87.304, 44.0146], province: "新疆维吾尔自治区" },
+  { name: "博尔塔拉蒙古自治州", pinyin: "boertala", py: "betl", coords: [82.0748, 44.9033], province: "新疆维吾尔自治区" },
+  { name: "巴音郭楞蒙古自治州", pinyin: "bayinguoleng", py: "bygl", coords: [86.15, 41.7641], province: "新疆维吾尔自治区" },
+  { name: "阿克苏地区", pinyin: "akesu", py: "aks", coords: [80.2651, 41.1707], province: "新疆维吾尔自治区" },
+  { name: "克孜勒苏柯尔克孜自治州", pinyin: "kezilesu", py: "kzls", coords: [76.1728, 39.7134], province: "新疆维吾尔自治区" },
+  { name: "喀什地区", pinyin: "kashi", py: "ks", coords: [75.9891, 39.4677], province: "新疆维吾尔自治区" },
+  { name: "和田地区", pinyin: "hetian", py: "ht", coords: [79.9253, 37.1107], province: "新疆维吾尔自治区" },
+  { name: "伊犁哈萨克自治州", pinyin: "yili", py: "yl", coords: [81.3179, 43.9219], province: "新疆维吾尔自治区" },
+  { name: "塔城地区", pinyin: "tacheng", py: "tc", coords: [82.9857, 46.7463], province: "新疆维吾尔自治区" },
+  { name: "阿勒泰地区", pinyin: "aletai", py: "alt", coords: [88.1396, 47.8484], province: "新疆维吾尔自治区" },
+  { name: "呼和浩特市", pinyin: "huhehaote", py: "hhht", coords: [111.6708, 40.8183], province: "内蒙古自治区" },
+  { name: "包头市", pinyin: "baotou", py: "bt", coords: [109.8404, 40.6582], province: "内蒙古自治区" },
+  { name: "乌海市", pinyin: "wuhai", py: "wh", coords: [106.8247, 39.6737], province: "内蒙古自治区" },
+  { name: "赤峰市", pinyin: "chifeng", py: "cf", coords: [118.9568, 42.2753], province: "内蒙古自治区" },
+  { name: "通辽市", pinyin: "tongliao", py: "tl", coords: [122.2631, 43.6174], province: "内蒙古自治区" },
+  { name: "鄂尔多斯市", pinyin: "eerduosi", py: "eeds", coords: [109.9903, 39.8172], province: "内蒙古自治区" },
+  { name: "呼伦贝尔市", pinyin: "hulunbeier", py: "hlbe", coords: [119.7582, 49.2153], province: "内蒙古自治区" },
+  { name: "巴彦淖尔市", pinyin: "bayannaoer", py: "byne", coords: [107.4169, 40.7574], province: "内蒙古自治区" },
+  { name: "乌兰察布市", pinyin: "wulanchabu", py: "wlcb", coords: [113.1145, 41.0341], province: "内蒙古自治区" },
+  { name: "兴安盟", pinyin: "xinganmeng", py: "xam", coords: [122.0703, 46.0763], province: "内蒙古自治区" },
+  { name: "锡林郭勒盟", pinyin: "xilinguolemeng", py: "xlglm", coords: [116.0909, 43.944], province: "内蒙古自治区" },
+  { name: "阿拉善盟", pinyin: "alashanmeng", py: "alsm", coords: [105.7064, 38.8448], province: "内蒙古自治区" },
+  { name: "沈阳市", pinyin: "shenyang", py: "sy", coords: [123.429, 41.7967], province: "辽宁省" },
+  { name: "大连市", pinyin: "dalian", py: "dl", coords: [121.6186, 38.9146], province: "辽宁省" },
+  { name: "鞍山市", pinyin: "anshan", py: "as", coords: [122.9956, 41.1106], province: "辽宁省" },
+  { name: "抚顺市", pinyin: "fushun", py: "fs", coords: [123.9211, 41.8759], province: "辽宁省" },
+  { name: "本溪市", pinyin: "benxi", py: "bx", coords: [123.738, 41.2941], province: "辽宁省" },
+  { name: "丹东市", pinyin: "dandong", py: "dd", coords: [124.3838, 40.129], province: "辽宁省" },
+  { name: "锦州市", pinyin: "jinzhou", py: "jz", coords: [121.127, 41.0951], province: "辽宁省" },
+  { name: "营口市", pinyin: "yingkou", py: "yk", coords: [122.2352, 40.667], province: "辽宁省" },
+  { name: "阜新市", pinyin: "fuxin", py: "fx", coords: [121.6489, 42.0118], province: "辽宁省" },
+  { name: "辽阳市", pinyin: "liaoyang", py: "ly", coords: [123.1732, 41.2694], province: "辽宁省" },
+  { name: "盘锦市", pinyin: "panjin", py: "pj", coords: [122.0696, 41.1245], province: "辽宁省" },
+  { name: "铁岭市", pinyin: "tieling", py: "tl", coords: [123.8443, 42.2905], province: "辽宁省" },
+  { name: "朝阳市", pinyin: "chaoyang", py: "cy", coords: [120.4511, 41.5768], province: "辽宁省" },
+  { name: "葫芦岛市", pinyin: "huludao", py: "hld", coords: [120.8564, 40.7556], province: "辽宁省" },
+  { name: "长春市", pinyin: "changchun", py: "cc", coords: [125.3245, 43.8868], province: "吉林省" },
+  { name: "吉林市", pinyin: "jilin", py: "jl", coords: [126.553, 43.8436], province: "吉林省" },
+  { name: "四平市", pinyin: "siping", py: "sp", coords: [124.3708, 43.1703], province: "吉林省" },
+  { name: "辽源市", pinyin: "liaoyuan", py: "ly", coords: [125.1453, 42.9027], province: "吉林省" },
+  { name: "通化市", pinyin: "tonghua", py: "th", coords: [125.9365, 41.7212], province: "吉林省" },
+  { name: "白山市", pinyin: "baishan", py: "bs", coords: [126.4278, 41.9423], province: "吉林省" },
+  { name: "松原市", pinyin: "songyuan", py: "sy", coords: [124.8236, 45.1183], province: "吉林省" },
+  { name: "白城市", pinyin: "baicheng", py: "bc", coords: [122.8411, 45.619], province: "吉林省" },
+  { name: "延边朝鲜族自治州", pinyin: "yanbian", py: "yb", coords: [129.5132, 42.9048], province: "吉林省" },
+  { name: "哈尔滨市", pinyin: "haerbin", py: "hrb", coords: [126.6424, 45.7569], province: "黑龙江省" },
+  { name: "齐齐哈尔市", pinyin: "qiqihaer", py: "qqhe", coords: [123.9579, 47.3421], province: "黑龙江省" },
+  { name: "鸡西市", pinyin: "jixi", py: "jx", coords: [130.9759, 45.3], province: "黑龙江省" },
+  { name: "鹤岗市", pinyin: "hegang", py: "hg", coords: [130.2775, 47.3321], province: "黑龙江省" },
+  { name: "双鸭山市", pinyin: "shuangyashan", py: "sys", coords: [131.1573, 46.6434], province: "黑龙江省" },
+  { name: "大庆市", pinyin: "daqing", py: "dq", coords: [125.1127, 46.5879], province: "黑龙江省" },
+  { name: "伊春市", pinyin: "yichun", py: "yc", coords: [128.8994, 47.7248], province: "黑龙江省" },
+  { name: "佳木斯市", pinyin: "jiamusi", py: "jms", coords: [130.3616, 46.8096], province: "黑龙江省" },
+  { name: "七台河市", pinyin: "qitaihe", py: "qth", coords: [131.0155, 45.7713], province: "黑龙江省" },
+  { name: "牡丹江市", pinyin: "mudanjiang", py: "mdj", coords: [129.6186, 44.583], province: "黑龙江省" },
+  { name: "黑河市", pinyin: "heihe", py: "hh", coords: [127.499, 50.2496], province: "黑龙江省" },
+  { name: "绥化市", pinyin: "suihua", py: "sh", coords: [126.9929, 46.6374], province: "黑龙江省" },
+  { name: "大兴安岭地区", pinyin: "daxinganling", py: "dxal", coords: [124.7115, 52.3353], province: "黑龙江省" },
+  { name: "南宁市", pinyin: "nanning", py: "nn", coords: [108.32, 22.824], province: "广西壮族自治区" },
+  { name: "柳州市", pinyin: "liuzhou", py: "lz", coords: [109.4117, 24.3146], province: "广西壮族自治区" },
+  { name: "桂林市", pinyin: "guilin", py: "gl", coords: [110.2991, 25.2742], province: "广西壮族自治区" },
+  { name: "梧州市", pinyin: "wuzhou", py: "wz", coords: [111.2976, 23.4748], province: "广西壮族自治区" },
+  { name: "北海市", pinyin: "beihai", py: "bh", coords: [109.1193, 21.4733], province: "广西壮族自治区" },
+  { name: "防城港市", pinyin: "fangchenggang", py: "fcg", coords: [108.3455, 21.6146], province: "广西壮族自治区" },
+  { name: "钦州市", pinyin: "qinzhou", py: "qz", coords: [108.6242, 21.9671], province: "广西壮族自治区" },
+  { name: "贵港市", pinyin: "guigang", py: "gg", coords: [109.6021, 23.0936], province: "广西壮族自治区" },
+  { name: "玉林市", pinyin: "yulin", py: "yl", coords: [110.1544, 22.6314], province: "广西壮族自治区" },
+  { name: "百色市", pinyin: "baise", py: "bs", coords: [106.6163, 23.8977], province: "广西壮族自治区" },
+  { name: "贺州市", pinyin: "hezhou", py: "hz", coords: [111.5521, 24.4141], province: "广西壮族自治区" },
+  { name: "河池市", pinyin: "hechi", py: "hc", coords: [108.0621, 24.6959], province: "广西壮族自治区" },
+  { name: "来宾市", pinyin: "laibin", py: "lb", coords: [109.2298, 23.7338], province: "广西壮族自治区" },
+  { name: "崇左市", pinyin: "chongzuo", py: "cz", coords: [107.3539, 22.4041], province: "广西壮族自治区" },
+  { name: "阳朔县", pinyin: "yangshuo", py: "ys", coords: [110.4947, 24.7766], province: "广西壮族自治区" },
+  { name: "海口市", pinyin: "haikou", py: "hk", coords: [110.3312, 20.0319], province: "海南省" },
+  { name: "三亚市", pinyin: "sanya", py: "sy", coords: [109.5083, 18.2479], province: "海南省" },
+  { name: "三沙市", pinyin: "sansha", py: "ss", coords: [112.3488, 16.8387], province: "海南省" },
+  { name: "儋州市", pinyin: "danzhou", py: "dz", coords: [109.5768, 19.5175], province: "海南省" },
+  { name: "香港特别行政区", pinyin: "xianggang", py: "xg", coords: [114.1654, 22.2753], province: "香港" },
+  { name: "澳门特别行政区", pinyin: "aomen", py: "am", coords: [113.5491, 22.1987], province: "澳门" },
+  { name: "台北市", pinyin: "taibei", py: "tb", coords: [121.5654, 25.033], province: "台湾省" },
+  { name: "高雄市", pinyin: "gaoxiong", py: "gx", coords: [120.3014, 22.6273], province: "台湾省" },
+  { name: "台中市", pinyin: "taizhong", py: "tz", coords: [120.6736, 24.1477], province: "台湾省" }
 ];
 
 // 3. 著名山峰 POI (全国著名山脉高峰)
 const MOUNTAIN_POIS = [
-  { name: '泰山 · 玉皇顶', ele: 1545, coords: [117.1042, 36.2519] },
-  { name: '华山 · 南峰落雁', ele: 2154, coords: [110.0820, 34.4780] },
-  { name: '四姑娘山 · 幺妹峰', ele: 6250, coords: [102.9020, 31.1060] },
-  { name: '贡嘎山 · 蜀山之王', ele: 7556, coords: [101.8780, 29.5960] },
-  { name: '珠穆朗玛峰 · 世界之巅', ele: 8848, coords: [86.9250, 27.9880] },
-  { name: '冈仁波齐 · 万山之祖', ele: 6638, coords: [81.3120, 31.0670] },
-  { name: '玉龙雪山 · 扇子陡', ele: 5596, coords: [100.1780, 27.0980] },
-  { name: '梅里雪山 · 卡瓦格博', ele: 6740, coords: [98.6920, 28.4420] },
-  { name: '黄山 · 莲花峰', ele: 1864, coords: [118.1750, 30.1330] },
-  { name: '峨眉山 · 万佛顶', ele: 3099, coords: [103.3320, 29.5210] },
-  { name: '长白山 · 白云峰', ele: 2691, coords: [128.0580, 41.9930] },
-  { name: '祁连山 · 团结峰', ele: 5808, coords: [97.5830, 38.5000] },
-  { name: '神农架 · 神农顶', ele: 3106, coords: [110.3000, 31.4500] },
-  { name: '五台山 · 北台叶斗峰', ele: 3061, coords: [113.5900, 39.0600] },
-  { name: '崂山 · 巨峰', ele: 1132, coords: [120.6120, 36.1750] }
+  { name: '泰山 · 玉皇顶', pinyin: 'taishan', py: 'ts', ele: 1545, coords: [117.1042, 36.2519] },
+  { name: '华山 · 南峰落雁', pinyin: 'huashan', py: 'hs', ele: 2154, coords: [110.0820, 34.4780] },
+  { name: '四姑娘山 · 幺妹峰', pinyin: 'siguniangshan', py: 'sgns', ele: 6250, coords: [102.9020, 31.1060] },
+  { name: '贡嘎山 · 蜀山之王', pinyin: 'gonggashan', py: 'ggs', ele: 7556, coords: [101.8780, 29.5960] },
+  { name: '珠穆朗玛峰 · 世界之巅', pinyin: 'zhumulangma', py: 'zmlm', ele: 8848, coords: [86.9250, 27.9880] },
+  { name: '冈仁波齐 · 万山之祖', pinyin: 'gangrenboqi', py: 'grbq', ele: 6638, coords: [81.3120, 31.0670] },
+  { name: '玉龙雪山 · 扇子陡', pinyin: 'yulongxueshan', py: 'ylxs', ele: 5596, coords: [100.1780, 27.0980] },
+  { name: '梅里雪山 · 卡瓦格博', pinyin: 'meilixueshan', py: 'mlxs', ele: 6740, coords: [98.6920, 28.4420] },
+  { name: '黄山 · 莲花峰', pinyin: 'huangshan', py: 'hs', ele: 1864, coords: [118.1750, 30.1330] },
+  { name: '峨眉山 · 万佛顶', pinyin: 'emeishan', py: 'ems', ele: 3099, coords: [103.3320, 29.5210] },
+  { name: '长白山 · 白云峰', pinyin: 'changbaishan', py: 'cbs', ele: 2691, coords: [128.0580, 41.9930] },
+  { name: '祁连山 · 团结峰', pinyin: 'qilianshan', py: 'qls', ele: 5808, coords: [97.5830, 38.5000] },
+  { name: '神农架 · 神农顶', pinyin: 'shennongjia', py: 'snj', ele: 3106, coords: [110.3000, 31.4500] },
+  { name: '五台山 · 北台叶斗峰', pinyin: 'wutaishan', py: 'wts', ele: 3061, coords: [113.5900, 39.0600] },
+  { name: '崂山 · 巨峰', pinyin: 'laoshan', py: 'ls', ele: 1132, coords: [120.6120, 36.1750] }
 ];
 
 let mapInstance = null;
@@ -1116,6 +1456,222 @@ function renderAllMapLabels(map) {
   });
 }
 
+// =========================================================
+// 智能地理编码与地点候选中枢 (中国境内坐标/城市/名山/小区全域检索)
+// =========================================================
+let activeSearchAbort = null;
+
+// 坐标解析器 (支持 "117.12, 36.45" / "36.45, 117.12" / "117.12 36.45")
+function parseCoordinates(str) {
+  const clean = str.replace(/[°NSEWnsew,]/g, ' ').trim();
+  const parts = clean.split(/\s+/).map(Number).filter(n => !isNaN(n));
+  if (parts.length >= 2) {
+    let [a, b] = parts;
+    let lng, lat;
+    if (a >= 73 && a <= 136 && b >= 3 && b <= 54) {
+      lng = a; lat = b;
+    } else if (b >= 73 && b <= 136 && a >= 3 && a <= 54) {
+      lng = b; lat = a;
+    } else if (a >= -180 && a <= 180 && b >= -90 && b <= 90) {
+      lng = a; lat = b;
+    } else {
+      return null;
+    }
+    return { coords: [lng, lat], title: `坐标 (${lng.toFixed(4)}°, ${lat.toFixed(4)}°)` };
+  }
+  return null;
+}
+
+// 综合检索引擎：本地字典 + 在线高精地理编码 (严格仅限中国境内数据，坚决剔除一切外国地点)
+async function queryLocationCandidates(keyword) {
+  const raw = (keyword || '').trim();
+  if (!raw) {
+    return [];
+  }
+  const q = raw.toLowerCase();
+
+  const coordMatch = parseCoordinates(q);
+  if (coordMatch) {
+    return [{
+      name: coordMatch.title,
+      desc: 'GPS 经纬度绝对坐标',
+      coords: coordMatch.coords,
+      icon: '🎯',
+      zoom: 15.0
+    }];
+  }
+
+  const localMatches = [];
+
+  // 1. 省份匹配 (名称 / 全拼 / 简拼 / 首字母缩写)
+  if (typeof PROVINCES_DATA !== 'undefined') {
+    Object.keys(PROVINCES_DATA).forEach(k => {
+      const p = PROVINCES_DATA[k];
+      const pinyin = (p.pinyin || '').toLowerCase();
+      const py = (p.py || '').toLowerCase();
+      const pGroup = (p.pinyinGroup || '').toLowerCase();
+      const en = (p.en || '').toLowerCase();
+      if (p.name.includes(raw) || p.name.includes(q) || pinyin.startsWith(q) || pinyin.includes(q) || py === q || py.startsWith(q) || pGroup === q || en.includes(q)) {
+        let score = 3;
+        if (p.name === raw || pinyin === q || py === q) score = 1;
+        else if (pinyin.startsWith(q) || p.name.startsWith(raw) || py.startsWith(q)) score = 2;
+        localMatches.push({
+          name: p.name,
+          desc: `省级行政区 · ${p.pinyin || p.en || ''}`,
+          coords: p.center,
+          icon: '🚩',
+          type: 'province',
+          zoom: p.zoom,
+          _score: score
+        });
+      }
+    });
+  }
+
+  // 2. 名山匹配 (名称 / 全拼 / 简拼)
+  if (typeof MOUNTAIN_POIS !== 'undefined') {
+    MOUNTAIN_POIS.forEach(m => {
+      const pinyin = (m.pinyin || '').toLowerCase();
+      const py = (m.py || '').toLowerCase();
+      if (m.name.includes(raw) || m.name.includes(q) || pinyin.startsWith(q) || pinyin.includes(q) || py === q || py.startsWith(q)) {
+        let score = 3;
+        if (m.name === raw || pinyin === q || py === q) score = 1;
+        else if (pinyin.startsWith(q) || m.name.startsWith(raw)) score = 2;
+        localMatches.push({
+          name: m.name,
+          desc: `著名山峰 · 海拔 ${m.ele}米`,
+          coords: m.coords,
+          icon: '🏔️',
+          type: 'mountain',
+          zoom: 13.8,
+          _score: score
+        });
+      }
+    });
+  }
+
+  // 3. 全国地级市与重点城镇全量匹配 (汉字 / 全拼 / 拼音首字母，如 linyi/ly -> 临沂市)
+  if (typeof MAJOR_CITIES !== 'undefined') {
+    MAJOR_CITIES.forEach(c => {
+      const pinyin = (c.pinyin || '').toLowerCase();
+      const py = (c.py || '').toLowerCase();
+      const en = (c.en || '').toLowerCase();
+      const nameMatch = c.name.includes(raw) || c.name.includes(q);
+      const pinyinExact = pinyin === q;
+      const pinyinStart = pinyin.startsWith(q);
+      const pinyinInclude = pinyin.includes(q);
+      const pyExact = py === q;
+      const pyStart = py.startsWith(q);
+      const enMatch = en.startsWith(q);
+
+      if (nameMatch || pinyinExact || pinyinStart || pinyinInclude || pyExact || pyStart || enMatch) {
+        let score = 4;
+        if (c.name === raw || pinyinExact || pyExact) score = 1;
+        else if (pinyinStart || c.name.startsWith(raw)) score = 2;
+        else if (pyStart) score = 3;
+
+        localMatches.push({
+          name: c.name,
+          desc: `${c.province || '重点城市'} · ${c.pinyin || c.en || ''}`,
+          coords: c.coords,
+          icon: '🏙️',
+          type: 'city',
+          zoom: 12.5,
+          _score: score
+        });
+      }
+    });
+  }
+
+  // 4. 用户收藏夹匹配
+  if (typeof savedWaypoints !== 'undefined' && Array.isArray(savedWaypoints)) {
+    savedWaypoints.forEach(wp => {
+      if (wp && wp.name && (wp.name.includes(raw) || wp.name.toLowerCase().includes(q))) {
+        localMatches.push({
+          name: wp.name,
+          desc: `我的收藏点 · ${wp.ele || 0}m`,
+          coords: [wp.lng, wp.lat],
+          icon: '⭐',
+          type: 'waypoint',
+          zoom: 14.5,
+          _score: 1
+        });
+      }
+    });
+  }
+
+  // 按相关度评分排序
+  localMatches.sort((a, b) => (a._score || 9) - (b._score || 9));
+
+  // 5. 在线全量 OSM Photon 地理编码检索 (限定中国境内 BBox，设置 2.2s 超时防网络卡顿)
+  try {
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 2200);
+    const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=15`;
+    const resp = await fetch(onlineUrl, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Outmap/1.0' }
+    });
+    clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      const geojson = await resp.json();
+      if (geojson && geojson.features) {
+        geojson.features.forEach(f => {
+          const p = f.properties;
+          const coords = f.geometry.coordinates;
+          if (!coords || coords.length < 2) return;
+
+          const inChinaBbox = coords[0] >= 73.0 && coords[0] <= 136.0 && coords[1] >= 18.0 && coords[1] <= 54.0;
+          const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
+          if (!inChinaBbox || !isCountryCn) return;
+
+          const name = p.name || p.street || p.city || raw;
+          const parts = [p.country, p.state, p.city, p.district, p.locality].filter(Boolean);
+          const desc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
+
+          let icon = '📍';
+          let type = 'poi';
+          const osmValue = (p.osm_value || '').toLowerCase();
+
+          if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑')) {
+            icon = '🏘️';
+            type = 'community';
+          } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
+            icon = '🏔️';
+            type = 'mountain';
+          } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
+            icon = '🏫';
+          } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
+            icon = '🏥';
+          } else if (osmValue.includes('city') || osmValue.includes('town')) {
+            icon = '🏙️';
+          }
+
+          if (!localMatches.some(m => m.name === name && Math.abs(m.coords[0] - coords[0]) < 0.005)) {
+            localMatches.push({
+              name,
+              desc,
+              coords,
+              icon,
+              type,
+              zoom: type === 'community' ? 15.5 : 14.0
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    // 离线环境平滑回退
+  }
+
+  return localMatches.slice(0, 15);
+}
+
+if (typeof window !== 'undefined') {
+  window.queryLocationCandidates = queryLocationCandidates;
+}
+
 function setupOfficeHeaderInteractions(map) {
   // 1. 视角倾角高度锁定 (放置于 3D、正北 按钮旁边，右键仅能水平360度旋转)
   const btnLockPitch = document.getElementById('btn-lock-pitch-toggle');
@@ -1335,165 +1891,6 @@ function setupOfficeHeaderInteractions(map) {
     const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
     if (provTriggerBtn) provTriggerBtn.classList.remove('active');
   });
-
-// =========================================================
-// 智能地理编码与地点候选中枢 (中国境内坐标/城市/名山/小区全域检索)
-// =========================================================
-let activeSearchAbort = null;
-
-// 坐标解析器 (支持 "117.12, 36.45" / "36.45, 117.12" / "117.12 36.45")
-function parseCoordinates(str) {
-  const clean = str.replace(/[°NSEWnsew,]/g, ' ').trim();
-  const parts = clean.split(/\s+/).map(Number).filter(n => !isNaN(n));
-  if (parts.length >= 2) {
-    let [a, b] = parts;
-    let lng, lat;
-    if (a >= 73 && a <= 136 && b >= 3 && b <= 54) {
-      lng = a; lat = b;
-    } else if (b >= 73 && b <= 136 && a >= 3 && a <= 54) {
-      lng = b; lat = a;
-    } else if (a >= -180 && a <= 180 && b >= -90 && b <= 90) {
-      lng = a; lat = b;
-    } else {
-      return null;
-    }
-    return { coords: [lng, lat], title: `坐标 (${lng.toFixed(4)}°, ${lat.toFixed(4)}°)` };
-  }
-  return null;
-}
-
-// 综合检索引擎：本地字典 + 在线高精地理编码 (严格仅限中国境内数据，坚决剔除一切外国地点)
-async function queryLocationCandidates(keyword) {
-  const q = keyword.trim();
-  if (!q) {
-    return [];
-  }
-
-  const coordMatch = parseCoordinates(q);
-  if (coordMatch) {
-    return [{
-      name: coordMatch.title,
-      desc: 'GPS 经纬度绝对坐标',
-      coords: coordMatch.coords,
-      icon: '🎯',
-      zoom: 15.0
-    }];
-  }
-
-  const localMatches = [];
-
-  // 1. 省份匹配
-  if (typeof PROVINCES_DATA !== 'undefined') {
-    Object.keys(PROVINCES_DATA).forEach(k => {
-      const p = PROVINCES_DATA[k];
-      if (p.name.includes(q) || (p.en && p.en.toLowerCase().includes(q.toLowerCase())) || (p.pinyin && p.pinyin.toLowerCase().includes(q.toLowerCase()))) {
-        localMatches.push({
-          name: p.name,
-          desc: '行政区划 · ' + (p.en || p.name),
-          coords: p.center,
-          icon: '🚩',
-          zoom: p.zoom
-        });
-      }
-    });
-  }
-
-  // 2. 名山匹配
-  if (typeof MOUNTAIN_POIS !== 'undefined') {
-    MOUNTAIN_POIS.forEach(m => {
-      if (m.name.includes(q)) {
-        localMatches.push({
-          name: m.name,
-          desc: `著名山峰 · 海拔 ${m.ele}米`,
-          coords: m.coords,
-          icon: '🏔️',
-          type: 'mountain',
-          zoom: 13.8
-        });
-      }
-    });
-  }
-
-  // 3. 重点城市匹配
-  if (typeof MAJOR_CITIES !== 'undefined') {
-    MAJOR_CITIES.forEach(c => {
-      if (c.name.includes(q) || (c.en && c.en.toLowerCase().includes(q.toLowerCase()))) {
-        localMatches.push({
-          name: c.name,
-          desc: '重点地标城市 · ' + (c.en || ''),
-          coords: c.coords,
-          icon: '🏙️',
-          type: 'city',
-          zoom: 12.0
-        });
-      }
-    });
-  }
-
-  // 4. 在线全量 OSM Photon 地理编码检索 (限定中国境内 BBox: [73.5, 18.0, 135.1, 53.6])
-  if (activeSearchAbort) activeSearchAbort.abort();
-  activeSearchAbort = new AbortController();
-
-  try {
-    const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=15`;
-    const resp = await fetch(onlineUrl, {
-      signal: activeSearchAbort.signal,
-      headers: { 'User-Agent': 'Outmap/1.0' }
-    });
-
-    if (resp.ok) {
-      const geojson = await resp.json();
-      if (geojson && geojson.features) {
-        geojson.features.forEach(f => {
-          const p = f.properties;
-          const coords = f.geometry.coordinates;
-          if (!coords || coords.length < 2) return;
-
-          const inChinaBbox = coords[0] >= 73.0 && coords[0] <= 136.0 && coords[1] >= 18.0 && coords[1] <= 54.0;
-          const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
-          if (!inChinaBbox || !isCountryCn) return;
-
-          const name = p.name || p.street || p.city || q;
-          const parts = [p.country, p.state, p.city, p.district, p.locality].filter(Boolean);
-          const desc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
-
-          let icon = '📍';
-          let type = 'poi';
-          const osmValue = (p.osm_value || '').toLowerCase();
-
-          if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑')) {
-            icon = '🏘️';
-            type = 'community';
-          } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
-            icon = '🏔️';
-            type = 'mountain';
-          } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
-            icon = '🏫';
-          } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
-            icon = '🏥';
-          } else if (osmValue.includes('city') || osmValue.includes('town')) {
-            icon = '🏙️';
-          }
-
-          if (!localMatches.some(m => m.name === name && Math.abs(m.coords[0] - coords[0]) < 0.005)) {
-            localMatches.push({
-              name,
-              desc,
-              coords,
-              icon,
-              type,
-              zoom: type === 'community' ? 15.5 : 14.0
-            });
-          }
-        });
-      }
-    }
-  } catch (e) {
-    // 离线环境平滑回退
-  }
-
-  return localMatches.slice(0, 10);
-}
 
   // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/名山/城市全量POI检索与回车直达)
   const searchTrigger = document.getElementById('btn-search-trigger');
@@ -3797,8 +4194,184 @@ function calculateDistanceKm(c1, c2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// 渲染途径点列表 (支持几十个点顺滑滚动与定位删除)
-function renderViaList(map) {
+let currentOutdoorMap = null;
+let draggedViaIndex = null;
+let targetViaIndexForPick = null;
+
+// 统一绑定起点、终点及途径点输入框的实时搜索、拼音联想与回车直达
+function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, mapInstance = null) {
+  if (!inputEl || !dropdownEl) return;
+  const getMap = () => mapInstance || currentOutdoorMap;
+  let searchTimer = null;
+  let activeCandidates = [];
+
+  const closeDropdown = () => {
+    dropdownEl.style.display = 'none';
+    dropdownEl.innerHTML = '';
+    activeCandidates = [];
+  };
+
+  const triggerMapPick = () => {
+    closeDropdown();
+    const map = getMap();
+    if (pointType === 'via') {
+      targetViaIndexForPick = viaIndex;
+      pickingRoutePt = 'via';
+    } else {
+      pickingRoutePt = pointType;
+    }
+    if (map) map.getCanvas().style.cursor = 'crosshair';
+  };
+
+  const selectCandidate = (item) => {
+    inputEl.value = item.name;
+    closeDropdown();
+    const map = getMap();
+    if (!map) return;
+
+    if (pointType === 'start') {
+      setRouteStartPoint(map, item.coords, item.name);
+    } else if (pointType === 'end') {
+      setRouteEndPoint(map, item.coords, item.name);
+    } else if (pointType === 'via') {
+      if (viaIndex !== null && routeViaPoints[viaIndex]) {
+        const via = routeViaPoints[viaIndex];
+        via.name = item.name;
+        via.coords = item.coords;
+        if (via.marker) {
+          via.marker.setLngLat(item.coords);
+        } else {
+          const el = document.createElement('div');
+          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+          el.innerText = viaIndex + 1;
+          el.addEventListener('click', () => {
+            map.flyTo({ center: item.coords, zoom: 14, duration: 1200 });
+          });
+          via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+            .setLngLat(item.coords)
+            .addTo(map);
+        }
+        autoPlanMultiPointRoute(map);
+      }
+    }
+
+    if (item.coords) {
+      map.flyTo({
+        center: item.coords,
+        zoom: Math.max(map.getZoom(), 11),
+        duration: 1200
+      });
+    }
+  };
+
+  const renderCandidates = (items, keyword) => {
+    activeCandidates = items || [];
+    dropdownEl.innerHTML = '';
+
+    if (!items || items.length === 0) {
+      dropdownEl.innerHTML = `
+        <div class="route-search-empty">未匹配到“${keyword || ''}”，支持拼音/城市/小区/名山</div>
+        <div class="route-search-item route-search-pick-map">
+          <span class="route-search-item-icon">📍</span>
+          <div class="route-search-item-info">
+            <div class="route-search-item-name">在 3D 地图上点选</div>
+            <div class="route-search-item-desc">点击后在地图上拾取该点坐标</div>
+          </div>
+        </div>
+      `;
+      const pickRow = dropdownEl.querySelector('.route-search-pick-map');
+      pickRow?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerMapPick();
+      });
+    } else {
+      items.forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'route-search-item' + (idx === 0 ? ' active' : '');
+        row.innerHTML = `
+          <span class="route-search-item-icon">${item.icon || '📍'}</span>
+          <div class="route-search-item-info">
+            <div class="route-search-item-name">${item.name}</div>
+            <div class="route-search-item-desc">${item.desc || '中国境内地点'}</div>
+          </div>
+        `;
+        row.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectCandidate(item);
+        });
+        dropdownEl.appendChild(row);
+      });
+
+      const mapPickRow = document.createElement('div');
+      mapPickRow.className = 'route-search-item route-search-pick-map';
+      mapPickRow.innerHTML = `
+        <span class="route-search-item-icon">📍</span>
+        <div class="route-search-item-info">
+          <div class="route-search-item-name">在 3D 地图上点选</div>
+          <div class="route-search-item-desc">点击后在地图上拾取精确坐标</div>
+        </div>
+      `;
+      mapPickRow.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerMapPick();
+      });
+      dropdownEl.appendChild(mapPickRow);
+    }
+    dropdownEl.style.display = 'flex';
+  };
+
+  inputEl.addEventListener('input', () => {
+    const val = (inputEl.value || '').trim();
+    clearTimeout(searchTimer);
+    if (!val) {
+      closeDropdown();
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      const results = await queryLocationCandidates(val);
+      renderCandidates(results, val);
+    }, 180);
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeCandidates.length > 0) {
+        selectCandidate(activeCandidates[0]);
+      } else {
+        const val = (inputEl.value || '').trim();
+        if (val) {
+          queryLocationCandidates(val).then(res => {
+            if (res && res.length > 0) {
+              selectCandidate(res[0]);
+            } else {
+              renderCandidates([], val);
+            }
+          });
+        }
+      }
+    } else if (e.key === 'Escape') {
+      closeDropdown();
+    }
+  });
+
+  inputEl.addEventListener('focus', () => {
+    const val = (inputEl.value || '').trim();
+    if (val && dropdownEl.style.display === 'none') {
+      queryLocationCandidates(val).then(res => renderCandidates(res, val));
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+}
+
+// 渲染途径点列表 (支持拼音/汉字回车搜索、地图定位、删除以及上下拖动手柄排序)
+function renderViaList(mapInstance) {
+  const map = mapInstance || currentOutdoorMap;
   const container = document.getElementById('route-via-list');
   if (!container) return;
   container.innerHTML = '';
@@ -3806,19 +4379,126 @@ function renderViaList(map) {
   routeViaPoints.forEach((via, idx) => {
     const row = document.createElement('div');
     row.className = 'route-via-item';
+    row.setAttribute('draggable', 'true');
+    row.dataset.index = idx;
+
     row.innerHTML = `
-      <span class="pt-tag via">${idx + 1}</span>
-      <span class="via-item-title" title="${via.name} (点击定位)">${via.name}</span>
+      <span class="pt-tag via" title="途径点 ${idx + 1}">${idx + 1}</span>
+      <div class="route-input-wrap">
+        <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持拼音/汉字，回车搜索)..." autocomplete="off" />
+        <div class="route-search-dropdown" style="display: none;"></div>
+      </div>
       <button class="btn-via-del" title="删除该途径点">✕</button>
+      <div class="btn-drag-handle via-drag-handle" title="按住上下拖动调整顺序" draggable="true">⠿</div>
     `;
 
-    row.querySelector('.via-item-title').addEventListener('click', () => {
-      map.flyTo({ center: via.coords, zoom: 13.5, duration: 1200 });
-    });
+    const inputEl = row.querySelector('.via-name-input');
+    const dropdownEl = row.querySelector('.route-search-dropdown');
+    const delBtn = row.querySelector('.btn-via-del');
+    const dragHandle = row.querySelector('.via-drag-handle');
+    const tagEl = row.querySelector('.pt-tag.via');
 
-    row.querySelector('.btn-via-del').addEventListener('click', (e) => {
+    if (tagEl && via.coords) {
+      tagEl.style.cursor = 'pointer';
+      tagEl.addEventListener('click', () => {
+        if (map && via.coords) {
+          map.flyTo({ center: via.coords, zoom: 13.5, duration: 1200 });
+        }
+      });
+    }
+
+    // 绑定途径点输入框的实时联想搜索与回车直达
+    bindRoutePointInput(inputEl, dropdownEl, 'via', idx, map);
+
+    // 删除该途径点
+    delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       removeViaPoint(map, idx);
+    });
+
+    // 拖拽排序逻辑 (HTML5 Drag & Drop)
+    row.addEventListener('dragstart', (e) => {
+      if (document.activeElement === inputEl) {
+        e.preventDefault();
+        return;
+      }
+      draggedViaIndex = idx;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(idx));
+      setTimeout(() => row.classList.add('dragging'), 0);
+    });
+
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      container.querySelectorAll('.route-via-item').forEach(el => el.classList.remove('drag-over'));
+      draggedViaIndex = null;
+    });
+
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('drag-over');
+    });
+
+    row.addEventListener('dragleave', () => {
+      row.classList.remove('drag-over');
+    });
+
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if (draggedViaIndex !== null && draggedViaIndex !== idx) {
+        const [moved] = routeViaPoints.splice(draggedViaIndex, 1);
+        routeViaPoints.splice(idx, 0, moved);
+        // 更新所有途径点 marker 上的数字
+        routeViaPoints.forEach((v, i) => {
+          if (v.marker && v.marker.getElement()) {
+            v.marker.getElement().innerText = i + 1;
+          }
+        });
+        renderViaList(map);
+        autoPlanMultiPointRoute(map);
+      }
+      draggedViaIndex = null;
+    });
+
+    // Touch 移动端触摸拖动支持
+    dragHandle.addEventListener('touchstart', () => {
+      draggedViaIndex = idx;
+      row.classList.add('dragging');
+    }, { passive: true });
+
+    dragHandle.addEventListener('touchmove', (e) => {
+      const touch = e.touches[0];
+      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+      const targetRow = targetEl?.closest('.route-via-item');
+      container.querySelectorAll('.route-via-item').forEach(el => el.classList.remove('drag-over'));
+      if (targetRow && targetRow !== row) {
+        targetRow.classList.add('drag-over');
+      }
+    }, { passive: true });
+
+    dragHandle.addEventListener('touchend', (e) => {
+      row.classList.remove('dragging');
+      const touch = e.changedTouches[0];
+      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+      const targetRow = targetEl?.closest('.route-via-item');
+      container.querySelectorAll('.route-via-item').forEach(el => el.classList.remove('drag-over'));
+      if (targetRow && targetRow.dataset.index !== undefined) {
+        const toIndex = parseInt(targetRow.dataset.index, 10);
+        if (!isNaN(toIndex) && toIndex !== idx) {
+          const [moved] = routeViaPoints.splice(idx, 1);
+          routeViaPoints.splice(toIndex, 0, moved);
+          routeViaPoints.forEach((v, i) => {
+            if (v.marker && v.marker.getElement()) {
+              v.marker.getElement().innerText = i + 1;
+            }
+          });
+          renderViaList(map);
+          autoPlanMultiPointRoute(map);
+        }
+      }
+      draggedViaIndex = null;
     });
 
     container.appendChild(row);
@@ -3827,16 +4507,23 @@ function renderViaList(map) {
 
 // 添加途径点并自动刷新规划
 function addViaPoint(map, coords, label) {
+  const m = map || currentOutdoorMap;
   const idx = routeViaPoints.length + 1;
-  const el = document.createElement('div');
-  el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
-  el.innerText = idx;
+  let marker = null;
+  if (coords && m) {
+    const el = document.createElement('div');
+    el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+    el.innerText = idx;
+    el.addEventListener('click', () => {
+      m.flyTo({ center: coords, zoom: 14, duration: 1200 });
+    });
 
-  const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-    .setLngLat(coords)
-    .addTo(map);
+    marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat(coords)
+      .addTo(m);
+  }
 
-  const viaName = label || `途径点 ${idx} (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
+  const viaName = label || (coords ? `途径点 ${idx} (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)` : '');
   routeViaPoints.push({
     id: 'via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     coords,
@@ -3844,15 +4531,18 @@ function addViaPoint(map, coords, label) {
     marker
   });
 
-  renderViaList(map);
+  renderViaList(m);
   const routePanel = document.getElementById('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
 
-  autoPlanMultiPointRoute(map);
+  if (coords && m) {
+    autoPlanMultiPointRoute(m);
+  }
 }
 
 // 移除特定途径点并重新编排序号
 function removeViaPoint(map, index) {
+  const m = map || currentOutdoorMap;
   if (index >= 0 && index < routeViaPoints.length) {
     if (routeViaPoints[index].marker) {
       routeViaPoints[index].marker.remove();
@@ -3866,13 +4556,14 @@ function removeViaPoint(map, index) {
       }
     });
 
-    renderViaList(map);
-    autoPlanMultiPointRoute(map);
+    renderViaList(m);
+    if (m) autoPlanMultiPointRoute(m);
   }
 }
 
 // 设置起点
 function setRouteStartPoint(map, coords, label) {
+  const m = map || currentOutdoorMap;
   routeStartCoord = coords;
   routeStartName = label || `起点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
   const startInput = document.getElementById('route-start-input');
@@ -3880,15 +4571,21 @@ function setRouteStartPoint(map, coords, label) {
   if (startInput) startInput.value = routeStartName;
   if (routeStartMarker) routeStartMarker.remove();
   const el = document.createElement('div');
-  el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+  el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '起';
-  routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(map);
+  el.addEventListener('click', () => {
+    if (m) m.flyTo({ center: coords, zoom: 14, duration: 1200 });
+  });
+  if (m) {
+    routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
+  }
   if (routePanel) routePanel.style.display = 'flex';
-  autoPlanMultiPointRoute(map);
+  if (m) autoPlanMultiPointRoute(m);
 }
 
 // 设置终点
 function setRouteEndPoint(map, coords, label) {
+  const m = map || currentOutdoorMap;
   routeEndCoord = coords;
   routeEndName = label || `终点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
   const endInput = document.getElementById('route-end-input');
@@ -3896,11 +4593,16 @@ function setRouteEndPoint(map, coords, label) {
   if (endInput) endInput.value = routeEndName;
   if (routeEndMarker) routeEndMarker.remove();
   const el = document.createElement('div');
-  el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+  el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '终';
-  routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(map);
+  el.addEventListener('click', () => {
+    if (m) m.flyTo({ center: coords, zoom: 14, duration: 1200 });
+  });
+  if (m) {
+    routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
+  }
   if (routePanel) routePanel.style.display = 'flex';
-  autoPlanMultiPointRoute(map);
+  if (m) autoPlanMultiPointRoute(m);
 }
 
 // 核心自动化多途径点规划与海拔剖面解算引擎
@@ -4094,11 +4796,17 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
   }
 }
 
-async function autoPlanMultiPointRoute(map, shouldFitBounds = false) {
+async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
+  const map = mapInstance || currentOutdoorMap;
+  if (!map) return;
   const reqId = ++currentRouteRequestId;
   const ordered = [];
   if (routeStartCoord) ordered.push({ coords: routeStartCoord, role: 'start', name: routeStartName });
-  routeViaPoints.forEach((v, i) => ordered.push({ coords: v.coords, role: 'via', name: v.name, index: i + 1 }));
+  routeViaPoints.forEach((v, i) => {
+    if (v && v.coords) {
+      ordered.push({ coords: v.coords, role: 'via', name: v.name, index: i + 1 });
+    }
+  });
   if (routeEndCoord) ordered.push({ coords: routeEndCoord, role: 'end', name: routeEndName });
 
   const statsBox = document.getElementById('route-stats-box');
@@ -4183,8 +4891,6 @@ function setupOutdoorRouteSystem(map) {
   const endInput = document.getElementById('route-end-input');
   const startDropdown = document.getElementById('route-start-dropdown');
   const endDropdown = document.getElementById('route-end-dropdown');
-  const btnPickStart = document.getElementById('btn-pick-start');
-  const btnPickEnd = document.getElementById('btn-pick-end');
   const btnAddViaPoint = document.getElementById('btn-add-via-point');
   const btnContinuousPick = document.getElementById('btn-continuous-pick');
   const btnCalcRoute = document.getElementById('btn-calc-route');
@@ -4241,159 +4947,67 @@ function setupOutdoorRouteSystem(map) {
     toggleContinuousPick();
   });
 
-  // 单次添加一个途径点
+  currentOutdoorMap = map;
+
+  // 单次添加一个途径点：插入新途径点并自动聚焦其输入框
   btnAddViaPoint?.addEventListener('click', () => {
-    pickingRoutePt = 'via';
-    map.getCanvas().style.cursor = 'crosshair';
-    if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>等待地图点击...</span>';
+    addViaPoint(map, null, '');
+    const container = document.getElementById('route-via-list');
+    if (container) {
+      const lastInput = container.querySelector('.route-via-item:last-child .via-name-input');
+      if (lastInput) {
+        lastInput.focus();
+      }
+    }
   });
 
-  // 抽象绑定起终点输入框的实时自动搜索与点选
-  function bindRoutePointInput(inputEl, dropdownEl, btnEl, pointType) {
-    if (!inputEl || !dropdownEl) return;
-    let searchTimer = null;
-    let activeCandidates = [];
+  // 绑定起点与终点输入框 (支持拼音/汉字联想及回车直达)
+  bindRoutePointInput(startInput, startDropdown, 'start', null, map);
+  bindRoutePointInput(endInput, endDropdown, 'end', null, map);
 
-    const closeDropdown = () => {
-      dropdownEl.style.display = 'none';
-      dropdownEl.innerHTML = '';
-      activeCandidates = [];
-    };
+  // 对调起终点按钮绑定 (点击 ⇅ 键对调起终点并反转途径点)
+  const swapStartAndEndRoutePoints = () => {
+    const tCoord = routeStartCoord;
+    const tName = routeStartName;
+    const tMarker = routeStartMarker;
 
-    const triggerMapPick = () => {
-      closeDropdown();
-      pickingRoutePt = pointType;
-      map.getCanvas().style.cursor = 'crosshair';
-      if (btnEl) btnEl.innerText = '等待点击...';
-    };
+    routeStartCoord = routeEndCoord;
+    routeStartName = routeEndName;
+    routeStartMarker = routeEndMarker;
 
-    const selectCandidate = (item) => {
-      inputEl.value = item.name;
-      closeDropdown();
-      if (pointType === 'start') {
-        setRouteStartPoint(map, item.coords, item.name);
-      } else if (pointType === 'end') {
-        setRouteEndPoint(map, item.coords, item.name);
-      }
-      map.flyTo({
-        center: item.coords,
-        zoom: Math.max(map.getZoom(), 11),
-        duration: 1200
-      });
-    };
+    routeEndCoord = tCoord;
+    routeEndName = tName;
+    routeEndMarker = tMarker;
 
-    const renderCandidates = (items, keyword) => {
-      activeCandidates = items || [];
-      dropdownEl.innerHTML = '';
+    if (startInput) startInput.value = routeStartName || '';
+    if (endInput) endInput.value = routeEndName || '';
 
-      if (!items || items.length === 0) {
-        dropdownEl.innerHTML = `
-          <div class="route-search-empty">未匹配到“${keyword || ''}”，支持城市/小区/名山</div>
-          <div class="route-search-item route-search-pick-map">
-            <span class="route-search-item-icon">📍</span>
-            <div class="route-search-item-info">
-              <div class="route-search-item-name">在 3D 地图上点选</div>
-              <div class="route-search-item-desc">点击后在地图上拾取该点</div>
-            </div>
-          </div>
-        `;
-        const pickRow = dropdownEl.querySelector('.route-search-pick-map');
-        pickRow?.addEventListener('click', (e) => {
-          e.stopPropagation();
-          triggerMapPick();
-        });
-      } else {
-        items.forEach((item, idx) => {
-          const row = document.createElement('div');
-          row.className = 'route-search-item' + (idx === 0 ? ' active' : '');
-          row.innerHTML = `
-            <span class="route-search-item-icon">${item.icon || '📍'}</span>
-            <div class="route-search-item-info">
-              <div class="route-search-item-name">${item.name}</div>
-              <div class="route-search-item-desc">${item.desc || '中国境内地点'}</div>
-            </div>
-          `;
-          row.addEventListener('click', (e) => {
-            e.stopPropagation();
-            selectCandidate(item);
-          });
-          dropdownEl.appendChild(row);
-        });
+    // 更新地图上的 marker 标识与色彩 (起=绿，终=红)
+    if (routeStartMarker && routeStartMarker.getElement()) {
+      routeStartMarker.getElement().style.background = '#16a34a';
+      routeStartMarker.getElement().innerText = '起';
+    }
+    if (routeEndMarker && routeEndMarker.getElement()) {
+      routeEndMarker.getElement().style.background = '#ef4444';
+      routeEndMarker.getElement().innerText = '终';
+    }
 
-        const mapPickRow = document.createElement('div');
-        mapPickRow.className = 'route-search-item route-search-pick-map';
-        mapPickRow.innerHTML = `
-          <span class="route-search-item-icon">📍</span>
-          <div class="route-search-item-info">
-            <div class="route-search-item-name">在 3D 地图上点选</div>
-            <div class="route-search-item-desc">点击后在地图上拾取精确坐标</div>
-          </div>
-        `;
-        mapPickRow.addEventListener('click', (e) => {
-          e.stopPropagation();
-          triggerMapPick();
-        });
-        dropdownEl.appendChild(mapPickRow);
-      }
-      dropdownEl.style.display = 'flex';
-    };
-
-    inputEl.addEventListener('input', () => {
-      const val = (inputEl.value || '').trim();
-      clearTimeout(searchTimer);
-      if (!val) {
-        closeDropdown();
-        return;
-      }
-      searchTimer = setTimeout(async () => {
-        const results = await queryLocationCandidates(val);
-        renderCandidates(results, val);
-      }, 200);
-    });
-
-    inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (activeCandidates.length > 0) {
-          selectCandidate(activeCandidates[0]);
-        } else {
-          const val = (inputEl.value || '').trim();
-          if (val) {
-            queryLocationCandidates(val).then(res => {
-              if (res && res.length > 0) {
-                selectCandidate(res[0]);
-              } else {
-                renderCandidates([], val);
-              }
-            });
-          }
+    // 途径点顺序倒转 (返程)
+    if (routeViaPoints && routeViaPoints.length > 1) {
+      routeViaPoints.reverse();
+      routeViaPoints.forEach((v, i) => {
+        if (v.marker && v.marker.getElement()) {
+          v.marker.getElement().innerText = i + 1;
         }
-      } else if (e.key === 'Escape') {
-        closeDropdown();
-      }
-    });
+      });
+    }
 
-    btnEl?.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const val = (inputEl.value || '').trim();
-      if (val) {
-        const results = await queryLocationCandidates(val);
-        renderCandidates(results, val);
-      } else {
-        triggerMapPick();
-      }
-    });
+    renderViaList(map);
+    autoPlanMultiPointRoute(map);
+  };
 
-    inputEl.addEventListener('focus', () => {
-      const val = (inputEl.value || '').trim();
-      if (val && dropdownEl.style.display === 'none') {
-        queryLocationCandidates(val).then(res => renderCandidates(res, val));
-      }
-    });
-  }
-
-  bindRoutePointInput(startInput, startDropdown, btnPickStart, 'start');
-  bindRoutePointInput(endInput, endDropdown, btnPickEnd, 'end');
+  document.getElementById('btn-swap-route-pts')?.addEventListener('click', swapStartAndEndRoutePoints);
+  document.getElementById('btn-swap-route-pts-2')?.addEventListener('click', swapStartAndEndRoutePoints);
 
   // 地图点击：智能响应连续拾点模式与单点模式
   map.on('click', e => {
@@ -4421,12 +5035,30 @@ function setupOutdoorRouteSystem(map) {
 
     if (pickingRoutePt === 'start') {
       setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
-      if (btnPickStart) btnPickStart.innerText = '🔍 搜索';
     } else if (pickingRoutePt === 'end') {
       setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
-      if (btnPickEnd) btnPickEnd.innerText = '🔍 搜索';
     } else if (pickingRoutePt === 'via') {
-      addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
+      if (targetViaIndexForPick !== null && routeViaPoints[targetViaIndexForPick]) {
+        const v = routeViaPoints[targetViaIndexForPick];
+        v.coords = [lng, lat];
+        v.name = cleanLocation || `途径点 ${targetViaIndexForPick + 1}`;
+        if (v.marker) {
+          v.marker.setLngLat([lng, lat]);
+        } else {
+          const el = document.createElement('div');
+          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+          el.innerText = targetViaIndexForPick + 1;
+          el.addEventListener('click', () => {
+            map.flyTo({ center: [lng, lat], zoom: 14, duration: 1200 });
+          });
+          v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
+        }
+        renderViaList(map);
+        autoPlanMultiPointRoute(map);
+      } else {
+        addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
+      }
+      targetViaIndexForPick = null;
       if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
     }
     pickingRoutePt = null;
@@ -4487,10 +5119,10 @@ function setupOutdoorRouteSystem(map) {
     if (routeExportMenu && !routeExportMenu.contains(e.target) && e.target !== btnRouteExportTrigger) {
       routeExportMenu.style.display = 'none';
     }
-    if (startDropdown && !startDropdown.contains(e.target) && e.target !== startInput && e.target !== btnPickStart) {
+    if (startDropdown && !startDropdown.contains(e.target) && e.target !== startInput) {
       startDropdown.style.display = 'none';
     }
-    if (endDropdown && !endDropdown.contains(e.target) && e.target !== endInput && e.target !== btnPickEnd) {
+    if (endDropdown && !endDropdown.contains(e.target) && e.target !== endInput) {
       endDropdown.style.display = 'none';
     }
   });
@@ -4518,8 +5150,6 @@ function setupOutdoorRouteSystem(map) {
 
     if (startInput) startInput.value = '';
     if (endInput) endInput.value = '';
-    if (btnPickStart) btnPickStart.innerText = '🔍 搜索';
-    if (btnPickEnd) btnPickEnd.innerText = '🔍 搜索';
     if (startDropdown) startDropdown.style.display = 'none';
     if (endDropdown) endDropdown.style.display = 'none';
     if (routeExportMenu) routeExportMenu.style.display = 'none';

@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.2.17" />
+  <link rel="stylesheet" href="style.css?v=1.2.18" />
   <script src="vendor/maplibre-gl.js"></script>
   <script src="vendor/maplibre-contour.js"></script>
 </head>
@@ -256,22 +256,22 @@
             <div class="route-point-row">
               <span class="pt-tag start">起</span>
               <div class="route-input-wrap">
-                <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入地名搜索 (或地图点选)..." autocomplete="off" />
+                <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入起点地名 (支持拼音/汉字，回车搜索)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-start-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-pick-pt" id="btn-pick-start" title="搜索地点或在地图上点选">🔍 搜索</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts" title="点击与终点对调起终位置">⇅</button>
             </div>
 
-            <!-- 中间动态途径点列表 (支持几十个点平滑衔接) -->
+            <!-- 中间动态途径点列表 (支持几十个点平滑衔接与上下拖拽排序) -->
             <div class="route-via-list" id="route-via-list"></div>
 
             <div class="route-point-row">
               <span class="pt-tag end">终</span>
               <div class="route-input-wrap">
-                <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入地名搜索 (或地图点选)..." autocomplete="off" />
+                <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入终点地名 (支持拼音/汉字，回车搜索)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-end-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-pick-pt" id="btn-pick-end" title="搜索地点或在地图上点选">🔍 搜索</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts-2" title="点击与起点对调起终位置">⇅</button>
             </div>
           </div>
 
@@ -693,6 +693,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=1.2.17"></script>
+  <script src="app.js?v=1.2.18"></script>
 </body>
 </html>

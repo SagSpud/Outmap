@@ -2212,31 +2212,56 @@ html, body {
   font-weight: 600;
 }
 
-.btn-pick-pt {
+.btn-drag-handle {
   background: #f8fafc;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #334155;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
   cursor: pointer;
-  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.12s ease;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.btn-pick-pt:hover {
+.btn-drag-handle:hover {
   background: #e0f2fe;
   border-color: #0284c7;
   color: #0284c7;
 }
 
-/* 动态途径点列表 (支持数十个点纵向顺滑滚动) */
+.via-drag-handle {
+  width: 22px;
+  height: 22px;
+  font-size: 13px;
+  border-color: transparent;
+  background: transparent;
+  cursor: grab;
+}
+
+.via-drag-handle:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #0284c7;
+}
+
+.via-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* 动态途径点列表 (支持数十个点纵向顺滑滚动与拖拽重排) */
 .route-via-list {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  max-height: 150px;
+  max-height: 180px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -2248,8 +2273,9 @@ html, body {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   transition: all 0.12s ease;
+  position: relative;
 }
 
 .route-via-item:hover {
@@ -2257,24 +2283,49 @@ html, body {
   border-color: #bae6fd;
 }
 
+.route-via-item.dragging {
+  opacity: 0.35;
+  border: 1.5px dashed #0284c7;
+  background: #eff6ff;
+}
+
+.route-via-item.drag-over {
+  border-top: 2.5px solid #0284c7;
+  background: #f0f9ff;
+}
+
 .pt-tag.via {
   background: #0284c7;
   font-size: 9.5px;
 }
 
-.via-item-title {
+.route-via-item .route-input-wrap {
   flex: 1;
-  font-size: 11px;
-  color: #334155;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
+  min-width: 0;
+  position: relative;
 }
 
-.via-item-title:hover {
-  color: #0284c7;
-  text-decoration: underline;
+.route-via-item .via-name-input {
+  height: 24px;
+  font-size: 11px;
+  padding: 2px 6px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+}
+
+.route-via-item .via-name-input:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 1.5px rgba(2, 132, 199, 0.15);
+}
+
+.route-via-item .route-search-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  max-height: 160px;
+  z-index: 1300;
 }
 
 .btn-via-del {
@@ -2282,10 +2333,11 @@ html, body {
   border: none;
   color: #94a3b8;
   cursor: pointer;
-  font-size: 11px;
-  padding: 2px 5px;
+  font-size: 12px;
+  padding: 2px 4px;
   border-radius: 3px;
   line-height: 1;
+  transition: all 0.12s ease;
 }
 
 .btn-via-del:hover {
