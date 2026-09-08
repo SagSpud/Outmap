@@ -1082,7 +1082,7 @@ async function initApplication() {
       }
     });
 
-    // 微观路网体系 (Apple Maps 风格：柔和石板灰细边 + 纯净暖白路心)
+    // 微观路网体系 (Apple Maps 风格：柔和石板灰细边 + 纯净暖白路心，强化立体对比度)
     map.addLayer({
       id: 'osm-minor-roads-casing',
       type: 'line',
@@ -1090,9 +1090,9 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
       paint: {
-        'line-color': '#d8d6d0',
+        'line-color': '#c6c3bb',
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.2, 11, 2.2, 14, 4.0],
-        'line-opacity': 0.85
+        'line-opacity': 0.88
       }
     });
 
@@ -1109,7 +1109,7 @@ async function initApplication() {
       }
     });
 
-    // 城市主要干道、国道与省道 (Apple Maps 风格：纯净暖白路心，彻底剔除晃眼刺目橙色)
+    // 城市主要干道、国道与省道 (Apple Maps 风格：纯净暖白路心，清晰立体轮廓)
     map.addLayer({
       id: 'osm-primary-roads-casing',
       type: 'line',
@@ -1117,9 +1117,9 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
       paint: {
-        'line-color': '#d4d0c8',
+        'line-color': '#bebab0',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 10, 3.6, 14, 6.0],
-        'line-opacity': 0.9
+        'line-opacity': 0.92
       }
     });
 
@@ -1481,7 +1481,7 @@ async function initApplication() {
       }
     });
 
-    // 17. 3D 建筑白模立体高度
+    // 17. 3D 建筑白模立体高度 (高质感暖灰实心挤出，杜绝地表穿透与模糊掩盖)
     map.addLayer({
       id: 'osm-buildings-3d',
       type: 'fill-extrusion',
@@ -1489,10 +1489,10 @@ async function initApplication() {
       'source-layer': 'building',
       minzoom: 13,
       paint: {
-        'fill-extrusion-color': '#dddad3',
+        'fill-extrusion-color': '#e2ded6',
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-        'fill-extrusion-opacity': 0.75
+        'fill-extrusion-opacity': 0.92
       }
     });
 
@@ -1876,6 +1876,21 @@ if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
+// 自动触发地形高程重对齐与渲染微刷新
+// 彻底根除浏览器端“DEM 切片晚到导致的图层被地表掩埋/覆盖，需手动拖拽才清晰”的渲染漏洞
+function triggerTerrainRealign(map) {
+  if (!map) return;
+  if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
+  if (!map.isMoving()) {
+    map.panBy([0.5, 0], { duration: 0 });
+    requestAnimationFrame(() => {
+      map.panBy([-0.5, 0], { duration: 0 });
+      if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
+    });
+  }
+}
+window.triggerTerrainRealign = triggerTerrainRealign;
+
 // 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
 // 彻底根除两阶段二次位移、落地拉回抖动与滚轮缩放时的漂移干扰
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
@@ -1945,6 +1960,17 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
     speed: 1.5,
     duration,
     essential: true
+  });
+
+  // 飞跃落地后自动触发地形高程重对齐与渲染微刷新
+  // 彻底根除浏览器端“DEM 切片晚到导致的图层被地表掩埋/覆盖，需手动拖拽才清晰”的渲染漏洞
+  map.once('moveend', () => {
+    triggerTerrainRealign(map);
+    setTimeout(() => triggerTerrainRealign(map), 300);
+    setTimeout(() => triggerTerrainRealign(map), 600);
+    map.once('idle', () => {
+      triggerTerrainRealign(map);
+    });
   });
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
@@ -2750,7 +2776,7 @@ function setupProvinceDropdown(map) {
     const allChinaBtn = document.createElement('div');
     allChinaBtn.className = 'prov-all-china-btn';
     allChinaBtn.innerHTML = `
-      <span class="p-name">🇨🇳 全国总览</span>
+      <span class="p-name">全国总览</span>
     `;
     allChinaBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -3816,6 +3842,14 @@ function flyToProvince(map, key) {
     pitch: targetPitch,
     bearing: 0,
     duration: 2200
+  });
+  map.once('moveend', () => {
+    triggerTerrainRealign(map);
+    setTimeout(() => triggerTerrainRealign(map), 300);
+    setTimeout(() => triggerTerrainRealign(map), 600);
+    map.once('idle', () => {
+      triggerTerrainRealign(map);
+    });
   });
   const regionEl = document.getElementById('status-region');
   if (regionEl) {
