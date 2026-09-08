@@ -206,6 +206,43 @@ const CHINA_TILES_BOXES = [
   [108.0, 124.0, 3.0, 20.0]   // 南海诸岛及曾母暗沙
 ];
 
+const CHINA_PROVINCE_BBOX_ENTRIES = [
+  ['anhui', [114.6, 119.8, 29.5, 34.8]],
+  ['aomen', [113.4, 113.7, 22.0, 22.3]],
+  ['beijing', [115.2, 117.7, 39.2, 41.3]],
+  ['chongqing', [105.1, 110.4, 28.0, 32.4]],
+  ['fujian', [115.6, 120.9, 23.3, 28.5]],
+  ['gansu', [92.0, 108.9, 32.3, 43.0]],
+  ['guangdong', [109.4, 117.5, 20.0, 25.7]],
+  ['guangxi', [104.2, 112.3, 20.7, 26.6]],
+  ['guizhou', [103.4, 109.8, 24.4, 29.4]],
+  ['hainan', [108.4, 111.3, 18.0, 20.4]],
+  ['hebei', [113.2, 120.0, 35.8, 42.8]],
+  ['heilongjiang', [121.0, 135.3, 43.2, 53.8]],
+  ['henan', [110.1, 116.8, 31.2, 36.6]],
+  ['hubei', [108.1, 116.3, 28.8, 33.5]],
+  ['hunan', [108.6, 114.4, 24.4, 30.3]],
+  ['jilin', [121.4, 131.5, 40.6, 46.5]],
+  ['jiangsu', [116.1, 122.1, 30.5, 35.3]],
+  ['jiangxi', [113.3, 118.7, 24.3, 30.3]],
+  ['liaoning', [118.6, 126.0, 38.5, 43.7]],
+  ['neimenggu', [97.0, 126.5, 37.4, 53.5]],
+  ['ningxia', [104.1, 107.9, 35.0, 39.6]],
+  ['qinghai', [89.2, 103.3, 31.4, 39.5]],
+  ['shandong', [114.6, 122.9, 34.1, 38.6]],
+  ['shanxi', [110.0, 114.7, 34.4, 40.9]],
+  ['shaanxi', [105.3, 111.4, 31.5, 39.8]],
+  ['shanghai', [120.6, 122.4, 30.5, 32.1]],
+  ['sichuan', [97.1, 108.7, 25.8, 34.5]],
+  ['taiwan', [119.5, 124.0, 21.5, 26.0]],
+  ['tianjin', [116.5, 118.3, 38.3, 40.5]],
+  ['xizang', [78.2, 99.3, 26.6, 36.7]],
+  ['xianggang', [113.8, 114.5, 22.1, 22.6]],
+  ['xinjiang', [73.3, 96.6, 34.1, 49.4]],
+  ['yunnan', [97.3, 106.4, 20.9, 29.4]],
+  ['zhejiang', [117.8, 123.2, 26.8, 31.5]]
+];
+
 function tile2lon(x, z) {
   return (x / Math.pow(2, z)) * 360 - 180;
 }
@@ -664,10 +701,59 @@ function scanDirStats(dir) {
   return { count, bytes };
 }
 
+function scanProvincesFromDisk() {
+  const detected = {};
+  function scanLayer(dir, layerName) {
+    if (!fs.existsSync(dir)) return;
+    try {
+      const zoomDirs = fs.readdirSync(dir).filter(z => /^\d+$/.test(z));
+      for (const zStr of zoomDirs) {
+        const z = parseInt(zStr);
+        const zPath = path.join(dir, zStr);
+        let xDirs = [];
+        try { xDirs = fs.readdirSync(zPath).filter(x => /^\d+$/.test(x)); } catch (e) {}
+        for (const xStr of xDirs) {
+          const x = parseInt(xStr);
+          const xPath = path.join(zPath, xStr);
+          let files = [];
+          try { files = fs.readdirSync(xPath); } catch (e) {}
+          for (const f of files) {
+            const m = f.match(/^(\d+)\./);
+            if (!m) continue;
+            const y = parseInt(m[1]);
+            const lng = tile2lon(x + 0.5, z);
+            const lat = tile2lat(y + 0.5, z);
+            for (const [k, bbox] of CHINA_PROVINCE_BBOX_ENTRIES) {
+              if (lng >= bbox[0] && lng <= bbox[1] && lat >= bbox[2] && lat <= bbox[3]) {
+                detected[k] = detected[k] || { maxZ: 0, dem: false, vec: false, layers: {} };
+                detected[k].maxZ = Math.max(detected[k].maxZ, z);
+                if (layerName === 'dem') {
+                  detected[k].dem = true;
+                  detected[k].layers.dem = detected[k].layers.dem || { maxZ: 0 };
+                  detected[k].layers.dem.maxZ = Math.max(detected[k].layers.dem.maxZ, z);
+                }
+                if (layerName === 'vector') {
+                  detected[k].vec = true;
+                  detected[k].layers.vector = detected[k].layers.vector || { maxZ: 0 };
+                  detected[k].layers.vector.maxZ = Math.max(detected[k].layers.vector.maxZ, z);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  scanLayer(OFFLINE_VEC_DIR, 'vector');
+  scanLayer(OFFLINE_DEM_DIR, 'dem');
+  return detected;
+}
+
 function getQuickTileCount(forceRefresh = false) {
   if (memoryTileStats && !forceRefresh) return memoryTileStats;
   const manifest = loadOfflineManifest();
-  if (manifest.stats && typeof manifest.stats.totalTiles === 'number' && manifest.stats.totalBytes && !forceRefresh) {
+  const hasProvRecord = manifest.provinces && Object.keys(manifest.provinces).length > 0;
+  if (manifest.stats && typeof manifest.stats.totalTiles === 'number' && manifest.stats.totalBytes && !forceRefresh && hasProvRecord) {
     memoryTileStats = manifest.stats;
     return memoryTileStats;
   }
@@ -682,7 +768,10 @@ function getQuickTileCount(forceRefresh = false) {
     totalBytes: dem.bytes + vec.bytes,
     lastScannedAt: Date.now()
   };
-  saveOfflineManifest({ stats: memoryTileStats });
+  // 磁盘反向智能检索识别：彻底杜绝“旧版本已下载省份因为清单未更新而被遗漏”
+  const detectedProvs = scanProvincesFromDisk();
+  const mergedProvinces = { ...detectedProvs, ...(manifest.provinces || {}) };
+  saveOfflineManifest({ stats: memoryTileStats, provinces: mergedProvinces });
   return memoryTileStats;
 }
 
@@ -793,8 +882,38 @@ app.whenReady().then(async () => {
     return { success: true };
   });
 
-  // 多线程金字塔瓦片批量并发下载引擎 (支持多省批量选择、已下载零扫描秒跳过、极速目录索引与无阻塞校验)
-  ipcMain.handle('start-pyramid-download', async (event, { bbox, minZ, maxZ, downloadDem, downloadVec, provinceKey, provinces, isVerify }) => {
+  // 离线图层云端版本探针 (轻量 HEAD 请求，毫秒级比对 OpenFreeMap 最新切片时间戳)
+  ipcMain.handle('check-tile-updates', async () => {
+    try {
+      const manifest = loadOfflineManifest();
+      const r = await fetch('https://tiles.openfreemap.org/planet/5/26/13.pbf', {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000)
+      });
+      const remoteLastModStr = r.headers.get('last-modified');
+      const remoteDate = remoteLastModStr ? new Date(remoteLastModStr) : new Date();
+      const localLastScanned = manifest.stats?.lastScannedAt ? new Date(manifest.stats.lastScannedAt) : null;
+
+      let hasUpdates = false;
+      if (remoteDate && localLastScanned) {
+        // 如果远端修改时间晚于本地扫描/更新时间 1天以上，提示有更新
+        hasUpdates = remoteDate.getTime() > (localLastScanned.getTime() + 86400000);
+      }
+
+      return {
+        success: true,
+        hasUpdates,
+        remoteDate: remoteDate.toLocaleDateString('zh-CN'),
+        remoteTime: remoteDate.toISOString(),
+        localDate: localLastScanned ? localLastScanned.toLocaleDateString('zh-CN') : '未记录'
+      };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // 多线程金字塔瓦片批量并发下载引擎 (支持多省批量选择、已下载零扫描秒跳过、方案 A 切片级增量更新与无阻塞校验)
+  ipcMain.handle('start-pyramid-download', async (event, { bbox, minZ, maxZ, downloadDem, downloadVec, provinceKey, provinces, isVerify, isIncrementalUpdate }) => {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
     }
@@ -861,13 +980,13 @@ app.whenReady().then(async () => {
       if (downloadVec) requestedLayerLevels.push(vectorSavedMaxZ);
       const requestedSavedMaxZ = requestedLayerLevels.length > 0 ? Math.min(...requestedLayerLevels) : 0;
 
-      if (!isVerify && requestedSavedMaxZ >= maxZ && maxZ > 0) {
+      if (!isVerify && !isIncrementalUpdate && requestedSavedMaxZ >= maxZ && maxZ > 0) {
         allReadyCount++;
         continue;
       }
 
       let effectiveMinZ = minZ || 0;
-      if (!isVerify && requestedSavedMaxZ > 0 && maxZ > requestedSavedMaxZ) {
+      if (!isVerify && !isIncrementalUpdate && requestedSavedMaxZ > 0 && maxZ > requestedSavedMaxZ) {
         effectiveMinZ = requestedSavedMaxZ + 1;
       }
 
@@ -891,7 +1010,7 @@ app.whenReady().then(async () => {
       }
     }
 
-    // 若全部选中的省份均已就绪，瞬间返回
+    // 若全部选中的省份均已就绪且非增量更新，瞬间返回
     if (allTiles.length === 0) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         const st = getQuickTileCount();
@@ -925,6 +1044,9 @@ app.whenReady().then(async () => {
     let failedCount = 0;
     let totalBytes = 0;
     let newlySavedCount = 0;
+    let unchangedCount = 0;
+    let updatedCount = 0;
+    let newlyAddedCount = 0;
     const startTime = Date.now();
     const concurrency = 32;
     let index = 0;
@@ -942,7 +1064,81 @@ app.whenReady().then(async () => {
 
         const existsLocally = checkTileExistsFast(dirPath, fileName);
 
-        if (existsLocally) {
+        if (isIncrementalUpdate) {
+          if (!existsLocally) {
+            // 本地原本未下载/缺失的切片 -> 查漏补缺下载写入
+            try {
+              let onlineUrl = type === 'dem'
+                ? `https://tiles.mapterhorn.com/${z}/${x}/${fileName}`
+                : ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+              const r = await fetch(onlineUrl, { signal: AbortSignal.timeout(6000) });
+              if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                if (buf.length > 20) {
+                  const dirKey = `${type}/${z}/${x}`;
+                  if (!createdDirs.has(dirKey)) {
+                    if (!fs.existsSync(dirPath)) {
+                      fs.mkdirSync(dirPath, { recursive: true });
+                    }
+                    createdDirs.add(dirKey);
+                  }
+                  await fs.promises.writeFile(localPath, buf);
+                  if (dirFileSets.has(dirPath)) {
+                    dirFileSets.get(dirPath).add(fileName);
+                  }
+                  totalBytes += buf.length;
+                  savedCount++;
+                  newlyAddedCount++;
+                } else {
+                  failedCount++;
+                }
+              } else {
+                failedCount++;
+              }
+            } catch (e) {
+              failedCount++;
+            }
+          } else {
+            // 本地已有切片 -> 方案 A：通过 If-Modified-Since 请求进行 304 条件比对
+            try {
+              let onlineUrl = type === 'dem'
+                ? `https://tiles.mapterhorn.com/${z}/${x}/${fileName}`
+                : ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+              const stat = fs.statSync(localPath);
+              const mtime = stat.mtime;
+              const headers = {};
+              if (mtime) {
+                headers['If-Modified-Since'] = mtime.toUTCString();
+              }
+              const r = await fetch(onlineUrl, { headers, signal: AbortSignal.timeout(6000) });
+              if (r.status === 304) {
+                // 304 Not Modified: 远端该切片无改动，0 字节，本地原样保留，绝对不删改
+                unchangedCount++;
+                savedCount++;
+              } else if (r.ok) {
+                const buf = Buffer.from(await r.arrayBuffer());
+                if (buf.length > 20) {
+                  await fs.promises.writeFile(localPath, buf);
+                  totalBytes += buf.length;
+                  updatedCount++;
+                  savedCount++;
+                } else {
+                  unchangedCount++;
+                  savedCount++;
+                }
+              } else {
+                // 网络异常或限流：保留本地原有切片
+                unchangedCount++;
+                savedCount++;
+              }
+            } catch (e) {
+              // 离线/超时保护：原样保留本地已有切片
+              unchangedCount++;
+              savedCount++;
+            }
+          }
+          completed++;
+        } else if (existsLocally) {
           completed++;
           savedCount++;
         } else {
@@ -1016,24 +1212,29 @@ app.whenReady().then(async () => {
               };
             }
             if (!manifest.stats) manifest.stats = { totalTiles: 0, totalBytes: 0 };
-            manifest.stats.totalTiles = (manifest.stats.totalTiles || 0) + newlySavedCount;
+            manifest.stats.totalTiles = (manifest.stats.totalTiles || 0) + newlySavedCount + newlyAddedCount;
             manifest.stats.totalBytes = (manifest.stats.totalBytes || 0) + totalBytes;
             memoryTileStats = manifest.stats;
             saveOfflineManifest({ stats: memoryTileStats, provinces: manifest.provinces });
           }
 
           if (mainWindow && !mainWindow.isDestroyed()) {
-            const curTiles = (memoryTileStats ? (memoryTileStats.totalTiles || 0) : 0) + newlySavedCount;
+            const curTiles = (memoryTileStats ? (memoryTileStats.totalTiles || 0) : 0) + newlySavedCount + newlyAddedCount;
             const curBytes = (memoryTileStats ? (memoryTileStats.totalBytes || 0) : 0) + totalBytes;
             mainWindow.webContents.send('download-progress', {
               completed,
               total,
               savedCount,
               failedCount,
+              unchangedCount,
+              updatedCount,
+              newlyAddedCount,
               speed,
               percent,
               bytes: totalBytes,
               done: isDone,
+              isVerify,
+              isIncrementalUpdate,
               totalTiles: curTiles,
               totalBytes: curBytes
             });

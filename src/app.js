@@ -2699,7 +2699,14 @@ let offlineProvCache = null;
 async function syncOfflineManifest() {
   if (window.electronAPI && window.electronAPI.getOfflineManifest) {
     try {
-      const manifest = await window.electronAPI.getOfflineManifest();
+      let manifest = await window.electronAPI.getOfflineManifest();
+      // 若清单中尚未登记省份，但本地磁盘实际已存在切片，主动触发一次底层磁盘反向检索
+      if (!manifest || !manifest.provinces || Object.keys(manifest.provinces).length === 0) {
+        if (window.electronAPI.rescanOfflineTiles) {
+          await window.electronAPI.rescanOfflineTiles();
+          manifest = await window.electronAPI.getOfflineManifest();
+        }
+      }
       if (manifest && manifest.provinces) {
         offlineProvCache = manifest.provinces;
         try { localStorage.setItem('outmap_offline_provinces', JSON.stringify(offlineProvCache)); } catch (e) {}
@@ -2938,6 +2945,8 @@ function setupPyramidModal(map) {
   const btnStart = document.getElementById('btn-start-dl');
   const btnCancel = document.getElementById('btn-cancel-dl');
   const btnRetry = document.getElementById('btn-retry-dl');
+  const btnUpdate = document.getElementById('btn-update-dl');
+  const btnCheckUpdate = document.getElementById('btn-check-tile-update');
   const btnDone = document.getElementById('btn-done-dl');
   const progressBox = document.getElementById('dl-progress-box');
   const progressFill = document.getElementById('dl-progress-fill');
@@ -3284,6 +3293,11 @@ function setupPyramidModal(map) {
         provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 已全部就绪';
       }
       btnStart.style.display = 'none';
+      if (btnUpdate) {
+        btnUpdate.style.display = 'inline-block';
+        btnUpdate.disabled = false;
+        btnUpdate.innerHTML = '⚡ 增量更新';
+      }
       if (btnRetry) btnRetry.style.display = 'inline-block';
       if (btnDone) btnDone.style.display = 'inline-block';
     } else {
@@ -3308,6 +3322,7 @@ function setupPyramidModal(map) {
       btnStart.style.display = 'inline-block';
       btnStart.disabled = false;
       btnStart.innerText = hasAnySaved ? `扩充下载 (至 L${maxZ})` : `开始下载 (至 L${maxZ})`;
+      if (btnUpdate) btnUpdate.style.display = 'none';
       if (btnRetry) btnRetry.style.display = 'none';
       if (btnDone) btnDone.style.display = 'none';
     }
@@ -3330,8 +3345,8 @@ function setupPyramidModal(map) {
   chkDem.addEventListener('change', updateEstimation);
   chkVec.addEventListener('change', updateEstimation);
 
-  // 触发多省批量下载任务 (isVerify 为 true 时极速本地校验，false 时增量免重下载)
-  const triggerDownload = async (isVerify = false) => {
+  // 触发多省批量下载任务 (isVerify 为 true 时极速本地校验，isIncrementalUpdate 为 true 时执行方案 A 增量更新)
+  const triggerDownload = async (isVerify = false, isIncrementalUpdate = false) => {
     const selectedKeys = getSelectedKeys();
     if (selectedKeys.length === 0) return;
 
@@ -3346,10 +3361,17 @@ function setupPyramidModal(map) {
     btnStart.style.display = 'none';
     btnCancel.style.display = 'inline-block';
     if (btnRetry) btnRetry.style.display = 'none';
+    if (btnUpdate) btnUpdate.style.display = 'none';
     if (btnDone) btnDone.style.display = 'none';
     progressBox.style.display = 'flex';
     progressFill.style.width = '0%';
-    progressNum.innerText = isVerify ? '正在高速校验本地已缓存切片...' : '正在准备批量免重下载通道...';
+    if (isIncrementalUpdate) {
+      progressNum.innerText = '方案 A：正在通过 If-Modified-Since 启动切片级增量更新...';
+    } else if (isVerify) {
+      progressNum.innerText = '正在高速校验本地已缓存切片...';
+    } else {
+      progressNum.innerText = '正在准备批量免重下载通道...';
+    }
 
     if (window.electronAPI && window.electronAPI.startPyramidDownload) {
       try {
@@ -3359,7 +3381,8 @@ function setupPyramidModal(map) {
           maxZ,
           downloadDem: chkDem.checked,
           downloadVec: chkVec.checked,
-          isVerify
+          isVerify,
+          isIncrementalUpdate
         });
       } catch (err) {
         setDownloadDotState('idle');
@@ -3368,8 +3391,42 @@ function setupPyramidModal(map) {
     }
   };
 
-  btnStart.addEventListener('click', () => triggerDownload(false));
-  btnRetry?.addEventListener('click', () => triggerDownload(true));
+  btnStart.addEventListener('click', () => triggerDownload(false, false));
+  btnRetry?.addEventListener('click', () => triggerDownload(true, false));
+  btnUpdate?.addEventListener('click', () => triggerDownload(false, true));
+
+  btnCheckUpdate?.addEventListener('click', async () => {
+    btnCheckUpdate.disabled = true;
+    btnCheckUpdate.innerText = '🔍 检查中...';
+    try {
+      if (window.electronAPI && window.electronAPI.checkTileUpdates) {
+        const info = await window.electronAPI.checkTileUpdates();
+        if (info && info.success) {
+          if (info.hasUpdates) {
+            btnCheckUpdate.innerText = '⚡ 云端有新路网';
+            btnCheckUpdate.title = `云端最新切片: ${info.remoteDate} (本地扫描: ${info.localDate})，可点击 [⚡ 增量更新] 仅拉取变动切片`;
+            btnCheckUpdate.style.background = '#fef3c7';
+            btnCheckUpdate.style.borderColor = '#fde047';
+            btnCheckUpdate.style.color = '#b45309';
+          } else {
+            btnCheckUpdate.innerText = '✅ 图层已最新';
+            btnCheckUpdate.title = `云端最新切片: ${info.remoteDate}，本地切片与云端保持最新`;
+            btnCheckUpdate.style.background = '#ecfdf5';
+            btnCheckUpdate.style.borderColor = '#a7f3d0';
+            btnCheckUpdate.style.color = '#047857';
+          }
+        } else {
+          btnCheckUpdate.innerText = '🔍 检查图层更新';
+        }
+      }
+    } catch (e) {
+      btnCheckUpdate.innerText = '🔍 检查图层更新';
+    } finally {
+      setTimeout(() => {
+        btnCheckUpdate.disabled = false;
+      }, 2500);
+    }
+  });
 
   // 中止下载
   btnCancel.addEventListener('click', async () => {
@@ -3382,6 +3439,7 @@ function setupPyramidModal(map) {
     btnStart.innerText = '开始下载';
     btnCancel.style.display = 'none';
     if (btnRetry) btnRetry.style.display = 'none';
+    if (btnUpdate) btnUpdate.style.display = 'none';
     progressNum.innerText = '已中止下载';
   });
 
@@ -3392,7 +3450,12 @@ function setupPyramidModal(map) {
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)}`;
 
-      if (data.isVerify) {
+      if (data.isIncrementalUpdate) {
+        const unchanged = data.unchangedCount || 0;
+        const updated = data.updatedCount || 0;
+        const newlyAdded = data.newlyAddedCount || 0;
+        progressNum.innerText = `增量更新: ${countPart} (最新: ${formatTileCount(unchanged)} · 变动: ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐: ${formatTileCount(newlyAdded)}` : ''})`;
+      } else if (data.isVerify) {
         progressNum.innerText = `校验中: ${countPart}`;
       } else {
         progressNum.innerText = `正在下载至 L${maxZ} (${countPart})`;
@@ -3422,14 +3485,25 @@ function setupPyramidModal(map) {
         btnCancel.style.display = 'none';
         if (btnDone) btnDone.style.display = 'inline-block';
         if (btnRetry) btnRetry.style.display = 'inline-block';
+        if (btnUpdate) btnUpdate.style.display = 'inline-block';
 
         if (provStatusTag) {
           provStatusTag.style.display = 'inline-flex';
-          provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 全部图层已就绪';
+          if (data.isIncrementalUpdate) {
+            provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 增量更新已完成 · 旧切片完好保留';
+          } else {
+            provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 全部图层已就绪';
+          }
         }
 
         renderProvinceGrid();
         updateEstimation();
+
+        if (data.isIncrementalUpdate) {
+          if (typeof showFluentAlert === 'function') {
+            showFluentAlert(`🎉 方案 A 增量更新完成！\n\n共扫描检查 ${data.total.toLocaleString()} 块瓦片：\n• 保持最新: ${(data.unchangedCount || 0).toLocaleString()} 块 (304 跳过，0 流量)\n• 增量更新: ${(data.updatedCount || 0).toLocaleString()} 块 (云端最新路网)\n• 查漏补缺: ${(data.newlyAddedCount || 0).toLocaleString()} 块\n\n您之前下载的数据全部完好保留在本地，未漏掉任何切片！`);
+          }
+        }
 
         // 刷新顶栏切片真实总数与体积
         if (titleStat) {
