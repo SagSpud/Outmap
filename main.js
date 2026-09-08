@@ -473,8 +473,9 @@ function startLocalTileServer() {
             const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&bbox=73.5,18.0,135.1,53.6&limit=10`;
             const photonResp = await fetch(photonUrl, {
               signal: AbortSignal.timeout(6500),
-              headers: { 'User-Agent': 'Outmap/1.3.9' }
+              headers: { 'User-Agent': 'Outmap/1.4.0' }
             });
+
             if (photonResp.ok) {
               const text = await photonResp.text();
               const buf = Buffer.from(text, 'utf8');
@@ -998,8 +999,9 @@ app.whenReady().then(async () => {
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
       const resp = await fetch(photonUrl, {
         signal: AbortSignal.timeout(6500),
-        headers: { 'User-Agent': 'Outmap/1.3.9' }
+        headers: { 'User-Agent': 'Outmap/1.4.0' }
       });
+
       if (resp.ok) {
         const data = await resp.json();
         setCachedTile(cacheKey, Buffer.from(JSON.stringify(data), 'utf8'));
