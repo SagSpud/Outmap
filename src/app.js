@@ -277,10 +277,7 @@ async function initApplication() {
   }
 
   // 瓦片 API 体系：在 Electron 下默认使用本地离线服务；在 Web 纯网页端直连在线瓦片 CDN
-  // 支持用户自定义指定 API (如 https://map.053999.xyz)，自动搭载高可用全球免 Key 在线 CDN
-  const defaultCustomTileApi = 'https://map.053999.xyz';
-  const customTileApi = (localStorage.getItem('outmap_custom_tile_api') || defaultCustomTileApi).replace(/\/+$/, '');
-
+  // 瓦片 API 体系：在 Electron 下默认使用本地离线服务；在 Web 纯网页端直连在线瓦片 CDN
   let demUrl = `http://127.0.0.1:${port}/dem/{z}/{x}/{y}.webp`;
   let vecUrl = `http://127.0.0.1:${port}/vector/{z}/{x}/{y}.pbf`;
   let glyphsUrl = `http://127.0.0.1:${port}/fonts/{fontstack}/{range}.pbf`;
@@ -289,7 +286,8 @@ async function initApplication() {
   if (isWebMode) {
     chinaBoundaryUrl = './china-boundary.json';
 
-    // 默认高可用在线 CDN
+    // 默认高可用全球免 Key 在线 CDN (OpenFreeMap + Mapterhorn Terrarium DEM)
+    // 零服务器依赖，全球 300+ 边缘节点毫秒级直连，任何设备浏览器开箱即用
     const onlineDem = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp';
     const onlineVec = 'https://tiles.openfreemap.org/planet/20260830_080001_pt/{z}/{x}/{y}.pbf';
     const onlineGlyphs = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
@@ -298,19 +296,26 @@ async function initApplication() {
     vecUrl = onlineVec;
     glyphsUrl = onlineGlyphs;
 
-    // 探测 map.053999.xyz 是否可达
-    try {
-      const probe = await fetch(`${customTileApi}/`, { method: 'HEAD', signal: AbortSignal.timeout(1200) }).catch(() => null);
-      if (probe && (probe.ok || probe.status < 500)) {
-        vecUrl = `${customTileApi}/vector/{z}/{x}/{y}.pbf`;
-        demUrl = `${customTileApi}/dem/{z}/{x}/{y}.webp`;
-        glyphsUrl = `${customTileApi}/fonts/{fontstack}/{range}.pbf`;
-        console.log(`[Online Mode] 已成功连接自定义瓦片 API: ${customTileApi}`);
-      } else {
-        console.log(`[Online Mode] 自定义 API (${customTileApi}) 暂未上线，已自动无缝切换至高可用全球在线瓦片 CDN`);
+    // 清除旧版本误存的前端域名自定义瓦片源配置
+    if (localStorage.getItem('outmap_custom_tile_api') === 'https://map.053999.xyz') {
+      localStorage.removeItem('outmap_custom_tile_api');
+    }
+
+    // 若用户显式配置了独立的自建瓦片服务后端，且该后端不等于当前前端页面域名
+    const userCustomTileApi = localStorage.getItem('outmap_custom_tile_api');
+    if (userCustomTileApi && !userCustomTileApi.includes(window.location.hostname)) {
+      try {
+        const cleanApi = userCustomTileApi.replace(/\/+$/, '');
+        const probe = await fetch(`${cleanApi}/vector/0/0/0.pbf`, { method: 'HEAD', signal: AbortSignal.timeout(1500) }).catch(() => null);
+        if (probe && probe.ok) {
+          vecUrl = `${cleanApi}/vector/{z}/{x}/{y}.pbf`;
+          demUrl = `${cleanApi}/dem/{z}/{x}/{y}.webp`;
+          glyphsUrl = `${cleanApi}/fonts/{fontstack}/{range}.pbf`;
+          console.log(`[Online Mode] 已成功连接自定义自建瓦片后端: ${cleanApi}`);
+        }
+      } catch (e) {
+        console.warn(`[Online Mode] 自建瓦片后端暂不可达，保持使用高可用全球 CDN`);
       }
-    } catch (e) {
-      console.log(`[Online Mode] 使用高可用全球在线瓦片 CDN`);
     }
   }
 
