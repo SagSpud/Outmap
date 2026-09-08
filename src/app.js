@@ -54,6 +54,49 @@ function escapeHtml(str) {
   }[m]));
 }
 
+// 现代流体平滑退出动效工具函数：杜绝瞬间切断的生硬视觉体验
+function smoothClosePanel(el, onClosed) {
+  if (!el || el.style.display === 'none') {
+    if (typeof onClosed === 'function') onClosed();
+    return;
+  }
+  if (el.classList.contains('panel-closing')) return;
+  el.classList.add('panel-closing');
+  setTimeout(() => {
+    el.style.display = 'none';
+    el.classList.remove('panel-closing');
+    if (typeof onClosed === 'function') onClosed();
+  }, 160);
+}
+
+function smoothCloseModal(overlayEl, onClosed) {
+  if (!overlayEl || overlayEl.style.display === 'none') {
+    if (typeof onClosed === 'function') onClosed();
+    return;
+  }
+  if (overlayEl.classList.contains('modal-overlay-closing')) return;
+  overlayEl.classList.add('modal-overlay-closing');
+  setTimeout(() => {
+    overlayEl.style.display = 'none';
+    overlayEl.classList.remove('modal-overlay-closing');
+    if (typeof onClosed === 'function') onClosed();
+  }, 160);
+}
+
+function smoothClosePopover(el, onClosed) {
+  if (!el || el.style.display === 'none') {
+    if (typeof onClosed === 'function') onClosed();
+    return;
+  }
+  if (el.classList.contains('popover-closing')) return;
+  el.classList.add('popover-closing');
+  setTimeout(() => {
+    el.style.display = 'none';
+    el.classList.remove('popover-closing');
+    if (typeof onClosed === 'function') onClosed();
+  }, 140);
+}
+
 // Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
 function showFluentAlert(message, title = 'Outmap 提示') {
   const overlay = document.getElementById('fluent-alert-overlay');
@@ -73,7 +116,7 @@ function showFluentAlert(message, title = 'Outmap 提示') {
   overlay.style.display = 'flex';
 
   const closeAlert = () => {
-    overlay.style.display = 'none';
+    smoothCloseModal(overlay);
   };
 
   if (btnConfirm) btnConfirm.onclick = closeAlert;
@@ -1834,124 +1877,73 @@ if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
-// 所有地点跳转统一走两阶段定位：先快速飞到目标，再由 MapLibre 在最终缩放/俯仰状态
-// 按真实视口像素做锚点校正，避免高分屏、地形和窗口高度造成落点出界。
-let activeLocationFlightId = 0;
+// 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
+// 彻底根除两阶段二次位移、落地拉回抖动与滚轮缩放时的漂移干扰
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (!map || !targetCoords || targetCoords.length < 2) return;
-  const coords = [Number(targetCoords[0]), Number(targetCoords[1])];
-  if (!Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return;
+  const lng = Number(targetCoords[0]);
+  const lat = Number(targetCoords[1]);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-  const flightId = ++activeLocationFlightId;
-  const zoom = Number.isFinite(options.zoom) ? options.zoom : 15;
-  const pitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
-  const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
+  const zoom = Number.isFinite(options.zoom) ? options.zoom : 15.0;
+  const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
+  const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() || 0);
   const centered = Boolean(options.centered);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const duration = reducedMotion ? 0 : (options.duration ?? 900);
+  const duration = reducedMotion ? 0 : (options.duration ?? 750);
 
-  const getAnchorOffset = () => {
-    if (centered) return 0;
-    const h = Math.max(320, map.getContainer()?.clientHeight || window.innerHeight || 660);
+  let cameraCenter = [lng, lat];
+
+  if (!centered) {
+    const container = map.getContainer() || {};
+    const screenHeight = Math.max(320, container.clientHeight || window.innerHeight || 660);
     const compact = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
-    const ratio = compact ? 0.57 : 0.585;
-    return Math.round(h * (ratio - 0.5));
-  };
+    // 黄金比例自适应：0° 时为 0.54，50° 时自适应为 0.58，兼顾上方卡片舒展与下方视野开阔留白
+    const effectivePitch = Math.min(65, Math.max(0, curPitch));
+    const ratioY = compact ? 0.56 : (0.54 + (effectivePitch / 60) * 0.048);
 
-  let settled = false;
-  const settle = async () => {
-    if (settled || flightId !== activeLocationFlightId) return;
-    settled = true;
-    const container = map.getContainer();
-    const desiredX = container.clientWidth / 2;
-    const desiredY = container.clientHeight / 2 + getAnchorOffset();
+    const fovRad = 36.87 * Math.PI / 180;
+    const d0 = 0.5 / Math.tan(fovRad / 2) * screenHeight;
+    const pitchRad = effectivePitch * Math.PI / 180;
+    const bearingRad = curBearing * Math.PI / 180;
+    const dy = screenHeight * (ratioY - 0.5);
 
-    // 地形模式下坐标位于真实高程表面，center/offset 不能保证屏幕锚点准确。
-    // 先把相机的地面基准高程同步到目标点，再使用 MapLibre 自身的地理点屏幕锚定能力。
-    // 数值求解保留为旧版 MapLibre 或 DEM 尚未就绪时的兼容兜底。
-    const solveAnchorCenter = () => {
-      const targetElevation = map.queryTerrainElevation?.(coords);
-      if (Number.isFinite(targetElevation)
-          && map.transform?.setElevation
-          && map.transform?.setLocationAtPoint
-          && typeof maplibregl.Point === 'function') {
-        map.transform.setElevation(targetElevation);
-        map.transform.setLocationAtPoint(
-          maplibregl.LngLat.convert(coords),
-          new maplibregl.Point(desiredX, desiredY)
-        );
-        map.triggerRepaint();
-        return map.getCenter();
-      }
+    const denom = d0 * Math.cos(pitchRad) - dy * Math.sin(pitchRad);
+    const groundY = denom > 1e-4 ? (d0 * dy) / denom : dy;
 
-      for (let i = 0; i < 6 && flightId === activeLocationFlightId; i++) {
-        const center = map.getCenter();
-        const base = map.project(coords);
-        const errorX = desiredX - base.x;
-        const errorY = desiredY - base.y;
-        if (Math.hypot(errorX, errorY) <= 3) break;
+    const scale = 512 * Math.pow(2, zoom);
+    const xWorld = ((lng + 180) / 360) * scale;
+    const sinLat = Math.sin(lat * Math.PI / 180);
+    const yWorld = (0.5 - 0.25 * Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI) * scale;
 
-        const epsilon = 0.0001;
-        map.setCenter([center.lng + epsilon, center.lat]);
-        const lngProjection = map.project(coords);
-        map.setCenter([center.lng, center.lat + epsilon]);
-        const latProjection = map.project(coords);
-        map.setCenter(center);
+    const dxWorld = groundY * Math.sin(bearingRad);
+    const dyWorld = -groundY * Math.cos(bearingRad);
 
-        const a = (lngProjection.x - base.x) / epsilon;
-        const b = (latProjection.x - base.x) / epsilon;
-        const c = (lngProjection.y - base.y) / epsilon;
-        const d = (latProjection.y - base.y) / epsilon;
-        const determinant = a * d - b * c;
-        if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-6) break;
+    const camX = xWorld + dxWorld;
+    const camY = yWorld + dyWorld;
 
-        const deltaLng = Math.max(-0.2, Math.min(0.2, (errorX * d - b * errorY) / determinant));
-        const deltaLat = Math.max(-0.2, Math.min(0.2, (a * errorY - errorX * c) / determinant));
-        map.setCenter([center.lng + deltaLng, center.lat + deltaLat]);
-      }
-      return map.getCenter();
-    };
+    const camLng = (camX / scale) * 360 - 180;
+    const normY = camY / scale;
+    const y2 = (180 - normY * 360) * Math.PI / 180;
+    const camLat = 360 * Math.atan(Math.exp(y2)) / Math.PI - 90;
 
-    await new Promise(resolve => window.setTimeout(resolve, 90));
-    if (flightId !== activeLocationFlightId) return;
-    const beforeCorrection = map.getCenter();
-    const solvedCenter = solveAnchorCenter();
-    map.setCenter(beforeCorrection);
-    map.easeTo({
-      center: solvedCenter,
-      zoom,
-      pitch,
-      bearing,
-      duration: reducedMotion ? 0 : 240,
-      easing: t => 1 - Math.pow(1 - t, 3),
-      essential: false
-    });
-
-    // DEM 细节瓦片可能分批到达；idle 与分段复核确保高海拔地区最终也不会漂出视口。
-    const refineAfterTerrain = () => {
-      if (flightId === activeLocationFlightId && !map.isMoving()) solveAnchorCenter();
-    };
-    map.once('idle', refineAfterTerrain);
-    [650, 1500, 2800].forEach(delay => window.setTimeout(refineAfterTerrain, delay));
-  };
+    if (Number.isFinite(camLng) && Number.isFinite(camLat)) {
+      cameraCenter = [camLng, camLat];
+    }
+  }
 
   map.stop();
-  map.once('dragstart', () => {
-    if (flightId === activeLocationFlightId) activeLocationFlightId++;
-  });
-  map.once('moveend', settle);
   map.flyTo({
-    center: coords,
+    center: cameraCenter,
     zoom,
-    pitch,
-    bearing,
+    pitch: curPitch,
+    bearing: curBearing,
     offset: [0, 0],
-    curve: 1.0,
-    speed: 1.8,
+    curve: 1.1,
+    speed: 1.5,
     duration,
-    essential: false
+    essential: true
   });
-  window.setTimeout(settle, duration + 180);
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
 
@@ -2318,12 +2310,21 @@ function setupOfficeHeaderInteractions(map) {
       </div>
     `;
 
-    // 关闭标记
+    // 关闭标记 (平滑淡出退出)
     const btnClose = el.querySelector('.landing-card-close');
     if (btnClose) {
       btnClose.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (currentLandingMarker) {
+        const card = el.querySelector('.landing-card');
+        if (card) {
+          card.classList.add('popover-closing');
+          setTimeout(() => {
+            if (currentLandingMarker) {
+              currentLandingMarker.remove();
+              currentLandingMarker = null;
+            }
+          }, 140);
+        } else if (currentLandingMarker) {
           currentLandingMarker.remove();
           currentLandingMarker = null;
         }
@@ -2536,8 +2537,9 @@ function setupOfficeHeaderInteractions(map) {
 
   const closeSearchPopover = () => {
     if (searchPopover && searchPopover.style.display !== 'none') {
-      searchPopover.style.display = 'none';
-      if (sInput) sInput.blur();
+      smoothClosePopover(searchPopover, () => {
+        if (sInput) sInput.blur();
+      });
     }
   };
 
@@ -2550,34 +2552,37 @@ function setupOfficeHeaderInteractions(map) {
         if (provPopover) provPopover.style.display = 'none';
         const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
         if (provTriggerBtn) provTriggerBtn.classList.remove('active');
-      }
-      searchPopover.style.display = isHidden ? 'block' : 'none';
-      if (isHidden && sInput) {
-        sInput.focus();
-        sInput.select();
-        if (sInput.value.trim()) {
-          queryLocationCandidates(sInput.value.trim()).then(renderSearchResults);
-        } else {
-          renderSearchHistory();
+        searchPopover.style.display = 'block';
+        if (sInput) {
+          sInput.focus();
+          sInput.select();
+          if (sInput.value.trim()) {
+            queryLocationCandidates(sInput.value.trim()).then(renderSearchResults);
+          } else {
+            renderSearchHistory();
+          }
         }
-      }
-    });
-
-    const handleCloseSearch = (e) => {
-      if (e) {
-        e.stopPropagation();
-        e.preventDefault();
-      }
-      closeSearchPopover();
-    };
-    searchClose?.addEventListener('click', handleCloseSearch);
-    searchClose?.addEventListener('touchend', handleCloseSearch);
-
-    document.addEventListener('click', e => {
-      if (!searchPopover.contains(e.target) && e.target !== searchTrigger && !searchTrigger.contains(e.target)) {
+      } else {
         closeSearchPopover();
       }
     });
+  }
+
+  const handleCloseSearch = (e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    closeSearchPopover();
+  };
+  searchClose?.addEventListener('click', handleCloseSearch);
+  searchClose?.addEventListener('touchend', handleCloseSearch);
+
+  document.addEventListener('click', e => {
+    if (!searchPopover.contains(e.target) && e.target !== searchTrigger && !searchTrigger.contains(e.target)) {
+      closeSearchPopover();
+    }
+  });
 
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') closeSearchPopover();
@@ -2599,7 +2604,6 @@ function setupOfficeHeaderInteractions(map) {
         }, { capture: true, passive: true });
       });
     }
-  }
 
   // 快捷键 Ctrl+K / Cmd+K 快速呼出搜索
   document.addEventListener('keydown', e => {
@@ -2948,9 +2952,10 @@ function setupPyramidModal(map) {
 
   const closePyramidModal = () => {
     toggleDropdown(false);
-    modal.style.display = 'none';
-    btnOpen.classList.remove('expanded');
-    updateBtnTooltip();
+    smoothCloseModal(modal, () => {
+      btnOpen.classList.remove('expanded');
+      updateBtnTooltip();
+    });
   };
 
   const openPyramidModal = async () => {
@@ -3787,7 +3792,7 @@ function setupCloudSync(map) {
   });
 
   const closeSync = () => {
-    syncModal.style.display = 'none';
+    smoothCloseModal(syncModal);
   };
 
   btnClose?.addEventListener('click', closeSync);
@@ -4236,9 +4241,10 @@ function setupWaypointAndFavoritesSystem(map) {
 
   // 保存标记点
   const closeWpModal = () => {
-    if (wpModal) wpModal.style.display = 'none';
-    if (newFolderInline) newFolderInline.style.display = 'none';
-    tempPickedPoint = null;
+    smoothClosePanel(wpModal, () => {
+      if (newFolderInline) newFolderInline.style.display = 'none';
+      tempPickedPoint = null;
+    });
   };
 
   // 挂载全局调用：一键为指定坐标和地名打开收藏添加弹窗
@@ -4520,12 +4526,12 @@ function setupWaypointAndFavoritesSystem(map) {
       renderFavoritesList();
       renderSavedRoutesList();
     } else {
-      favDrawer.style.display = 'none';
+      smoothClosePanel(favDrawer);
     }
   });
 
   btnCloseFav?.addEventListener('click', () => {
-    favDrawer.style.display = 'none';
+    smoothClosePanel(favDrawer);
   });
 }
 
@@ -4560,23 +4566,78 @@ let currentOutdoorMap = null;
 let draggedViaIndex = null;
 let targetViaIndexForPick = null;
 
-// 统一绑定起点、终点及途径点输入框的实时搜索、拼音联想与回车直达
+// 全局共享路线浮动联想下拉框控制系统 (挂载在 body 顶层，彻底杜绝滚动容器剪切)
+let activeFloatingTarget = null; // { inputEl, pointType, viaIndex, mapInstance, triggerMapPick, selectCandidate }
+let floatingCandidates = [];
+let floatingActiveIndex = -1;
+
+function getRouteFloatingDropdown() {
+  return document.getElementById('route-floating-dropdown');
+}
+
+function hideRouteFloatingDropdown() {
+  const floatingEl = getRouteFloatingDropdown();
+  if (floatingEl) {
+    floatingEl.style.display = 'none';
+    floatingEl.innerHTML = '';
+  }
+  activeFloatingTarget = null;
+  floatingCandidates = [];
+  floatingActiveIndex = -1;
+}
+
+function positionRouteFloatingDropdown(inputEl) {
+  const floatingEl = getRouteFloatingDropdown();
+  if (!floatingEl || !inputEl) return;
+  const rect = inputEl.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    hideRouteFloatingDropdown();
+    return;
+  }
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  const dropdownHeight = 220;
+
+  const left = Math.max(10, Math.min(window.innerWidth - 300, rect.left));
+  const width = Math.max(260, rect.width);
+
+  floatingEl.style.left = `${left}px`;
+  floatingEl.style.width = `${width}px`;
+
+  if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+    floatingEl.style.top = 'auto';
+    floatingEl.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+  } else {
+    floatingEl.style.top = `${rect.bottom + 4}px`;
+    floatingEl.style.bottom = 'auto';
+  }
+}
+
+// 容器或窗口滚动/调整尺寸时自动重定位浮动下拉框
+if (typeof window !== 'undefined') {
+  const handleDropdownReposition = () => {
+    if (activeFloatingTarget && activeFloatingTarget.inputEl) {
+      if (!document.body.contains(activeFloatingTarget.inputEl)) {
+        hideRouteFloatingDropdown();
+      } else {
+        positionRouteFloatingDropdown(activeFloatingTarget.inputEl);
+      }
+    }
+  };
+  window.addEventListener('scroll', handleDropdownReposition, true);
+  window.addEventListener('resize', handleDropdownReposition);
+}
+
+// 统一绑定起点、终点及途径点输入框的实时搜索、拼音联想与回车直达 (接入全局浮动下拉框)
 function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, mapInstance = null) {
-  if (!inputEl || !dropdownEl) return;
+  if (!inputEl) return;
   const getMap = () => mapInstance || currentOutdoorMap;
   let searchTimer = null;
-  let activeCandidates = [];
   let activeQuery = '';
   let requestSequence = 0;
 
-  const closeDropdown = () => {
-    dropdownEl.style.display = 'none';
-    dropdownEl.innerHTML = '';
-    activeCandidates = [];
-  };
-
   const triggerMapPick = () => {
-    closeDropdown();
+    hideRouteFloatingDropdown();
     const map = getMap();
     if (pointType === 'via') {
       targetViaIndexForPick = viaIndex;
@@ -4588,8 +4649,10 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   };
 
   const selectCandidate = (item) => {
+    if (!item) return;
     inputEl.value = item.name;
-    closeDropdown();
+    hideRouteFloatingDropdown();
+    if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
     const map = getMap();
     if (!map) return;
 
@@ -4625,22 +4688,34 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     }
   };
 
+  const currentTarget = {
+    inputEl,
+    pointType,
+    viaIndex,
+    triggerMapPick,
+    selectCandidate
+  };
+
   const renderCandidates = (items, keyword) => {
-    activeCandidates = items || [];
-    dropdownEl.innerHTML = '';
+    const floatingEl = getRouteFloatingDropdown();
+    if (!floatingEl) return;
+    activeFloatingTarget = currentTarget;
+    floatingCandidates = items || [];
+    floatingActiveIndex = floatingCandidates.length > 0 ? 0 : -1;
+    floatingEl.innerHTML = '';
 
     if (!items || items.length === 0) {
-      dropdownEl.innerHTML = `
-        <div class="route-search-empty">未找到“${keyword || ''}”，支持地名/拼音</div>
-        <div class="route-search-item route-search-pick-map">
-          <span class="route-search-item-icon">📍</span>
-          <div class="route-search-item-info">
-            <div class="route-search-item-name">在 3D 地图上点选</div>
-            <div class="route-search-item-desc">点击后在地图上拾取该点坐标</div>
+      floatingEl.innerHTML = `
+        <div style="padding: 10px 12px; font-size: 11.5px; color: #64748b; text-align: center;">未找到“${escapeHtml(keyword || '')}”，支持地名/拼音</div>
+        <div class="route-floating-item route-floating-pick-map">
+          <span class="route-floating-item-icon">📍</span>
+          <div class="route-floating-item-info">
+            <div class="route-floating-item-name">在 3D 地图上点选</div>
+            <div class="route-floating-item-desc">点击后在地图上拾取该点坐标</div>
           </div>
         </div>
       `;
-      const pickRow = dropdownEl.querySelector('.route-search-pick-map');
+      const pickRow = floatingEl.querySelector('.route-floating-pick-map');
       pickRow?.addEventListener('click', (e) => {
         e.stopPropagation();
         triggerMapPick();
@@ -4651,61 +4726,91 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           .replace(/^中国\s*[·,\-–]\s*/, '')
           .replace(/China\s*[·,\-–]\s*/i, '');
         const row = document.createElement('div');
-        row.className = 'route-search-item' + (idx === 0 ? ' active' : '');
+        row.className = 'route-floating-item' + (idx === 0 ? ' active' : '');
+        row.dataset.idx = idx;
         row.innerHTML = `
-          <span class="route-search-item-icon">${item.icon || '📍'}</span>
-          <div class="route-search-item-info">
-            <div class="route-search-item-name">${escapeHtml(item.name)}</div>
-            <div class="route-search-item-desc">${escapeHtml(cleanDesc)}</div>
+          <span class="route-floating-item-icon">${item.icon || '📍'}</span>
+          <div class="route-floating-item-info">
+            <div class="route-floating-item-name">${escapeHtml(item.name)}</div>
+            <div class="route-floating-item-desc">${escapeHtml(cleanDesc)}</div>
           </div>
         `;
         row.addEventListener('click', (e) => {
           e.stopPropagation();
           selectCandidate(item);
         });
-        dropdownEl.appendChild(row);
+        floatingEl.appendChild(row);
       });
 
       const mapPickRow = document.createElement('div');
-      mapPickRow.className = 'route-search-item route-search-pick-map';
+      mapPickRow.className = 'route-floating-item route-floating-pick-map';
       mapPickRow.innerHTML = `
-        <span class="route-search-item-icon">📍</span>
-        <div class="route-search-item-info">
-          <div class="route-search-item-name">在 3D 地图上点选</div>
-          <div class="route-search-item-desc">点击后在地图上拾取精确坐标</div>
+        <span class="route-floating-item-icon">📍</span>
+        <div class="route-floating-item-info">
+          <div class="route-floating-item-name">在 3D 地图上点选</div>
+          <div class="route-floating-item-desc">点击后在地图上拾取精确坐标</div>
         </div>
       `;
       mapPickRow.addEventListener('click', (e) => {
         e.stopPropagation();
         triggerMapPick();
       });
-      dropdownEl.appendChild(mapPickRow);
+      floatingEl.appendChild(mapPickRow);
     }
-    dropdownEl.style.display = 'flex';
+
+    positionRouteFloatingDropdown(inputEl);
+    floatingEl.style.display = 'flex';
   };
 
   inputEl.addEventListener('input', () => {
     const val = (inputEl.value || '').trim();
     clearTimeout(searchTimer);
-    activeCandidates = [];
     activeQuery = val;
     const seq = ++requestSequence;
     if (!val) {
-      closeDropdown();
+      hideRouteFloatingDropdown();
       return;
     }
     searchTimer = setTimeout(async () => {
       const results = await queryLocationCandidates(val);
       if (seq !== requestSequence || (inputEl.value || '').trim() !== val) return;
-      renderCandidates(results, val);
-    }, 180);
+      if (document.activeElement === inputEl) {
+        renderCandidates(results, val);
+      }
+    }, 150);
   });
 
   inputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
+    const floatingEl = getRouteFloatingDropdown();
+    const isDropdownOpen = floatingEl && floatingEl.style.display !== 'none' && activeFloatingTarget === currentTarget;
+
+    if (e.key === 'ArrowDown') {
+      if (isDropdownOpen && floatingCandidates.length > 0) {
+        e.preventDefault();
+        floatingActiveIndex = (floatingActiveIndex + 1) % floatingCandidates.length;
+        const items = floatingEl.querySelectorAll('.route-floating-item:not(.route-floating-pick-map)');
+        items.forEach((it, i) => it.classList.toggle('active', i === floatingActiveIndex));
+        if (items[floatingActiveIndex]) {
+          items[floatingActiveIndex].scrollIntoView({ block: 'nearest' });
+        }
+      }
+    } else if (e.key === 'ArrowUp') {
+      if (isDropdownOpen && floatingCandidates.length > 0) {
+        e.preventDefault();
+        floatingActiveIndex = (floatingActiveIndex - 1 + floatingCandidates.length) % floatingCandidates.length;
+        const items = floatingEl.querySelectorAll('.route-floating-item:not(.route-floating-pick-map)');
+        items.forEach((it, i) => it.classList.toggle('active', i === floatingActiveIndex));
+        if (items[floatingActiveIndex]) {
+          items[floatingActiveIndex].scrollIntoView({ block: 'nearest' });
+        }
+      }
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (activeQuery === (inputEl.value || '').trim() && activeCandidates.length > 0) {
-        selectCandidate(activeCandidates[0]);
+      if (isDropdownOpen && floatingCandidates.length > 0) {
+        const picked = (floatingActiveIndex >= 0 && floatingActiveIndex < floatingCandidates.length)
+          ? floatingCandidates[floatingActiveIndex]
+          : floatingCandidates[0];
+        selectCandidate(picked);
       } else {
         const val = (inputEl.value || '').trim();
         if (val) {
@@ -4719,20 +4824,26 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         }
       }
     } else if (e.key === 'Escape') {
-      closeDropdown();
+      hideRouteFloatingDropdown();
     }
   });
 
   inputEl.addEventListener('focus', () => {
+    if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
     const val = (inputEl.value || '').trim();
-    if (val && dropdownEl.style.display === 'none') {
-      queryLocationCandidates(val).then(res => renderCandidates(res, val));
+    if (val) {
+      queryLocationCandidates(val).then(res => {
+        if (document.activeElement === inputEl) {
+          renderCandidates(res, val);
+        }
+      });
     }
   });
 
   document.addEventListener('click', (e) => {
-    if (!inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
-      closeDropdown();
+    const floatingEl = getRouteFloatingDropdown();
+    if (activeFloatingTarget === currentTarget && !inputEl.contains(e.target) && (!floatingEl || !floatingEl.contains(e.target))) {
+      hideRouteFloatingDropdown();
     }
   });
 }
@@ -5304,7 +5415,8 @@ function setupOutdoorRouteSystem(map) {
         window.clearLandingMarker();
       }
     } else {
-      routePanel.style.display = 'none';
+      hideRouteFloatingDropdown();
+      smoothClosePanel(routePanel);
     }
   });
 
@@ -5319,10 +5431,12 @@ function setupOutdoorRouteSystem(map) {
   });
 
   btnCloseRoute?.addEventListener('click', () => {
-    routePanel.style.display = 'none';
-    if (startDropdown) startDropdown.style.display = 'none';
-    if (endDropdown) endDropdown.style.display = 'none';
-    if (routeExportMenu) routeExportMenu.style.display = 'none';
+    hideRouteFloatingDropdown();
+    smoothClosePanel(routePanel, () => {
+      if (startDropdown) startDropdown.style.display = 'none';
+      if (endDropdown) endDropdown.style.display = 'none';
+      if (routeExportMenu) routeExportMenu.style.display = 'none';
+    });
   });
 
   // 出行方式切换 (自驾、骑行、徒步)
@@ -5335,27 +5449,11 @@ function setupOutdoorRouteSystem(map) {
     });
   });
 
-  // 开启 / 退出连续拾点模式 (地表连续点击自动延伸规划数十个点)
-  const toggleContinuousPick = (forceState) => {
-    isContinuousPicking = (typeof forceState === 'boolean') ? forceState : !isContinuousPicking;
-    if (btnContinuousPick) {
-      btnContinuousPick.classList.toggle('active', isContinuousPicking);
-      const span = btnContinuousPick.querySelector('span:last-child');
-      if (span) {
-        span.innerText = isContinuousPicking ? '正在连续拾点 (点击地表)...' : '⚡ 地图连续拾点';
-      }
-    }
-    map.getCanvas().style.cursor = isContinuousPicking ? 'crosshair' : '';
-  };
-
-  btnContinuousPick?.addEventListener('click', () => {
-    toggleContinuousPick();
-  });
-
   currentOutdoorMap = map;
 
-  // 单次添加一个途径点：插入新途径点并自动聚焦其输入框
-  btnAddViaPoint?.addEventListener('click', () => {
+  // 高德地图风格：途径点列表与终点之间的内联加号添加框
+  const btnAddViaInline = document.getElementById('btn-add-via-inline');
+  const handleAddVia = () => {
     addViaPoint(map, null, '');
     const container = document.getElementById('route-via-list');
     if (container) {
@@ -5364,7 +5462,9 @@ function setupOutdoorRouteSystem(map) {
         lastInput.focus();
       }
     }
-  });
+  };
+  btnAddViaInline?.addEventListener('click', handleAddVia);
+  btnAddViaPoint?.addEventListener('click', handleAddVia);
 
   // 绑定起点与终点输入框 (支持拼音/汉字联想及回车直达)
   bindRoutePointInput(startInput, startDropdown, 'start', null, map);
@@ -5414,27 +5514,11 @@ function setupOutdoorRouteSystem(map) {
   document.getElementById('btn-swap-route-pts')?.addEventListener('click', swapStartAndEndRoutePoints);
   document.getElementById('btn-swap-route-pts-2')?.addEventListener('click', swapStartAndEndRoutePoints);
 
-  // 地图点击：智能响应连续拾点模式与单点模式
+  // 地图点击：响应路线单点拾取模式 (起/终/途径)
   map.on('click', e => {
     const { lng, lat } = e.lngLat;
     const cleanLocation = resolveLocationInfo(map, e.lngLat, e.point, true);
 
-    // 1. 连续拾点模式：每次点击地表，自动向后追加途径点并实时刷新高程剖面
-    if (isContinuousPicking) {
-      if (!routeStartCoord) {
-        setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
-      } else if (!routeEndCoord) {
-        setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
-      } else {
-        const oldEndCoord = routeEndCoord;
-        const oldEndName = routeEndName;
-        addViaPoint(map, oldEndCoord, oldEndName || `途径点 ${routeViaPoints.length + 1}`);
-        setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
-      }
-      return;
-    }
-
-    // 2. 单点拾取模式
     if (!pickingRoutePt) return;
     map.getCanvas().style.cursor = '';
 
@@ -5552,7 +5636,7 @@ function setupOutdoorRouteSystem(map) {
     routeEndName = '';
     routeEndMarker = null;
 
-    toggleContinuousPick(false);
+    hideRouteFloatingDropdown();
 
     if (startInput) startInput.value = '';
     if (endInput) endInput.value = '';
@@ -5602,7 +5686,7 @@ function setupOutdoorRouteSystem(map) {
   });
 
   const closeSaveModal = () => {
-    if (saveRouteModal) saveRouteModal.style.display = 'none';
+    smoothCloseModal(saveRouteModal);
   };
   btnCloseSaveRouteModal?.addEventListener('click', closeSaveModal);
   btnCancelSaveRoute?.addEventListener('click', closeSaveModal);
@@ -6094,6 +6178,33 @@ function setupMapContextMenu(map) {
 function setupGlobalKeyboardDispatcher() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      // 0. 浮动路线候选联想框
+      const routeDropdown = getRouteFloatingDropdown();
+      if (routeDropdown && routeDropdown.style.display !== 'none') {
+        hideRouteFloatingDropdown();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.5 全局高质感提示弹窗
+      const alertOverlay = document.getElementById('fluent-alert-overlay');
+      if (alertOverlay && alertOverlay.style.display !== 'none') {
+        smoothCloseModal(alertOverlay);
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.6 保存路线对话框
+      const saveRouteModal = document.getElementById('save-route-modal');
+      if (saveRouteModal && saveRouteModal.style.display !== 'none') {
+        smoothCloseModal(saveRouteModal);
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
       // 1. 最高优先级：离线下载对话框省份下拉浮层与对话框
       const provDropdownPanel = document.getElementById('pyramid-prov-dropdown-panel');
       if (provDropdownPanel && provDropdownPanel.style.display !== 'none') {
@@ -6110,9 +6221,10 @@ function setupGlobalKeyboardDispatcher() {
         if (window.closePyramidModal) {
           window.closePyramidModal();
         } else {
-          pyramidModal.style.display = 'none';
-          const btnDl = document.getElementById('btn-open-pyramid-dl');
-          if (btnDl) btnDl.classList.remove('expanded');
+          smoothCloseModal(pyramidModal, () => {
+            const btnDl = document.getElementById('btn-open-pyramid-dl');
+            if (btnDl) btnDl.classList.remove('expanded');
+          });
         }
         e.stopPropagation();
         e.stopImmediatePropagation();
@@ -6122,18 +6234,19 @@ function setupGlobalKeyboardDispatcher() {
       // 2. 版本更新提示弹窗
       const updateModal = document.getElementById('update-modal');
       if (updateModal && updateModal.style.display !== 'none') {
-        updateModal.style.display = 'none';
-        const btnCancel = document.getElementById('btn-cancel-update');
-        const btnClose = document.getElementById('btn-close-update-modal');
-        const progressBox = document.getElementById('update-progress-box');
-        const btnStart = document.getElementById('btn-start-update');
-        if (btnCancel) btnCancel.style.display = '';
-        if (btnClose) btnClose.style.display = '';
-        if (progressBox) progressBox.style.display = 'none';
-        if (btnStart) {
-          btnStart.disabled = false;
-          btnStart.innerText = '⚡ 立即更新并重启';
-        }
+        smoothCloseModal(updateModal, () => {
+          const btnCancel = document.getElementById('btn-cancel-update');
+          const btnClose = document.getElementById('btn-close-update-modal');
+          const progressBox = document.getElementById('update-progress-box');
+          const btnStart = document.getElementById('btn-start-update');
+          if (btnCancel) btnCancel.style.display = '';
+          if (btnClose) btnClose.style.display = '';
+          if (progressBox) progressBox.style.display = 'none';
+          if (btnStart) {
+            btnStart.disabled = false;
+            btnStart.innerText = '⚡ 立即更新并重启';
+          }
+        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -6142,7 +6255,7 @@ function setupGlobalKeyboardDispatcher() {
       // 4. 地标收藏输入弹窗
       const wpModal = document.getElementById('waypoint-modal');
       if (wpModal && wpModal.style.display !== 'none') {
-        wpModal.style.display = 'none';
+        smoothClosePanel(wpModal);
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -6151,7 +6264,8 @@ function setupGlobalKeyboardDispatcher() {
       // 5. 路线规划面板
       const routePanel = document.getElementById('route-panel');
       if (routePanel && routePanel.style.display !== 'none') {
-        routePanel.style.display = 'none';
+        hideRouteFloatingDropdown();
+        smoothClosePanel(routePanel);
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -6160,7 +6274,7 @@ function setupGlobalKeyboardDispatcher() {
       // 6. 收藏夹抽屉面板
       const favPanel = document.getElementById('favorites-drawer');
       if (favPanel && favPanel.style.display !== 'none') {
-        favPanel.style.display = 'none';
+        smoothClosePanel(favPanel);
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -6169,9 +6283,10 @@ function setupGlobalKeyboardDispatcher() {
       // 7. 全国总览省份拼音展开面板
       const provPopover = document.getElementById('prov-popover-menu');
       if (provPopover && provPopover.style.display !== 'none') {
-        provPopover.style.display = 'none';
-        const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
-        if (provTriggerBtn) provTriggerBtn.classList.remove('active');
+        smoothClosePopover(provPopover, () => {
+          const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
+          if (provTriggerBtn) provTriggerBtn.classList.remove('active');
+        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -6180,7 +6295,7 @@ function setupGlobalKeyboardDispatcher() {
       // 3. 云端多设备同步弹窗
       const syncModal = document.getElementById('sync-modal');
       if (syncModal && syncModal.style.display !== 'none') {
-        syncModal.style.display = 'none';
+        smoothCloseModal(syncModal);
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -6189,9 +6304,10 @@ function setupGlobalKeyboardDispatcher() {
       // 8. 搜索浮动面板
       const searchPopover = document.getElementById('search-popover') || document.getElementById('spotlight-modal');
       if (searchPopover && searchPopover.style.display !== 'none') {
-        searchPopover.style.display = 'none';
-        const sInput = document.getElementById('global-search-input');
-        if (sInput) sInput.blur();
+        smoothClosePopover(searchPopover, () => {
+          const sInput = document.getElementById('global-search-input');
+          if (sInput) sInput.blur();
+        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
