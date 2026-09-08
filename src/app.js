@@ -596,13 +596,15 @@ async function initApplication() {
   const isWebMode = !window.electronAPI;
   if (isWebMode) {
     document.body.classList.add('web-mode');
+    document.documentElement.classList.add('web-mode');
+    const dlBtn = document.getElementById('btn-open-pyramid-dl');
+    if (dlBtn) dlBtn.style.display = 'none';
   }
 
   const titleStat = document.getElementById('titlebar-cache-stat');
   if (titleStat) {
     if (isWebMode) {
-      titleStat.innerText = '在线云端直连';
-      titleStat.title = '在线拉取瓦片模式 (无需本地服务器，直接由 CDN 极速分发)';
+      titleStat.style.display = 'none';
     } else {
       titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
       titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
@@ -707,7 +709,7 @@ async function initApplication() {
           id: 'background',
           type: 'background',
           paint: {
-            'background-color': '#e8eee4'
+            'background-color': '#f2ede5'
           }
         }
       ]
@@ -735,16 +737,16 @@ async function initApplication() {
       exaggeration: currentExaggeration
     });
 
-    // DEM高程图立体光照阴影渲染
+    // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
     map.addLayer({
       id: 'hillshade-layer',
       type: 'hillshade',
       source: 'terrain-dem',
       paint: {
-        'hillshade-exaggeration': 0.85,
-        'hillshade-highlight-color': '#fdfefb',
-        'hillshade-shadow-color': '#4a5c4e',
-        'hillshade-accent-color': '#dce5d8'
+        'hillshade-exaggeration': 0.65,
+        'hillshade-highlight-color': '#ffffff',
+        'hillshade-shadow-color': '#5a685c',
+        'hillshade-accent-color': '#e2eae0'
       }
     });
 
@@ -755,7 +757,7 @@ async function initApplication() {
       maxzoom: 14
     });
 
-    // 居住区/小区/住宅区与商业文教功能用地轮廓
+    // 居住区/小区/住宅区功能用地轮廓 (Apple Maps 雅致暖灰)
     map.addLayer({
       id: 'osm-landuse-residential',
       type: 'fill',
@@ -763,7 +765,7 @@ async function initApplication() {
       'source-layer': 'landuse',
       filter: ['match', ['get', 'class'], ['residential', 'suburb'], true, false],
       paint: {
-        'fill-color': '#f1f5f9',
+        'fill-color': '#ebe6de',
         'fill-opacity': 0.45
       }
     });
@@ -775,12 +777,12 @@ async function initApplication() {
       'source-layer': 'landuse',
       filter: ['match', ['get', 'class'], ['commercial', 'industrial', 'school', 'hospital'], true, false],
       paint: {
-        'fill-color': '#f8fafc',
+        'fill-color': '#f2eee6',
         'fill-opacity': 0.35
       }
     });
 
-    // 森林植被
+    // 森林与自然植被 (Apple Maps 经典鼠尾草柔绿，护眼舒适)
     map.addLayer({
       id: 'osm-forest-layer',
       type: 'fill',
@@ -788,37 +790,37 @@ async function initApplication() {
       'source-layer': 'landcover',
       filter: ['match', ['get', 'class'], ['wood', 'forest', 'scrub', 'grass'], true, false],
       paint: {
-        'fill-color': '#34d399',
-        'fill-opacity': 0.16
+        'fill-color': '#cbe6c4',
+        'fill-opacity': 0.55
       }
     });
 
-    // 湖泊水库 (OSM矢量清澈天蓝)
+    // 湖泊水库 (Apple Maps 柔和恬静石板天蓝，彻底替换刺眼高亮青蓝)
     map.addLayer({
       id: 'osm-water-layer',
       type: 'fill',
       source: 'osm-vector-source',
       'source-layer': 'water',
       paint: {
-        'fill-color': '#38bdf8',
-        'fill-opacity': 0.88
+        'fill-color': '#9dc2e8',
+        'fill-opacity': 0.9
       }
     });
 
-    // 河流水系 (OSM矢量深湛蓝)
+    // 河流水系 (Apple Maps 柔和水系主线)
     map.addLayer({
       id: 'osm-waterway-layer',
       type: 'line',
       source: 'osm-vector-source',
       'source-layer': 'waterway',
       paint: {
-        'line-color': '#0284c7',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 2.0, 14, 3.5],
+        'line-color': '#7fa8d8',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 2.0, 14, 3.2],
         'line-opacity': 0.85
       }
     });
 
-    // 湖泊、水库大水系名称注记
+    // 湖泊、水库大水系名称注记 (Apple Maps 雅致水系文字)
     map.addLayer({
       id: 'osm-water-names',
       type: 'symbol',
@@ -832,7 +834,7 @@ async function initApplication() {
         'text-anchor': 'center'
       },
       paint: {
-        'text-color': '#0369a1',
+        'text-color': '#456e99',
         'text-halo-color': '#ffffff',
         'text-halo-width': 2.5
       }
@@ -856,7 +858,7 @@ async function initApplication() {
         'text-keep-upright': true
       },
       paint: {
-        'text-color': '#0284c7',
+        'text-color': '#456e99',
         'text-halo-color': '#ffffff',
         'text-halo-width': 2.5
       }
@@ -1027,7 +1029,7 @@ async function initApplication() {
       }
     });
 
-    // 微观路网体系
+    // 微观路网体系 (Apple Maps 风格：柔和石板灰细边 + 纯净暖白路心)
     map.addLayer({
       id: 'osm-minor-roads-casing',
       type: 'line',
@@ -1035,8 +1037,8 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
       paint: {
-        'line-color': '#9eabb9',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.4, 11, 2.6, 14, 4.8],
+        'line-color': '#e0e4eb',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.2, 11, 2.2, 14, 4.0],
         'line-opacity': 0.85
       }
     });
@@ -1049,21 +1051,49 @@ async function initApplication() {
       filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
       paint: {
         'line-color': '#ffffff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 11, 1.8, 14, 3.4],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 11, 1.5, 14, 3.0],
         'line-opacity': 0.95
       }
     });
 
+    // 城市主要干道、国道与省道 (Apple Maps 风格：纯净暖白路心，彻底剔除晃眼刺目橙色)
+    map.addLayer({
+      id: 'osm-primary-roads-casing',
+      type: 'line',
+      source: 'osm-vector-source',
+      'source-layer': 'transportation',
+      filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
+      paint: {
+        'line-color': '#ccd2db',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 10, 3.6, 14, 6.0],
+        'line-opacity': 0.9
+      }
+    });
+
+    map.addLayer({
+      id: 'osm-primary-roads-core',
+      type: 'line',
+      source: 'osm-vector-source',
+      'source-layer': 'transportation',
+      filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 2.4, 14, 4.5],
+        'line-opacity': 1.0
+      }
+    });
+
+    // 高速公路与城市快速高架路 (Apple Maps 经典柔和暖杏桃琥珀色，OLED 屏幕温和舒适，绝不刺眼)
     map.addLayer({
       id: 'osm-highway-casing',
       type: 'line',
       source: 'osm-vector-source',
       'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['motorway', 'trunk', 'primary'], true, false],
+      filter: ['match', ['get', 'class'], ['motorway'], true, false],
       paint: {
-        'line-color': '#ffffff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.0, 10, 4.2, 14, 7.5],
-        'line-opacity': 0.9
+        'line-color': '#e29b55',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.0, 10, 4.0, 14, 7.0],
+        'line-opacity': 0.85
       }
     });
 
@@ -1072,14 +1102,15 @@ async function initApplication() {
       type: 'line',
       source: 'osm-vector-source',
       'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['motorway', 'trunk', 'primary'], true, false],
+      filter: ['match', ['get', 'class'], ['motorway'], true, false],
       paint: {
-        'line-color': '#f97316',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.2, 10, 2.6, 14, 5.2],
+        'line-color': '#f5bd7a',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.2, 10, 2.6, 14, 5.0],
         'line-opacity': 1.0
       }
     });
 
+    // 户外山野小径与步道 (Apple Maps 柔和暖陶土色虚线)
     map.addLayer({
       id: 'osm-trails-layer',
       type: 'line',
@@ -1087,10 +1118,10 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['path', 'track', 'footway', 'pedestrian', 'steps'], true, false],
       paint: {
-        'line-color': '#e74c3c',
+        'line-color': '#d97736',
         'line-width': 2.0,
-        'line-dasharray': [2, 1],
-        'line-opacity': 0.9
+        'line-dasharray': [2, 1.5],
+        'line-opacity': 0.85
       }
     });
 
@@ -1482,28 +1513,114 @@ function parseCoordinates(str) {
   return null;
 }
 
-// 综合检索引擎：本地字典 + 在线高精地理编码 (严格仅限中国境内数据，坚决剔除一切外国地点)
+// 极速拼音转汉字引擎 (支持纯网页 JSONP 与 Electron 零跨域并发查询，1.2s 超时防抖与平滑回退)
+function pinyinToChineseWords(pinyin) {
+  const py = (pinyin || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!py || !/^[a-z]+$/.test(py)) {
+    return Promise.resolve([]);
+  }
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve([]);
+      }
+    }, 1200);
+
+    const cbName = 'outmap_py_cb_' + Math.random().toString(36).slice(2, 9);
+
+    function cleanup() {
+      if (typeof window !== 'undefined' && window[cbName]) {
+        delete window[cbName];
+      }
+      const el = typeof document !== 'undefined' ? document.getElementById(cbName) : null;
+      if (el && el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
+    }
+
+    if (typeof window === 'undefined') {
+      clearTimeout(timer);
+      resolve([]);
+      return;
+    }
+
+    window[cbName] = function(data) {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        cleanup();
+        if (data && Array.isArray(data.s)) {
+          // 提取包含汉字的候选词，过滤无关词，保留前 5 个最匹配的候选词
+          const words = data.s
+            .filter(w => /[\u4e00-\u9fa5]/.test(w))
+            .slice(0, 5);
+          resolve(words);
+        } else {
+          resolve([]);
+        }
+      }
+    };
+
+    try {
+      const script = document.createElement('script');
+      script.id = cbName;
+      script.src = `https://suggestion.baidu.com/su?wd=${encodeURIComponent(py)}&cb=${cbName}&ie=UTF-8`;
+      script.onerror = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          cleanup();
+          resolve([]);
+        }
+      };
+      document.head.appendChild(script);
+    } catch (e) {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        resolve([]);
+      }
+    }
+  });
+}
+
+// 综合检索引擎：支持任意 POI 全拼联想、本地海量地名字典与在线高精地理编码
 async function queryLocationCandidates(keyword) {
   const raw = (keyword || '').trim();
   if (!raw) {
     return [];
   }
   const q = raw.toLowerCase();
+  const cleanPy = q.replace(/\s+/g, '');
+  const isPinyin = /^[a-z]+$/.test(cleanPy);
 
   const coordMatch = parseCoordinates(q);
   if (coordMatch) {
     return [{
       name: coordMatch.title,
       desc: 'GPS 经纬度绝对坐标',
-      coords: coordMatch.coords,
+      coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       icon: '🎯',
       zoom: 15.0
     }];
   }
 
-  const localMatches = [];
+  // 若输入为全拼或含拼音字母，自动并发异步转换为中文候选词 (如 bailujinan -> ['白鹭金岸', '白鹭金岸天玺'])
+  let chineseWords = [];
+  if (isPinyin) {
+    try {
+      chineseWords = await pinyinToChineseWords(cleanPy);
+    } catch (e) {}
+  }
 
-  // 1. 省份匹配 (名称 / 全拼 / 简拼 / 首字母缩写)
+  const localMatches = [];
+  const searchChineseTerms = [raw, ...chineseWords];
+
+  // 1. 省份匹配 (名称 / 全拼 / 简拼 / 首字母缩写 / 转化候选词)
   if (typeof PROVINCES_DATA !== 'undefined') {
     Object.keys(PROVINCES_DATA).forEach(k => {
       const p = PROVINCES_DATA[k];
@@ -1511,14 +1628,17 @@ async function queryLocationCandidates(keyword) {
       const py = (p.py || '').toLowerCase();
       const pGroup = (p.pinyinGroup || '').toLowerCase();
       const en = (p.en || '').toLowerCase();
-      if (p.name.includes(raw) || p.name.includes(q) || pinyin.startsWith(q) || pinyin.includes(q) || py === q || py.startsWith(q) || pGroup === q || en.includes(q)) {
+      const matchPinyin = pinyin.startsWith(cleanPy) || pinyin.includes(cleanPy) || py === cleanPy || py.startsWith(cleanPy) || pGroup === cleanPy || en.includes(cleanPy);
+      const matchName = searchChineseTerms.some(term => p.name.includes(term) || term.includes(p.name));
+
+      if (matchName || matchPinyin) {
         let score = 3;
-        if (p.name === raw || pinyin === q || py === q) score = 1;
-        else if (pinyin.startsWith(q) || p.name.startsWith(raw) || py.startsWith(q)) score = 2;
+        if (p.name === raw || pinyin === cleanPy || py === cleanPy) score = 1;
+        else if (pinyin.startsWith(cleanPy) || p.name.startsWith(raw) || py.startsWith(cleanPy)) score = 2;
         localMatches.push({
           name: p.name,
           desc: `省级行政区 · ${p.pinyin || p.en || ''}`,
-          coords: p.center,
+          coords: [Number(p.center[0]), Number(p.center[1])],
           icon: '🚩',
           type: 'province',
           zoom: p.zoom,
@@ -1528,19 +1648,22 @@ async function queryLocationCandidates(keyword) {
     });
   }
 
-  // 2. 名山匹配 (名称 / 全拼 / 简拼)
+  // 2. 名山匹配 (名称 / 全拼 / 简拼 / 转化候选词)
   if (typeof MOUNTAIN_POIS !== 'undefined') {
     MOUNTAIN_POIS.forEach(m => {
       const pinyin = (m.pinyin || '').toLowerCase();
       const py = (m.py || '').toLowerCase();
-      if (m.name.includes(raw) || m.name.includes(q) || pinyin.startsWith(q) || pinyin.includes(q) || py === q || py.startsWith(q)) {
+      const matchPinyin = pinyin.startsWith(cleanPy) || pinyin.includes(cleanPy) || py === cleanPy || py.startsWith(cleanPy);
+      const matchName = searchChineseTerms.some(term => m.name.includes(term) || term.includes(m.name));
+
+      if (matchName || matchPinyin) {
         let score = 3;
-        if (m.name === raw || pinyin === q || py === q) score = 1;
-        else if (pinyin.startsWith(q) || m.name.startsWith(raw)) score = 2;
+        if (m.name === raw || pinyin === cleanPy || py === cleanPy) score = 1;
+        else if (pinyin.startsWith(cleanPy) || m.name.startsWith(raw)) score = 2;
         localMatches.push({
           name: m.name,
           desc: `著名山峰 · 海拔 ${m.ele}米`,
-          coords: m.coords,
+          coords: [Number(m.coords[0]), Number(m.coords[1])],
           icon: '🏔️',
           type: 'mountain',
           zoom: 13.8,
@@ -1556,24 +1679,19 @@ async function queryLocationCandidates(keyword) {
       const pinyin = (c.pinyin || '').toLowerCase();
       const py = (c.py || '').toLowerCase();
       const en = (c.en || '').toLowerCase();
-      const nameMatch = c.name.includes(raw) || c.name.includes(q);
-      const pinyinExact = pinyin === q;
-      const pinyinStart = pinyin.startsWith(q);
-      const pinyinInclude = pinyin.includes(q);
-      const pyExact = py === q;
-      const pyStart = py.startsWith(q);
-      const enMatch = en.startsWith(q);
+      const matchPinyin = pinyin === cleanPy || pinyin.startsWith(cleanPy) || pinyin.includes(cleanPy) || py === cleanPy || py.startsWith(cleanPy) || en.startsWith(cleanPy);
+      const matchName = searchChineseTerms.some(term => c.name.includes(term) || term.includes(c.name));
 
-      if (nameMatch || pinyinExact || pinyinStart || pinyinInclude || pyExact || pyStart || enMatch) {
+      if (matchName || matchPinyin) {
         let score = 4;
-        if (c.name === raw || pinyinExact || pyExact) score = 1;
-        else if (pinyinStart || c.name.startsWith(raw)) score = 2;
-        else if (pyStart) score = 3;
+        if (c.name === raw || pinyin === cleanPy || py === cleanPy) score = 1;
+        else if (pinyin.startsWith(cleanPy) || c.name.startsWith(raw)) score = 2;
+        else if (py.startsWith(cleanPy)) score = 3;
 
         localMatches.push({
           name: c.name,
           desc: `${c.province || '重点城市'} · ${c.pinyin || c.en || ''}`,
-          coords: c.coords,
+          coords: [Number(c.coords[0]), Number(c.coords[1])],
           icon: '🏙️',
           type: 'city',
           zoom: 12.5,
@@ -1586,16 +1704,20 @@ async function queryLocationCandidates(keyword) {
   // 4. 用户收藏夹匹配
   if (typeof savedWaypoints !== 'undefined' && Array.isArray(savedWaypoints)) {
     savedWaypoints.forEach(wp => {
-      if (wp && wp.name && (wp.name.includes(raw) || wp.name.toLowerCase().includes(q))) {
-        localMatches.push({
-          name: wp.name,
-          desc: `我的收藏点 · ${wp.ele || 0}m`,
-          coords: [wp.lng, wp.lat],
-          icon: '⭐',
-          type: 'waypoint',
-          zoom: 14.5,
-          _score: 1
-        });
+      if (wp && wp.name) {
+        const wpLower = wp.name.toLowerCase();
+        const matchName = searchChineseTerms.some(term => wp.name.includes(term) || wpLower.includes(term.toLowerCase()));
+        if (matchName) {
+          localMatches.push({
+            name: wp.name,
+            desc: `我的收藏点 · ${wp.ele || 0}m`,
+            coords: [Number(wp.lng), Number(wp.lat)],
+            icon: '⭐',
+            type: 'waypoint',
+            zoom: 14.5,
+            _score: 1
+          });
+        }
       }
     });
   }
@@ -1603,75 +1725,101 @@ async function queryLocationCandidates(keyword) {
   // 按相关度评分排序
   localMatches.sort((a, b) => (a._score || 9) - (b._score || 9));
 
-  // 5. 在线全量 OSM Photon 地理编码检索 (限定中国境内 BBox，设置 2.2s 超时防网络卡顿)
+  // 5. 在线全量 OSM Photon 地理编码检索 (对纯拼音输入，并发使用解析出的中文候选词检索)
   try {
+    const photonTerms = [];
+    if (chineseWords.length > 0) {
+      // 优先取前 2 个高质量候选词进行高精地理编码
+      chineseWords.slice(0, 2).forEach(w => {
+        if (!photonTerms.includes(w)) photonTerms.push(w);
+      });
+    }
+    if (!photonTerms.includes(raw) && (!isPinyin || photonTerms.length === 0)) {
+      photonTerms.push(raw);
+    }
+
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), 2200);
-    const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=15`;
-    const resp = await fetch(onlineUrl, {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'Outmap/1.0' }
-    });
-    clearTimeout(timeoutId);
 
-    if (resp.ok) {
-      const geojson = await resp.json();
-      if (geojson && geojson.features) {
-        geojson.features.forEach(f => {
-          const p = f.properties;
-          const coords = f.geometry.coordinates;
-          if (!coords || coords.length < 2) return;
+    await Promise.all(photonTerms.map(async (term) => {
+      try {
+        const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(term)}&bbox=73.5,18.0,135.1,53.6&limit=12`;
+        const resp = await fetch(onlineUrl, {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Outmap/1.0' }
+        });
+        if (resp.ok) {
+          const geojson = await resp.json();
+          if (geojson && geojson.features) {
+            geojson.features.forEach(f => {
+              const p = f.properties;
+              const coords = f.geometry.coordinates;
+              if (!coords || coords.length < 2) return;
 
-          const inChinaBbox = coords[0] >= 73.0 && coords[0] <= 136.0 && coords[1] >= 18.0 && coords[1] <= 54.0;
-          const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
-          if (!inChinaBbox || !isCountryCn) return;
+              const lng = Number(coords[0]);
+              const lat = Number(coords[1]);
+              if (isNaN(lng) || isNaN(lat)) return;
 
-          const name = p.name || p.street || p.city || raw;
-          const parts = [p.state, p.city, p.district, p.locality]
-            .filter(Boolean)
-            .filter(s => s !== 'China' && s !== '中国');
-          const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
-          const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
+              const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
+              const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
+              if (!inChinaBbox || !isCountryCn) return;
 
-          let icon = '📍';
-          let type = 'poi';
-          const osmValue = (p.osm_value || '').toLowerCase();
+              const name = p.name || p.street || p.city || term;
+              const parts = [p.state, p.city, p.district, p.locality]
+                .filter(Boolean)
+                .filter(s => s !== 'China' && s !== '中国');
+              const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
+              const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
 
-          if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑')) {
-            icon = '🏘️';
-            type = 'community';
-          } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
-            icon = '🏔️';
-            type = 'mountain';
-          } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
-            icon = '🏫';
-          } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
-            icon = '🏥';
-          } else if (osmValue.includes('city') || osmValue.includes('town')) {
-            icon = '🏙️';
-          }
+              let icon = '📍';
+              let type = 'poi';
+              const osmValue = (p.osm_value || '').toLowerCase();
 
-          if (!localMatches.some(m => m.name === name && Math.abs(m.coords[0] - coords[0]) < 0.005)) {
-            localMatches.push({
-              name,
-              desc,
-              coords,
-              icon,
-              type,
-              zoom: 15.0
+              if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑') || name.includes('公馆')) {
+                icon = '🏘️';
+                type = 'community';
+              } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
+                icon = '🏔️';
+                type = 'mountain';
+              } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
+                icon = '🏫';
+              } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
+                icon = '🏥';
+              } else if (osmValue.includes('city') || osmValue.includes('town')) {
+                icon = '🏙️';
+              }
+
+              const isDuplicate = localMatches.some(m => {
+                const dist = Math.hypot(m.coords[0] - lng, m.coords[1] - lat);
+                return (m.name === name && dist < 0.005) || dist < 0.0008;
+              });
+
+              if (!isDuplicate) {
+                localMatches.push({
+                  name,
+                  desc,
+                  coords: [lng, lat],
+                  icon,
+                  type,
+                  zoom: 15.0
+                });
+              }
             });
           }
-        });
-      }
-    }
+        }
+      } catch (e) {}
+    }));
+
+    clearTimeout(timeoutId);
   } catch (e) {
     // 离线环境平滑回退
   }
 
-  return localMatches.slice(0, 15);
+  return localMatches.slice(0, 16);
 }
 
 if (typeof window !== 'undefined') {
+  window.pinyinToChineseWords = pinyinToChineseWords;
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
@@ -1981,16 +2129,22 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   function showLandingMarker(coords, title, desc = '') {
+    if (!coords || coords.length < 2) return;
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (isNaN(lng) || isNaN(lat)) return;
+    const validCoords = [lng, lat];
+
     if (currentLandingMarker) {
       currentLandingMarker.remove();
       currentLandingMarker = null;
     }
 
-    const ele = Math.round(getRealElevation(map, { lng: coords[0], lat: coords[1] }) || 0);
+    const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
     const cleanDesc = (desc || '')
       .replace(/^中国\s*[·,\-–]\s*/, '')
       .replace(/China\s*[·,\-–]\s*/i, '');
-    const metaText = cleanDesc || `${coords[0].toFixed(4)}°E, ${coords[1].toFixed(4)}°N · ${ele}m`;
+    const metaText = cleanDesc || `${validCoords[0].toFixed(4)}°E, ${validCoords[1].toFixed(4)}°N · ${ele}m`;
 
     const el = document.createElement('div');
     el.className = 'landing-pulse-marker';
@@ -2032,7 +2186,7 @@ function setupOfficeHeaderInteractions(map) {
       btnFav.addEventListener('click', (e) => {
         e.stopPropagation();
         if (typeof window.openWaypointModalForLocation === 'function') {
-          window.openWaypointModalForLocation(coords, title);
+          window.openWaypointModalForLocation(validCoords, title);
         }
       });
     }
@@ -2042,7 +2196,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnStart) {
       btnStart.addEventListener('click', (e) => {
         e.stopPropagation();
-        setRouteStartPoint(map, coords, title);
+        setRouteStartPoint(map, validCoords, title);
       });
     }
 
@@ -2051,7 +2205,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnVia) {
       btnVia.addEventListener('click', (e) => {
         e.stopPropagation();
-        addViaPoint(map, coords, title);
+        addViaPoint(map, validCoords, title);
       });
     }
 
@@ -2060,7 +2214,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnEnd) {
       btnEnd.addEventListener('click', (e) => {
         e.stopPropagation();
-        setRouteEndPoint(map, coords, title);
+        setRouteEndPoint(map, validCoords, title);
       });
     }
 
@@ -2069,7 +2223,7 @@ function setupOfficeHeaderInteractions(map) {
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
-        map.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+        map.flyTo({ center: validCoords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
       });
     }
 
@@ -2084,7 +2238,7 @@ function setupOfficeHeaderInteractions(map) {
           x: e.clientX - wrapRect.left,
           y: e.clientY - wrapRect.top
         };
-        window.showContextMenuForLocation({ lng: coords[0], lat: coords[1] }, point, title);
+        window.showContextMenuForLocation({ lng: validCoords[0], lat: validCoords[1] }, point, title);
       }
     };
 
@@ -2095,7 +2249,7 @@ function setupOfficeHeaderInteractions(map) {
     el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
 
     currentLandingMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-      .setLngLat(coords)
+      .setLngLat(validCoords)
       .addTo(map);
   }
 
@@ -2132,6 +2286,12 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   function executeJumpToResult(item) {
+    if (!item || !item.coords || item.coords.length < 2) return;
+    const lng = Number(item.coords[0]);
+    const lat = Number(item.coords[1]);
+    if (isNaN(lng) || isNaN(lat)) return;
+    const validCoords = [lng, lat];
+
     if (searchPopover) searchPopover.style.display = 'none';
     if (resultsContainer) resultsContainer.style.display = 'none';
     if (sInput) sInput.value = item.name;
@@ -2151,7 +2311,7 @@ function setupOfficeHeaderInteractions(map) {
     const minFlightZoom = Math.max(7.0, Math.min(currentZoom, targetZoom) - 2.0);
 
     map.flyTo({
-      center: item.coords,
+      center: validCoords,
       zoom: targetZoom,
       pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
       offset: [0, 65],
@@ -2161,7 +2321,7 @@ function setupOfficeHeaderInteractions(map) {
       essential: true
     });
 
-    showLandingMarker(item.coords, item.name, item.desc);
+    showLandingMarker(validCoords, item.name, item.desc);
   }
 
   // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史)
@@ -3750,6 +3910,20 @@ let customFolders = []; // 用户持久化自定义收藏夹分类
 let isPickingPoint = false;
 let tempPickedPoint = null;
 
+// 右下角悬浮面板统一互斥调度管理 (收藏抽屉、新建地标收藏弹窗、路线规划面板互斥关闭，杜绝界面重叠)
+function closeConflictingBottomPanels(exceptId = null) {
+  const panelIds = ['waypoint-modal', 'favorites-drawer', 'route-panel'];
+  panelIds.forEach(id => {
+    if (id !== exceptId) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }
+  });
+}
+if (typeof window !== 'undefined') {
+  window.closeConflictingBottomPanels = closeConflictingBottomPanels;
+}
+
 function setupWaypointAndFavoritesSystem(map) {
   const btnFabPoint = document.getElementById('btn-fab-point');
   const btnFabFav = document.getElementById('btn-fab-fav');
@@ -3878,6 +4052,7 @@ function setupWaypointAndFavoritesSystem(map) {
       wpNameInput.value = `标记点 · ${ele}m`;
       wpNameInput.focus();
     }
+    closeConflictingBottomPanels('waypoint-modal');
     if (wpModal) wpModal.style.display = 'flex';
   });
 
@@ -3909,6 +4084,7 @@ function setupWaypointAndFavoritesSystem(map) {
       wpNameInput.value = name || `地标 · ${ele}m`;
       wpNameInput.focus();
     }
+    closeConflictingBottomPanels('waypoint-modal');
     if (wpModal) wpModal.style.display = 'flex';
   };
 
@@ -4168,11 +4344,14 @@ function setupWaypointAndFavoritesSystem(map) {
 
   btnFabFav?.addEventListener('click', () => {
     const isHidden = favDrawer.style.display === 'none';
-    favDrawer.style.display = isHidden ? 'flex' : 'none';
     if (isHidden) {
+      closeConflictingBottomPanels('favorites-drawer');
+      favDrawer.style.display = 'flex';
       renderFolderTabs();
       renderFavoritesList();
       renderSavedRoutesList();
+    } else {
+      favDrawer.style.display = 'none';
     }
   });
 
@@ -4556,6 +4735,7 @@ function addViaPoint(map, coords, label) {
   });
 
   renderViaList(m);
+  closeConflictingBottomPanels('route-panel');
   const routePanel = document.getElementById('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
 
@@ -4603,6 +4783,7 @@ function setRouteStartPoint(map, coords, label) {
   if (m) {
     routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
   }
+  closeConflictingBottomPanels('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
   if (m) autoPlanMultiPointRoute(m);
 }
@@ -4625,6 +4806,7 @@ function setRouteEndPoint(map, coords, label) {
   if (m) {
     routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
   }
+  closeConflictingBottomPanels('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
   if (m) autoPlanMultiPointRoute(m);
 }
@@ -4934,7 +5116,12 @@ function setupOutdoorRouteSystem(map) {
 
   btnFabRoute?.addEventListener('click', () => {
     const isHidden = routePanel.style.display === 'none';
-    routePanel.style.display = isHidden ? 'flex' : 'none';
+    if (isHidden) {
+      closeConflictingBottomPanels('route-panel');
+      routePanel.style.display = 'flex';
+    } else {
+      routePanel.style.display = 'none';
+    }
   });
 
   btnCloseRoute?.addEventListener('click', () => {
@@ -5467,10 +5654,8 @@ function loadSavedRoute(routeId, map) {
     updateProfileAndMetrics(map, route.pathCoords, m.distKm, null, true, true);
   }
 
-  // 关闭收藏夹抽屉，展开路线规划面板
-  const favDrawer = document.getElementById('favorites-drawer');
-  if (favDrawer) favDrawer.style.display = 'none';
-
+  // 关闭其余右下角抽屉，展开路线规划面板
+  closeConflictingBottomPanels('route-panel');
   const routePanel = document.getElementById('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
 }
@@ -5675,6 +5860,7 @@ function setupMapContextMenu(map) {
       wpNameInput.value = currentContextPoint.placeName;
       wpNameInput.focus();
     }
+    closeConflictingBottomPanels('waypoint-modal');
     if (wpModal) wpModal.style.display = 'flex';
   });
 

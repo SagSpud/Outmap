@@ -484,6 +484,18 @@ html, body {
   box-shadow: 0 1px 4px rgba(22, 163, 74, 0.6) !important;
 }
 
+/* 纯浏览器 Web 模式下彻底隐藏离线下载按钮与切片状态，杜绝首屏一闪而过 */
+html.web-mode #btn-open-pyramid-dl,
+html.web-mode #titlebar-cache-stat,
+html.web-mode #pyramid-modal,
+html.web-mode #manage-modal,
+body.web-mode #btn-open-pyramid-dl,
+body.web-mode #titlebar-cache-stat,
+body.web-mode #pyramid-modal,
+body.web-mode #manage-modal {
+  display: none !important;
+}
+
 /* 高程滑块胶囊 (加长滑块长度，细腻微调3D高程) */
 .office-slider-group {
   display: flex;
@@ -824,7 +836,6 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translate(-50%, -100%);
   pointer-events: auto;
   cursor: default;
   z-index: 1200;
