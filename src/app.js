@@ -1627,8 +1627,11 @@ async function queryLocationCandidates(keyword) {
           if (!inChinaBbox || !isCountryCn) return;
 
           const name = p.name || p.street || p.city || raw;
-          const parts = [p.country, p.state, p.city, p.district, p.locality].filter(Boolean);
-          const desc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
+          const parts = [p.state, p.city, p.district, p.locality]
+            .filter(Boolean)
+            .filter(s => s !== 'China' && s !== '中国');
+          const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
+          const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
 
           let icon = '📍';
           let type = 'poi';
@@ -1655,7 +1658,7 @@ async function queryLocationCandidates(keyword) {
               coords,
               icon,
               type,
-              zoom: type === 'community' ? 15.5 : 14.0
+              zoom: 15.0
             });
           }
         });
@@ -1984,7 +1987,10 @@ function setupOfficeHeaderInteractions(map) {
     }
 
     const ele = Math.round(getRealElevation(map, { lng: coords[0], lat: coords[1] }) || 0);
-    const metaText = desc || `${coords[0].toFixed(4)}°E, ${coords[1].toFixed(4)}°N · ${ele}m`;
+    const cleanDesc = (desc || '')
+      .replace(/^中国\s*[·,\-–]\s*/, '')
+      .replace(/China\s*[·,\-–]\s*/i, '');
+    const metaText = cleanDesc || `${coords[0].toFixed(4)}°E, ${coords[1].toFixed(4)}°N · ${ele}m`;
 
     const el = document.createElement('div');
     el.className = 'landing-pulse-marker';
@@ -2058,12 +2064,12 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-    // 点击图钉重新飞到此处居中
+    // 点击图钉重新飞到此处居中偏下 (zoom 15)
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
-        map.flyTo({ center: coords, zoom: Math.max(map.getZoom(), 14), duration: 600 });
+        map.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
       });
     }
 
@@ -2139,12 +2145,20 @@ function setupOfficeHeaderInteractions(map) {
       }
     });
 
-    const targetZoom = item.zoom || (item.type === 'community' ? 15.5 : (item.type === 'mountain' ? 13.8 : 12.5));
+    const isProv = item.type === 'province';
+    const targetZoom = isProv ? (item.zoom || 7.2) : 15.0;
+    const currentZoom = map.getZoom();
+    const minFlightZoom = Math.max(7.0, Math.min(currentZoom, targetZoom) - 2.0);
+
     map.flyTo({
       center: item.coords,
       zoom: targetZoom,
-      pitch: isPitchLocked ? map.getPitch() : 62,
-      duration: 2200
+      pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
+      offset: [0, 65],
+      curve: 1.0,
+      minZoom: minFlightZoom,
+      duration: 1500,
+      essential: true
     });
 
     showLandingMarker(item.coords, item.name, item.desc);
@@ -3492,9 +3506,9 @@ function flyToProvince(map, key) {
   const regionEl = document.getElementById('status-region');
   if (regionEl) {
     if (key === 'china') {
-      regionEl.innerText = '区域: 中国';
+      regionEl.innerText = '区域: 全国';
     } else {
-      regionEl.innerText = `区域: 中国 · ${prov.name}`;
+      regionEl.innerText = `区域: ${prov.name}`;
     }
   }
 }
@@ -3554,7 +3568,7 @@ const CHINA_DIVISIONS = [
 function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
   const zoom = map.getZoom();
   if (zoom < 5.0) {
-    return onlyCityCounty ? '地点' : '区域: 中国';
+    return onlyCityCounty ? '地点' : '区域: 全国';
   }
 
   const { lng, lat } = lngLat;
@@ -3588,7 +3602,7 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
   }
 
   if (!foundProv && !foundCity) {
-    return onlyCityCounty ? '地点' : '区域: 中国';
+    return onlyCityCounty ? '地点' : '区域: 全国';
   }
 
   // 3. 从矢量图层探查光标所在微观县/区/镇/著名山峰
@@ -3628,13 +3642,13 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
   }
 
   if (foundCity && microFeature) {
-    return `区域: 中国 · ${foundProv} · ${foundCity} · ${microFeature}`;
+    return `区域: ${foundProv} · ${foundCity} · ${microFeature}`;
   } else if (foundCity) {
-    return `区域: 中国 · ${foundProv} · ${foundCity}`;
+    return `区域: ${foundProv} · ${foundCity}`;
   } else if (microFeature) {
-    return `区域: 中国 · ${foundProv} · ${microFeature}`;
+    return `区域: ${foundProv} · ${microFeature}`;
   } else {
-    return `区域: 中国 · ${foundProv}`;
+    return `区域: ${foundProv}`;
   }
 }
 
@@ -4245,7 +4259,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            map.flyTo({ center: item.coords, zoom: 14, duration: 1200 });
+            map.flyTo({ center: item.coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
@@ -4256,10 +4270,17 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     }
 
     if (item.coords) {
+      const currentZoom = map.getZoom();
+      const minFlightZoom = Math.max(7.0, Math.min(currentZoom, 15.0) - 2.0);
       map.flyTo({
         center: item.coords,
-        zoom: Math.max(map.getZoom(), 11),
-        duration: 1200
+        zoom: 15.0,
+        pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
+        offset: [0, 65],
+        curve: 1.0,
+        minZoom: minFlightZoom,
+        duration: 1400,
+        essential: true
       });
     }
   };
@@ -4270,7 +4291,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
 
     if (!items || items.length === 0) {
       dropdownEl.innerHTML = `
-        <div class="route-search-empty">未匹配到“${keyword || ''}”，支持拼音/城市/小区/名山</div>
+        <div class="route-search-empty">未找到“${keyword || ''}”，支持地名/拼音</div>
         <div class="route-search-item route-search-pick-map">
           <span class="route-search-item-icon">📍</span>
           <div class="route-search-item-info">
@@ -4286,13 +4307,16 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       });
     } else {
       items.forEach((item, idx) => {
+        const cleanDesc = (item.desc || '目标地点')
+          .replace(/^中国\s*[·,\-–]\s*/, '')
+          .replace(/China\s*[·,\-–]\s*/i, '');
         const row = document.createElement('div');
         row.className = 'route-search-item' + (idx === 0 ? ' active' : '');
         row.innerHTML = `
           <span class="route-search-item-icon">${item.icon || '📍'}</span>
           <div class="route-search-item-info">
             <div class="route-search-item-name">${item.name}</div>
-            <div class="route-search-item-desc">${item.desc || '中国境内地点'}</div>
+            <div class="route-search-item-desc">${cleanDesc}</div>
           </div>
         `;
         row.addEventListener('click', (e) => {
@@ -4515,7 +4539,7 @@ function addViaPoint(map, coords, label) {
     el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
     el.innerText = idx;
     el.addEventListener('click', () => {
-      m.flyTo({ center: coords, zoom: 14, duration: 1200 });
+      m.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
     });
 
     marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -4574,7 +4598,7 @@ function setRouteStartPoint(map, coords, label) {
   el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '起';
   el.addEventListener('click', () => {
-    if (m) m.flyTo({ center: coords, zoom: 14, duration: 1200 });
+    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
   });
   if (m) {
     routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
@@ -4596,7 +4620,7 @@ function setRouteEndPoint(map, coords, label) {
   el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '终';
   el.addEventListener('click', () => {
-    if (m) m.flyTo({ center: coords, zoom: 14, duration: 1200 });
+    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
   });
   if (m) {
     routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
@@ -5049,7 +5073,7 @@ function setupOutdoorRouteSystem(map) {
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
-            map.flyTo({ center: [lng, lat], zoom: 14, duration: 1200 });
+            map.flyTo({ center: [lng, lat], zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
@@ -5093,7 +5117,7 @@ function setupOutdoorRouteSystem(map) {
     if (!statsBox) return;
     const isHidden = statsBox.style.display === 'none';
     statsBox.style.display = isHidden ? 'grid' : 'none';
-    btnRouteDetailsToggle.innerText = isHidden ? '收起详情 ▴' : '详情 ▾';
+    btnRouteDetailsToggle.innerText = isHidden ? '收起' : '详情 ▾';
   });
 
   // 4. 海拔变化图交互联动：海拔图默认彻底隐藏，点击详情中海拔指标时才展开
@@ -5563,7 +5587,10 @@ function setupMapContextMenu(map) {
     const ele = Math.round(getRealElevation(map, lngLat) || 0);
 
     // 智能提取所点位置的行政区划或使用传入的精准自定义地名
-    const cleanLocation = customName || resolveLocationInfo(map, lngLat, point, true);
+    const rawLoc = customName || resolveLocationInfo(map, lngLat, point, true);
+    const cleanLocation = (rawLoc || '地点')
+      .replace(/^中国\s*[·,\-–]\s*/, '')
+      .replace(/China\s*[·,\-–]\s*/i, '');
 
     currentContextPoint = {
       lng,

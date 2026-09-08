@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.2.18" />
+  <link rel="stylesheet" href="style.css?v=1.2.19" />
   <script src="vendor/maplibre-gl.js"></script>
   <script src="vendor/maplibre-contour.js"></script>
 </head>
@@ -168,20 +168,20 @@
         </div>
         <div class="ctx-divider"></div>
         <button class="ctx-item primary" id="ctx-btn-add-fav">
-          <span class="ctx-icon">📍</span>
-          <span class="ctx-text">添加收藏夹</span>
+          <span class="ctx-icon">⭐</span>
+          <span class="ctx-text">收藏地点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-via">
           <span class="ctx-icon">➕</span>
-          <span class="ctx-text">设为途径点</span>
+          <span class="ctx-text">添加途径点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-start">
           <span class="ctx-icon">🚩</span>
-          <span class="ctx-text">设为路线起点</span>
+          <span class="ctx-text">设为起点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-end">
           <span class="ctx-icon">🏁</span>
-          <span class="ctx-text">设为路线终点</span>
+          <span class="ctx-text">设为终点</span>
         </button>
       </div>
 
@@ -256,7 +256,7 @@
             <div class="route-point-row">
               <span class="pt-tag start">起</span>
               <div class="route-input-wrap">
-                <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入起点地名 (支持拼音/汉字，回车搜索)..." autocomplete="off" />
+                <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入起点 (支持地名/拼音)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-start-dropdown" style="display: none;"></div>
               </div>
               <button class="btn-drag-handle" id="btn-swap-route-pts" title="点击与终点对调起终位置">⇅</button>
@@ -268,7 +268,7 @@
             <div class="route-point-row">
               <span class="pt-tag end">终</span>
               <div class="route-input-wrap">
-                <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入终点地名 (支持拼音/汉字，回车搜索)..." autocomplete="off" />
+                <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入终点 (支持地名/拼音)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-end-dropdown" style="display: none;"></div>
               </div>
               <button class="btn-drag-handle" id="btn-swap-route-pts-2" title="点击与起点对调起终位置">⇅</button>
@@ -280,9 +280,9 @@
             <button class="route-tool-btn" id="btn-add-via-point" title="添加一个中间途径点">
               <span>➕ 添加途径点</span>
             </button>
-            <button class="route-tool-btn continuous-pick-btn" id="btn-continuous-pick" title="开启连续点选模式：直接在3D地表点击，自动追加途径点并实时刷新高程剖面">
+            <button class="route-tool-btn continuous-pick-btn" id="btn-continuous-pick" title="在地图上连续点击追加途径点">
               <span class="pick-pulse-dot"></span>
-              <span>⚡ 地图连续拾点</span>
+              <span>⚡ 连续拾点</span>
             </button>
           </div>
 
@@ -295,7 +295,7 @@
                 <button class="route-export-menu-item" id="btn-export-gpx">📥 导出 GPX</button>
               </div>
             </div>
-            <button class="modal-btn secondary-sm" id="btn-route-details-toggle" title="展开/收起路线详情">详情 ▾</button>
+            <button class="modal-btn secondary-sm" id="btn-route-details-toggle" title="展开/收起详情">详情 ▾</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route" title="清空所有点与路线">清空</button>
           </div>
 
@@ -326,15 +326,15 @@
               <div class="stat-num gray" id="stat-route-minele">-- m</div>
             </div>
             <div class="stat-chart-hint" id="stat-toggle-chart-btn" title="切换海拔剖面图">
-              <span>📈 点击海拔卡片展开 / 收起海拔变化图</span>
+              <span>📈 点击海拔指标查看变化图</span>
             </div>
           </div>
 
           <!-- 3D 路线海拔高程剖面图 (Canvas 绘制，鼠标悬停与地图联动) -->
           <div class="elevation-chart-section" id="route-chart-section" style="display: none;">
             <div class="chart-header-row">
-              <span class="chart-lbl">📈 海拔剖面分析 (沿线地势起伏)</span>
-              <span class="chart-hover-val" id="chart-hover-info">滑过图表联动3D地图</span>
+              <span class="chart-lbl">📈 路线海拔起伏剖面</span>
+              <span class="chart-hover-val" id="chart-hover-info">滑动联动地图</span>
             </div>
             <div class="chart-canvas-wrap">
               <canvas id="elevation-chart-canvas" width="370" height="115"></canvas>

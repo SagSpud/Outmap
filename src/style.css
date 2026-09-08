@@ -956,7 +956,11 @@ html, body {
   color: #334155;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-act-btn:active {
+  transform: scale(0.96);
 }
 
 .landing-act-btn:hover {
@@ -2053,7 +2057,7 @@ html, body {
 #route-panel {
   right: 68px;
   bottom: 38px;
-  width: 420px;
+  width: 350px;
   max-height: 80vh;
   overflow-y: auto;
 }
@@ -2404,44 +2408,99 @@ html, body {
 .route-actions-row {
   display: flex;
   gap: 6px;
+  align-items: stretch;
+  width: 100%;
 }
 
-.route-actions-row .modal-btn {
-  flex: 1;
+.route-actions-row > .modal-btn,
+.route-actions-row .route-export-dropdown-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+
+.route-actions-row .modal-btn,
+.route-actions-row .route-export-dropdown-wrap .modal-btn {
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  outline: none;
+  cursor: pointer;
+  border-width: 1px;
+  border-style: solid;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.route-actions-row .modal-btn:active,
+.route-actions-row .route-export-dropdown-wrap .modal-btn:active {
+  transform: scale(0.97);
+}
+
+.route-actions-row .modal-btn.primary {
+  background: #16a34a;
+  border-color: #15803d;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.2);
+}
+
+.route-actions-row .modal-btn.primary:hover {
+  background: #15803d;
+  border-color: #166534;
+}
+
+.route-actions-row .modal-btn.secondary-sm {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.route-actions-row .modal-btn.secondary-sm:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
 }
 
 .route-export-dropdown-wrap {
   position: relative;
-  flex: 1;
   display: flex;
-}
-
-.route-export-dropdown-wrap .modal-btn {
-  width: 100%;
 }
 
 .route-export-menu {
   position: absolute;
-  bottom: calc(100% + 4px);
+  bottom: calc(100% + 5px);
   left: 0;
-  min-width: 125px;
+  min-width: 128px;
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.04);
   z-index: 1250;
   padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  animation: popoverFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .route-export-menu-item {
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   padding: 6px 10px;
   font-size: 11.5px;
+  font-weight: 500;
   color: #334155;
   text-align: left;
   cursor: pointer;
@@ -2450,7 +2509,7 @@ html, body {
   align-items: center;
   gap: 6px;
   width: 100%;
-  transition: background 0.12s ease;
+  transition: all 0.12s ease;
 }
 
 .route-export-menu-item:hover {
@@ -2460,23 +2519,6 @@ html, body {
 
 .modal-btn.full {
   flex: 1;
-}
-
-.modal-btn.secondary-sm {
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  padding: 5px 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-
-.modal-btn.secondary-sm:hover {
-  background: #e2e8f0;
-  color: #1e293b;
 }
 
 .route-stats-grid {
@@ -3743,25 +3785,28 @@ body.web-mode .office-prov-group {
     display: grid !important;
     grid-template-columns: repeat(4, 1fr) !important;
     gap: 4px !important;
+    width: 100% !important;
   }
 
   .route-actions-row .modal-btn,
-  .route-actions-row .modal-btn.secondary-sm {
-    padding: 8px 2px !important;
-    font-size: 11px !important;
+  .route-actions-row .modal-btn.secondary-sm,
+  .route-actions-row .route-export-dropdown-wrap .modal-btn {
+    height: 34px !important;
+    min-height: 34px !important;
+    max-height: 34px !important;
+    padding: 0 2px !important;
+    font-size: 11.5px !important;
+    display: inline-flex !important;
+    align-items: center !important;
     justify-content: center !important;
     text-align: center !important;
     white-space: nowrap !important;
+    box-sizing: border-box !important;
   }
 
   .route-export-dropdown-wrap {
     width: 100% !important;
-  }
-
-  .route-export-dropdown-wrap .modal-btn {
-    height: 100% !important;
-    padding: 8px 2px !important;
-    font-size: 11px !important;
+    height: 34px !important;
   }
 
   .route-stats-grid {
