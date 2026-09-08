@@ -15,12 +15,9 @@ app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('high-dpi-support', '1'); // 启用 Windows 高分屏原生 DPI 硬件级抗锯齿与精准光标缩放
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
-app.commandLine.appendSwitch('disk-cache-size', '10737418240'); // 开放 10GB 专用超大高速磁盘缓存
-app.commandLine.appendSwitch('media-cache-size', '2147483648'); // 开放 2GB 媒体切片缓存
-app.commandLine.appendSwitch('disable-background-timer-throttling'); // 窗口切到后台或最小化时绝对不降频、不断流
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192'); // 解锁 V8 堆内存至 8GB，彻底消除高负载 GC 掉帧停顿
+app.commandLine.appendSwitch('disk-cache-size', '2147483648'); // 2GB 浏览器缓存；离线瓦片仍保存在独立 offline-tiles
+app.commandLine.appendSwitch('media-cache-size', '268435456');
+app.commandLine.appendSwitch('js-flags', '--max-reduce-memory');
 
 let mainWindow;
 
@@ -123,10 +120,11 @@ function saveOfflineManifest(data) {
   }
 }
 
-// 高频切片超高速物理内存常驻缓存池 (工作站模式：最大 25000 片, 占用约 1GB RAM)
-// 极大降低磁盘读写 IO 延迟，已加载过的切片在 0.02ms 内直接通过物理内存直出返回
+// 高频切片内存 LRU：同时限制数量和真实字节数，避免少量大瓦片把进程推入换页。
 const memoryTileCache = new Map();
-const MAX_MEMORY_TILES = 25000;
+const MAX_MEMORY_TILES = 12000;
+const MAX_MEMORY_TILE_BYTES = 512 * 1024 * 1024;
+let memoryTileCacheBytes = 0;
 
 function getCachedTile(key) {
   if (!memoryTileCache.has(key)) return null;
@@ -137,11 +135,19 @@ function getCachedTile(key) {
 }
 
 function setCachedTile(key, buf) {
-  if (memoryTileCache.size >= MAX_MEMORY_TILES) {
+  if (!Buffer.isBuffer(buf) || buf.length === 0 || buf.length > MAX_MEMORY_TILE_BYTES) return;
+  if (memoryTileCache.has(key)) {
+    memoryTileCacheBytes -= memoryTileCache.get(key).length;
+    memoryTileCache.delete(key);
+  }
+  while (memoryTileCache.size >= MAX_MEMORY_TILES || memoryTileCacheBytes + buf.length > MAX_MEMORY_TILE_BYTES) {
     const oldestKey = memoryTileCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    memoryTileCacheBytes -= memoryTileCache.get(oldestKey).length;
     memoryTileCache.delete(oldestKey);
   }
   memoryTileCache.set(key, buf);
+  memoryTileCacheBytes += buf.length;
 }
 
 async function resolveOfmTemplate() {
@@ -712,9 +718,6 @@ function createWindow() {
 
     mainWindow = new BrowserWindow(winOptions);
 
-    // 启动时自动清理 Chromium 会话磁盘缓存，彻底杜绝历史 204 或损坏瓦片残留
-    mainWindow.webContents.session.clearCache().catch(() => {});
-
     mainWindow.once('ready-to-show', () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
@@ -847,14 +850,25 @@ app.whenReady().then(async () => {
       const savedMaxZ = provSaved ? (provSaved.maxZ || 0) : 0;
 
       // 非校验模式下：若该省份当前请求层级已全部就绪，0ms 秒级跳过！
-      if (!isVerify && savedMaxZ >= maxZ && maxZ > 0) {
+      const demSavedMaxZ = provSaved && provSaved.layers && provSaved.layers.dem
+        ? (provSaved.layers.dem.maxZ || 0)
+        : (provSaved && provSaved.dem ? savedMaxZ : 0);
+      const vectorSavedMaxZ = provSaved && provSaved.layers && provSaved.layers.vector
+        ? (provSaved.layers.vector.maxZ || 0)
+        : (provSaved && provSaved.vec ? savedMaxZ : 0);
+      const requestedLayerLevels = [];
+      if (downloadDem) requestedLayerLevels.push(demSavedMaxZ);
+      if (downloadVec) requestedLayerLevels.push(vectorSavedMaxZ);
+      const requestedSavedMaxZ = requestedLayerLevels.length > 0 ? Math.min(...requestedLayerLevels) : 0;
+
+      if (!isVerify && requestedSavedMaxZ >= maxZ && maxZ > 0) {
         allReadyCount++;
         continue;
       }
 
       let effectiveMinZ = minZ || 0;
-      if (!isVerify && savedMaxZ > 0 && maxZ > savedMaxZ) {
-        effectiveMinZ = savedMaxZ + 1;
+      if (!isVerify && requestedSavedMaxZ > 0 && maxZ > requestedSavedMaxZ) {
+        effectiveMinZ = requestedSavedMaxZ + 1;
       }
 
       const [minLon, maxLon, minLat, maxLat] = prov.bbox;
@@ -982,15 +996,22 @@ app.whenReady().then(async () => {
           const speed = elapsed > 0 ? Math.round(completed / elapsed) : 0;
           const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
 
-          if (isDone && !signal.aborted) {
+          // 仅在全部成功时提高“已完成层级”。失败任务下次启动会继续补齐，不会被清单误判后永久跳过。
+          if (isDone && !signal.aborted && failedCount === 0) {
             manifest.provinces = manifest.provinces || {};
             for (const prov of provTasks) {
               const prev = manifest.provinces[prov.key] || {};
+              const prevLayers = prev.layers || {};
               manifest.provinces[prov.key] = {
                 ...prev,
                 maxZ: Math.max(prev.maxZ || 0, maxZ),
-                dem: downloadDem,
-                vec: downloadVec,
+                dem: Boolean(prev.dem || downloadDem),
+                vec: Boolean(prev.vec || downloadVec),
+                layers: {
+                  ...prevLayers,
+                  ...(downloadDem ? { dem: { ...(prevLayers.dem || {}), maxZ: Math.max(prevLayers.dem?.maxZ || 0, maxZ) } } : {}),
+                  ...(downloadVec ? { vector: { ...(prevLayers.vector || {}), maxZ: Math.max(prevLayers.vector?.maxZ || 0, maxZ) } } : {})
+                },
                 updatedAt: Date.now()
               };
             }
@@ -1105,12 +1126,13 @@ app.whenReady().then(async () => {
       releaseDate: remoteInfo.releaseDate || '',
       downloadUrl: remoteInfo.downloadUrl || 'https://r2.053999.xyz/Outmap/app.asar',
       backupUrl: remoteInfo.backupUrl || 'https://pub-9fa3d477907d4d5aa99d54b609094d73.r2.dev/Outmap/app.asar',
-      fileSize: remoteInfo.fileSize || 3900000
+      fileSize: remoteInfo.fileSize || 3900000,
+      sha256: remoteInfo.sha256 || ''
     };
   });
 
   // 2. 流式下载新版 app.asar 并执行毫秒级原子热替换与原生重启
-  ipcMain.handle('start-app-update', async (event, { downloadUrl, backupUrl }) => {
+  ipcMain.handle('start-app-update', async (event, { downloadUrl, backupUrl, sha256 }) => {
     const urlsToTry = [
       downloadUrl,
       backupUrl,
@@ -1177,7 +1199,9 @@ app.whenReady().then(async () => {
         // 使用 originalFs 读取底层真实物理文件字节数
         if (!streamError && originalFs.existsSync(tempPatchPath)) {
           downloadedSize = originalFs.statSync(tempPatchPath).size;
-          if (downloadedSize > 100000) {
+          const actualSha256 = crypto.createHash('sha256').update(originalFs.readFileSync(tempPatchPath)).digest('hex');
+          const expectedSha256 = String(sha256 || '').trim().toLowerCase();
+          if (downloadedSize > 100000 && expectedSha256 && actualSha256 === expectedSha256) {
             downloadSuccess = true;
             break;
           }

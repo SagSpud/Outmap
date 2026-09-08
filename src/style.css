@@ -268,7 +268,7 @@ button:active,
 }
 
 .btn-fast-install {
-  background: #10b981;
+  background: #34c759;
   color: #ffffff;
   border: none;
   border-radius: 3px;
@@ -279,7 +279,7 @@ button:active,
   cursor: pointer;
 }
 .btn-fast-install:hover {
-  background: #059669;
+  background: #248a3d;
 }
 
 .brand-wrapper::after {
@@ -1334,9 +1334,9 @@ body.web-mode #manage-modal {
   display: inline-block;
   width: 6px;
   height: 6px;
-  background-color: #10b981;
+  background-color: #34c759;
   border-radius: 50%;
-  box-shadow: 0 0 5px rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 5px rgba(52, 199, 89, 0.55);
   margin-left: 5px;
   flex-shrink: 0;
 }
@@ -1361,13 +1361,13 @@ body.web-mode #manage-modal {
 }
 
 .modal-btn.success {
-  background: #10b981;
+  background: #34c759;
   color: #ffffff;
   border: none;
 }
 
 .modal-btn.success:hover {
-  background: #059669;
+  background: #248a3d;
 }
 
 .cache-badge {
@@ -1570,7 +1570,7 @@ body.web-mode #manage-modal {
 }
 
 .sb-item.lock-indicator {
-  color: #7c3aed;
+  color: #af52de;
   font-weight: 700;
 }
 
@@ -3374,9 +3374,9 @@ body.web-mode #manage-modal {
   display: none;
   width: 6px;
   height: 6px;
-  background: #10b981;
+  background: #34c759;
   border-radius: 50%;
-  box-shadow: 0 0 5px #10b981;
+  box-shadow: 0 0 5px rgba(52, 199, 89, 0.62);
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -3448,8 +3448,8 @@ body.web-mode #manage-modal {
 }
 
 .zoom-pill-dot.ready {
-  color: #10b981 !important;
-  text-shadow: 0 0 6px rgba(16, 185, 129, 0.9) !important;
+  color: #34c759 !important;
+  text-shadow: 0 0 6px rgba(52, 199, 89, 0.65) !important;
 }
 
 /* 下载图层单行对齐 */
@@ -4264,7 +4264,7 @@ body.web-mode .office-prov-group {
 
 .fluent-alert-btn-primary {
   padding: 8px 24px;
-  background: #10b981;
+  background: #34c759;
   color: #ffffff;
   border: none;
   border-radius: 9999px;
@@ -4272,17 +4272,44 @@ body.web-mode .office-prov-group {
   font-weight: 600;
   letter-spacing: 0.5px;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 14px rgba(52, 199, 89, 0.28);
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .fluent-alert-btn-primary:hover {
-  background: #059669;
+  background: #248a3d;
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+  box-shadow: 0 6px 18px rgba(52, 199, 89, 0.36);
 }
 
 .fluent-alert-btn-primary:active {
   transform: scale(0.96);
+}
+
+/* 手机/平板保留毛玻璃质感，但降低实时模糊半径，减少与 WebGL 地图叠加时的 GPU 带宽。 */
+@media (max-width: 768px), (pointer: coarse) {
+  .search-popover,
+  .fluent-context-menu,
+  .floating-card,
+  .floating-panel,
+  .fluent-alert-box {
+    backdrop-filter: blur(13px) saturate(145%);
+    -webkit-backdrop-filter: blur(13px) saturate(145%);
+  }
+
+  .fluent-modal-overlay {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+}
+
+/* 尊重系统“减少动态效果”选项；默认状态仍完整保留现有丝滑动画。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 

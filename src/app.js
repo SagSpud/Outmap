@@ -673,7 +673,7 @@ async function initApplication() {
   let chinaBoundaryUrl = `http://127.0.0.1:${port}/china-boundary.json`;
 
   if (isWebMode) {
-    chinaBoundaryUrl = './china-boundary.json';
+    chinaBoundaryUrl = './china-boundary.json?v=1.3.0';
 
     // 默认高可用全球免 Key 在线 CDN (OpenFreeMap + Mapterhorn Terrarium DEM)
     // 零服务器依赖，全球 300+ 边缘节点毫秒级直连，任何设备浏览器开箱即用
@@ -686,7 +686,8 @@ async function initApplication() {
     glyphsUrl = onlineGlyphs;
 
     // 清除旧版本误存的前端域名自定义瓦片源配置
-    if (localStorage.getItem('outmap_custom_tile_api') === 'https://map.053999.xyz') {
+    const legacyTileApi = (localStorage.getItem('outmap_custom_tile_api') || '').replace(/\/+$/, '').toLowerCase();
+    if (legacyTileApi === 'https://map.053999.xyz' || legacyTileApi === 'http://map.053999.xyz') {
       localStorage.removeItem('outmap_custom_tile_api');
     }
 
@@ -696,7 +697,8 @@ async function initApplication() {
       try {
         const cleanApi = userCustomTileApi.replace(/\/+$/, '');
         const probe = await fetch(`${cleanApi}/vector/0/0/0.pbf`, { method: 'HEAD', signal: AbortSignal.timeout(1500) }).catch(() => null);
-        if (probe && probe.ok) {
+        const probeType = probe?.headers?.get('content-type') || '';
+        if (probe && probe.ok && /(protobuf|vector-tile|octet-stream)/i.test(probeType)) {
           vecUrl = `${cleanApi}/vector/{z}/{x}/{y}.pbf`;
           demUrl = `${cleanApi}/dem/{z}/{x}/{y}.webp`;
           glyphsUrl = `${cleanApi}/fonts/{fontstack}/{range}.pbf`;
@@ -708,8 +710,16 @@ async function initApplication() {
     }
   }
 
-  // 1. 核心并发渲染调优：为核显与主渲染线程保留核心余量，消除平移卡顿与输入延迟
-  maplibregl.workerCount = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
+  // 桌面保留高容量缓存；网页尤其是手机按设备内存降级，避免纹理抖动、换页和 Safari 重载。
+  const deviceMemory = navigator.deviceMemory || 4;
+  const compactDevice = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
+  const constrainedWeb = isWebMode && (compactDevice || deviceMemory <= 4);
+  const mapPerformance = constrainedWeb
+    ? { workers: 2, demCache: 256, tileCache: 256, prefetch: 0 }
+    : isWebMode
+      ? { workers: Math.min(3, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 900, tileCache: 900, prefetch: 1 }
+      : { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 5000, tileCache: 4000, prefetch: 2 };
+  maplibregl.workerCount = mapPerformance.workers;
 
   // 初始化 DEM 高程数据源 (工作站模式：扩大高程网格缓存至 5000 片，反复缩放平移零延迟)
   const demSource = new mlcontour.DemSource({
@@ -717,7 +727,7 @@ async function initApplication() {
     encoding: 'terrarium',
     maxzoom: 12,
     worker: true,
-    cacheSize: 5000,
+    cacheSize: mapPerformance.demCache,
     timeoutMs: 12000
   });
   demSource.setupMaplibre(maplibregl);
@@ -736,7 +746,7 @@ async function initApplication() {
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
     renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
-    maxTileCacheSize: 4000,   // 解锁 GPU 显存纹理缓存容量至 4000 片
+    maxTileCacheSize: mapPerformance.tileCache,
     style: {
       version: 8,
       glyphs: glyphsUrl,
@@ -746,7 +756,7 @@ async function initApplication() {
           id: 'background',
           type: 'background',
           paint: {
-            'background-color': '#f2ede5'
+            'background-color': '#f2f1ec'
           }
         }
       ]
@@ -756,7 +766,7 @@ async function initApplication() {
   const map = mapInstance;
   window.mapInstance = map;
   if (typeof map.setPrefetchZoomDelta === 'function') {
-    map.setPrefetchZoomDelta(2); // 缩放时双向预加载 2 个层级的高程与纹理网格
+    map.setPrefetchZoomDelta(mapPerformance.prefetch);
   }
 
   map.on('load', () => {
@@ -782,8 +792,8 @@ async function initApplication() {
       paint: {
         'hillshade-exaggeration': 0.65,
         'hillshade-highlight-color': '#ffffff',
-        'hillshade-shadow-color': '#5a685c',
-        'hillshade-accent-color': '#e2eae0'
+        'hillshade-shadow-color': '#667064',
+        'hillshade-accent-color': '#e7ebe2'
       }
     });
 
@@ -802,7 +812,7 @@ async function initApplication() {
       'source-layer': 'landuse',
       filter: ['match', ['get', 'class'], ['residential', 'suburb'], true, false],
       paint: {
-        'fill-color': '#ebe6de',
+        'fill-color': '#e9e7e1',
         'fill-opacity': 0.45
       }
     });
@@ -814,7 +824,7 @@ async function initApplication() {
       'source-layer': 'landuse',
       filter: ['match', ['get', 'class'], ['commercial', 'industrial', 'school', 'hospital'], true, false],
       paint: {
-        'fill-color': '#f2eee6',
+        'fill-color': '#efece6',
         'fill-opacity': 0.35
       }
     });
@@ -827,7 +837,7 @@ async function initApplication() {
       'source-layer': 'landcover',
       filter: ['match', ['get', 'class'], ['wood', 'forest', 'scrub', 'grass'], true, false],
       paint: {
-        'fill-color': '#cbe6c4',
+        'fill-color': '#ddefcf',
         'fill-opacity': 0.55
       }
     });
@@ -839,7 +849,7 @@ async function initApplication() {
       source: 'osm-vector-source',
       'source-layer': 'water',
       paint: {
-        'fill-color': '#9dc2e8',
+        'fill-color': '#a8d8f0',
         'fill-opacity': 0.9
       }
     });
@@ -851,7 +861,7 @@ async function initApplication() {
       source: 'osm-vector-source',
       'source-layer': 'waterway',
       paint: {
-        'line-color': '#7fa8d8',
+        'line-color': '#75b9df',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 2.0, 14, 3.2],
         'line-opacity': 0.85
       }
@@ -871,7 +881,7 @@ async function initApplication() {
         'text-anchor': 'center'
       },
       paint: {
-        'text-color': '#456e99',
+        'text-color': '#397aa6',
         'text-halo-color': '#ffffff',
         'text-halo-width': 2.5
       }
@@ -895,7 +905,7 @@ async function initApplication() {
         'text-keep-upright': true
       },
       paint: {
-        'text-color': '#456e99',
+        'text-color': '#397aa6',
         'text-halo-color': '#ffffff',
         'text-halo-width': 2.5
       }
@@ -919,7 +929,7 @@ async function initApplication() {
       filter: ['==', ['get', 'admin_level'], 4],
       minzoom: 4,
       paint: {
-        'line-color': '#94a3b8',
+        'line-color': '#b5b2ac',
         'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.8, 8, 1.4, 12, 1.8],
         'line-dasharray': [4, 2],
         'line-opacity': 0.75
@@ -1003,7 +1013,7 @@ async function initApplication() {
       'source-layer': 'contours',
       minzoom: 6,
       paint: {
-        'line-color': '#65a30d',
+        'line-color': '#8fa66f',
         'line-width': ['match', ['get', 'level'], 1, 1.2, 0.6],
         'line-opacity': 0.55
       }
@@ -1024,7 +1034,7 @@ async function initApplication() {
         'symbol-spacing': 550
       },
       paint: {
-        'text-color': '#4d7c0f',
+        'text-color': '#667a4f',
         'text-halo-color': '#ffffff',
         'text-halo-width': 1.5
       }
@@ -1038,7 +1048,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
       paint: {
-        'line-color': '#e0e4eb',
+        'line-color': '#d8d6d0',
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.2, 11, 2.2, 14, 4.0],
         'line-opacity': 0.85
       }
@@ -1051,7 +1061,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
       paint: {
-        'line-color': '#ffffff',
+        'line-color': '#fcfbf8',
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 11, 1.5, 14, 3.0],
         'line-opacity': 0.95
       }
@@ -1065,7 +1075,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
       paint: {
-        'line-color': '#ccd2db',
+        'line-color': '#d4d0c8',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 10, 3.6, 14, 6.0],
         'line-opacity': 0.9
       }
@@ -1078,7 +1088,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
       paint: {
-        'line-color': '#ffffff',
+        'line-color': '#fffdf8',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 2.4, 14, 4.5],
         'line-opacity': 1.0
       }
@@ -1092,7 +1102,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['motorway'], true, false],
       paint: {
-        'line-color': '#e29b55',
+        'line-color': '#e2a36d',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.0, 10, 4.0, 14, 7.0],
         'line-opacity': 0.85
       }
@@ -1105,7 +1115,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['motorway'], true, false],
       paint: {
-        'line-color': '#f5bd7a',
+        'line-color': '#f8cf8d',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.2, 10, 2.6, 14, 5.0],
         'line-opacity': 1.0
       }
@@ -1119,7 +1129,7 @@ async function initApplication() {
       'source-layer': 'transportation',
       filter: ['match', ['get', 'class'], ['path', 'track', 'footway', 'pedestrian', 'steps'], true, false],
       paint: {
-        'line-color': '#d97736',
+        'line-color': '#c98a58',
         'line-width': 2.0,
         'line-dasharray': [2, 1.5],
         'line-opacity': 0.85
@@ -1437,7 +1447,7 @@ async function initApplication() {
       'source-layer': 'building',
       minzoom: 13,
       paint: {
-        'fill-extrusion-color': '#e2e8f0',
+        'fill-extrusion-color': '#dddad3',
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
         'fill-extrusion-opacity': 0.75
@@ -1824,6 +1834,127 @@ if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
+// 所有地点跳转统一走两阶段定位：先快速飞到目标，再由 MapLibre 在最终缩放/俯仰状态
+// 按真实视口像素做锚点校正，避免高分屏、地形和窗口高度造成落点出界。
+let activeLocationFlightId = 0;
+function flyToLocationPrecisely(map, targetCoords, options = {}) {
+  if (!map || !targetCoords || targetCoords.length < 2) return;
+  const coords = [Number(targetCoords[0]), Number(targetCoords[1])];
+  if (!Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return;
+
+  const flightId = ++activeLocationFlightId;
+  const zoom = Number.isFinite(options.zoom) ? options.zoom : 15;
+  const pitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
+  const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
+  const centered = Boolean(options.centered);
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const duration = reducedMotion ? 0 : (options.duration ?? 900);
+
+  const getAnchorOffset = () => {
+    if (centered) return 0;
+    const h = Math.max(320, map.getContainer()?.clientHeight || window.innerHeight || 660);
+    const compact = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
+    const ratio = compact ? 0.57 : 0.585;
+    return Math.round(h * (ratio - 0.5));
+  };
+
+  let settled = false;
+  const settle = async () => {
+    if (settled || flightId !== activeLocationFlightId) return;
+    settled = true;
+    const container = map.getContainer();
+    const desiredX = container.clientWidth / 2;
+    const desiredY = container.clientHeight / 2 + getAnchorOffset();
+
+    // 地形模式下坐标位于真实高程表面，center/offset 不能保证屏幕锚点准确。
+    // 先把相机的地面基准高程同步到目标点，再使用 MapLibre 自身的地理点屏幕锚定能力。
+    // 数值求解保留为旧版 MapLibre 或 DEM 尚未就绪时的兼容兜底。
+    const solveAnchorCenter = () => {
+      const targetElevation = map.queryTerrainElevation?.(coords);
+      if (Number.isFinite(targetElevation)
+          && map.transform?.setElevation
+          && map.transform?.setLocationAtPoint
+          && typeof maplibregl.Point === 'function') {
+        map.transform.setElevation(targetElevation);
+        map.transform.setLocationAtPoint(
+          maplibregl.LngLat.convert(coords),
+          new maplibregl.Point(desiredX, desiredY)
+        );
+        map.triggerRepaint();
+        return map.getCenter();
+      }
+
+      for (let i = 0; i < 6 && flightId === activeLocationFlightId; i++) {
+        const center = map.getCenter();
+        const base = map.project(coords);
+        const errorX = desiredX - base.x;
+        const errorY = desiredY - base.y;
+        if (Math.hypot(errorX, errorY) <= 3) break;
+
+        const epsilon = 0.0001;
+        map.setCenter([center.lng + epsilon, center.lat]);
+        const lngProjection = map.project(coords);
+        map.setCenter([center.lng, center.lat + epsilon]);
+        const latProjection = map.project(coords);
+        map.setCenter(center);
+
+        const a = (lngProjection.x - base.x) / epsilon;
+        const b = (latProjection.x - base.x) / epsilon;
+        const c = (lngProjection.y - base.y) / epsilon;
+        const d = (latProjection.y - base.y) / epsilon;
+        const determinant = a * d - b * c;
+        if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-6) break;
+
+        const deltaLng = Math.max(-0.2, Math.min(0.2, (errorX * d - b * errorY) / determinant));
+        const deltaLat = Math.max(-0.2, Math.min(0.2, (a * errorY - errorX * c) / determinant));
+        map.setCenter([center.lng + deltaLng, center.lat + deltaLat]);
+      }
+      return map.getCenter();
+    };
+
+    await new Promise(resolve => window.setTimeout(resolve, 90));
+    if (flightId !== activeLocationFlightId) return;
+    const beforeCorrection = map.getCenter();
+    const solvedCenter = solveAnchorCenter();
+    map.setCenter(beforeCorrection);
+    map.easeTo({
+      center: solvedCenter,
+      zoom,
+      pitch,
+      bearing,
+      duration: reducedMotion ? 0 : 240,
+      easing: t => 1 - Math.pow(1 - t, 3),
+      essential: false
+    });
+
+    // DEM 细节瓦片可能分批到达；idle 与分段复核确保高海拔地区最终也不会漂出视口。
+    const refineAfterTerrain = () => {
+      if (flightId === activeLocationFlightId && !map.isMoving()) solveAnchorCenter();
+    };
+    map.once('idle', refineAfterTerrain);
+    [650, 1500, 2800].forEach(delay => window.setTimeout(refineAfterTerrain, delay));
+  };
+
+  map.stop();
+  map.once('dragstart', () => {
+    if (flightId === activeLocationFlightId) activeLocationFlightId++;
+  });
+  map.once('moveend', settle);
+  map.flyTo({
+    center: coords,
+    zoom,
+    pitch,
+    bearing,
+    offset: [0, 0],
+    curve: 1.0,
+    speed: 1.8,
+    duration,
+    essential: false
+  });
+  window.setTimeout(settle, duration + 180);
+}
+window.flyToLocationPrecisely = flyToLocationPrecisely;
+
 function setupOfficeHeaderInteractions(map) {
   // 1. 视角倾角高度锁定 (放置于 3D、正北 按钮旁边，右键仅能水平360度旋转)
   const btnLockPitch = document.getElementById('btn-lock-pitch-toggle');
@@ -2052,6 +2183,8 @@ function setupOfficeHeaderInteractions(map) {
   const resultsContainer = document.getElementById('search-results-list');
 
   let currentSearchResults = [];
+  let currentSearchQuery = '';
+  let searchRequestSequence = 0;
   let searchDebounceTimer = null;
   let currentLandingMarker = null;
 
@@ -2132,10 +2265,10 @@ function setupOfficeHeaderInteractions(map) {
       row.className = 'search-result-item';
       const cleanDesc = stripChinaPrefix(item.desc || '历史搜索地点');
       row.innerHTML = `
-        <div class="search-result-icon">${item.icon || '⏱️'}</div>
+        <div class="search-result-icon">${escapeHtml(item.icon || '⏱️')}</div>
         <div class="search-result-info">
-          <div class="search-result-name">${item.name}</div>
-          <div class="search-result-desc">${cleanDesc}</div>
+          <div class="search-result-name">${escapeHtml(item.name)}</div>
+          <div class="search-result-desc">${escapeHtml(cleanDesc)}</div>
         </div>
       `;
       row.addEventListener('click', () => {
@@ -2145,61 +2278,6 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     resultsContainer.style.display = 'block';
-  }
-
-  /**
-   * 精确计算地标在特定视口比例时的摄像机中心经纬度
-   * 采用三维针孔摄像机透视投影与地面反向求交方程，彻底根除 MapLibre 原生 flyTo 传入 offset 时
-   * 在大跨层级缩放（如 4.5 到 15）及 3D 俯仰视角下所产生的非线性插值畸变、跑偏与甩出屏幕问题。
-   * 支持倾角自适应：2D (0°) 时比例为 0.54，50° 俯仰时自适应为 0.58，兼顾上方卡片舒展与下方视野充足留白，永不“太靠下”。
-   */
-  function calculateOffsetCameraCenter(mapInstance, targetCoords, targetZoom = 15.0, targetPitch = 50, screenRatioY = null) {
-    if (!targetCoords || targetCoords.length < 2) return targetCoords;
-    const lng = Number(targetCoords[0]);
-    const lat = Number(targetCoords[1]);
-    if (isNaN(lng) || isNaN(lat)) return targetCoords;
-
-    const m = mapInstance || map;
-    const container = m ? (m.getContainer ? m.getContainer() : null) : null;
-    const height = container ? (container.clientHeight || window.innerHeight || 660) : (window.innerHeight || 660);
-
-    // 1. 水平方向严格绝对居中，经度保持一致
-    const centerLng = lng;
-
-    // 2. 垂直方向自适应倾角比例：0° 时为 0.54，50° 倾斜时自适应为 0.580，既留出卡片空间，又绝不过于偏下
-    const effectivePitch = Math.min(65, Math.max(0, targetPitch || 0));
-    const finalRatio = typeof screenRatioY === 'number'
-      ? screenRatioY
-      : (0.54 + (effectivePitch / 60) * 0.048);
-
-    const dy = height * (finalRatio - 0.5);
-    const pitchRad = effectivePitch * Math.PI / 180;
-    const fovRad = 36.87 * Math.PI / 180; // MapLibre 默认固定垂直视野角
-    const d0 = 0.5 / Math.tan(fovRad / 2) * height;
-
-    const camY = -d0 * Math.sin(pitchRad);
-    const camZ = d0 * Math.cos(pitchRad);
-    const rayY = d0 * Math.sin(pitchRad) + dy * Math.cos(pitchRad);
-    const rayZ = -d0 * Math.cos(pitchRad) + dy * Math.sin(pitchRad);
-
-    if (Math.abs(rayZ) < 1e-6) {
-      return [centerLng, lat];
-    }
-
-    const t = -camZ / rayZ;
-    const groundY = camY + t * rayY; // 在目标 zoom 级别下的 Web Mercator 像素位移
-
-    const worldSize = 512 * Math.pow(2, targetZoom);
-    const latRad = lat * Math.PI / 180;
-    const mercY = (0.5 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / (2 * Math.PI)) * worldSize;
-    const camMercY = mercY - groundY;
-
-    const yNorm = 0.5 - camMercY / worldSize;
-    const safeYNorm = Math.max(0.001, Math.min(0.999, yNorm));
-    const centerLatRad = 2 * Math.atan(Math.exp(safeYNorm * 2 * Math.PI)) - Math.PI / 2;
-    const centerLat = centerLatRad * 180 / Math.PI;
-
-    return [centerLng, centerLat];
   }
 
   function showLandingMarker(coords, title, desc = '') {
@@ -2299,8 +2377,7 @@ function setupOfficeHeaderInteractions(map) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() || 50;
-        const cameraCenter = calculateOffsetCameraCenter(map, validCoords, 15.0, curPitch);
-        map.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+        flyToLocationPrecisely(map, validCoords, { zoom: 15.0, pitch: curPitch, duration: 700 });
       });
     }
 
@@ -2346,10 +2423,10 @@ function setupOfficeHeaderInteractions(map) {
       row.className = 'search-result-item';
       const cleanDesc = stripChinaPrefix(item.desc || '');
       row.innerHTML = `
-        <div class="search-result-icon">${item.icon || '📍'}</div>
+        <div class="search-result-icon">${escapeHtml(item.icon || '📍')}</div>
         <div class="search-result-info">
-          <div class="search-result-name">${item.name}</div>
-          <div class="search-result-desc">${cleanDesc}</div>
+          <div class="search-result-name">${escapeHtml(item.name)}</div>
+          <div class="search-result-desc">${escapeHtml(cleanDesc)}</div>
         </div>
       `;
 
@@ -2385,24 +2462,13 @@ function setupOfficeHeaderInteractions(map) {
 
     const isProv = item.type === 'province';
     const targetZoom = isProv ? (item.zoom || 7.2) : 15.0;
-    const currentZoom = map.getZoom();
-    const minFlightZoom = Math.max(7.0, Math.min(currentZoom, targetZoom) - 2.0);
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
 
-    // 省份全境直接正中居中，具体地点/POI应用透视光线求交自适应居中偏下，开阔自然且杜绝出界
-    const cameraCenter = isProv
-      ? validCoords
-      : calculateOffsetCameraCenter(map, validCoords, targetZoom, targetPitch);
-
-    map.flyTo({
-      center: cameraCenter,
+    flyToLocationPrecisely(map, validCoords, {
       zoom: targetZoom,
       pitch: targetPitch,
-      offset: [0, 0], // 永远使用严格 [0, 0]，彻底避免 MapLibre 内部 offset 插值 bug 导致甩出屏幕
-      curve: 1.1,
-      minZoom: minFlightZoom,
-      duration: 1200,
-      essential: true
+      centered: isProv,
+      duration: 900
     });
 
     showLandingMarker(validCoords, item.name, item.desc);
@@ -2413,6 +2479,9 @@ function setupOfficeHeaderInteractions(map) {
     sInput.addEventListener('input', () => {
       const val = sInput.value.trim();
       clearTimeout(searchDebounceTimer);
+      currentSearchResults = [];
+      currentSearchQuery = val;
+      const requestSequence = ++searchRequestSequence;
       if (!val) {
         renderSearchHistory();
         return;
@@ -2420,6 +2489,7 @@ function setupOfficeHeaderInteractions(map) {
 
       searchDebounceTimer = setTimeout(async () => {
         const results = await queryLocationCandidates(val);
+        if (requestSequence !== searchRequestSequence || sInput.value.trim() !== val) return;
         renderSearchResults(results);
       }, 240);
     });
@@ -2447,7 +2517,7 @@ function setupOfficeHeaderInteractions(map) {
     }
 
     // 1. 若当前列表已有匹配项，直接飞往第一项
-    if (currentSearchResults && currentSearchResults.length > 0) {
+    if (currentSearchQuery === text && currentSearchResults && currentSearchResults.length > 0) {
       executeJumpToResult(currentSearchResults[0]);
       return;
     }
@@ -3380,7 +3450,7 @@ function setupAppUpdate() {
     brandBtn?.removeAttribute('title');
     if (brandProgressBar) brandProgressBar.style.width = '0%';
 
-    let currentVer = '1.2.8';
+    let currentVer = '1.3.0';
     if (window.electronAPI && window.electronAPI.getAppVersion) {
       try {
         currentVer = await window.electronAPI.getAppVersion();
@@ -3461,7 +3531,8 @@ function setupAppUpdate() {
     try {
       const res = await window.electronAPI.startAppUpdate({
         downloadUrl: pendingUpdate.downloadUrl,
-        backupUrl: pendingUpdate.backupUrl
+        backupUrl: pendingUpdate.backupUrl,
+        sha256: pendingUpdate.sha256
       });
       if (!res.success) {
         isUpdating = false;
@@ -3512,7 +3583,7 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       const payload = {
         syncKey: syncKey || 'default',
         data: {
-          version: '1.2.8',
+          version: '1.3.0',
           syncedAt: new Date().toISOString(),
           favorites: JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]'),
           folders: JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]'),
@@ -3630,7 +3701,7 @@ function setupCloudSync(map) {
       const payload = {
         syncKey: key,
         data: {
-          version: '1.2.10',
+          version: '1.3.0',
           syncedAt: new Date().toISOString(),
           favorites: mergedFavs,
           folders: mergedFolders,
@@ -3966,7 +4037,12 @@ function setupStatusBar(map) {
 
   let fc = 0;
   let lt = performance.now();
+  let fpsFrame = 0;
   function loop() {
+    if (document.hidden) {
+      fpsFrame = 0;
+      return;
+    }
     fc++;
     const now = performance.now();
     if (now - lt >= 1000) {
@@ -3976,9 +4052,16 @@ function setupStatusBar(map) {
       fc = 0;
       lt = now;
     }
-    requestAnimationFrame(loop);
+    fpsFrame = requestAnimationFrame(loop);
   }
-  requestAnimationFrame(loop);
+  fpsFrame = requestAnimationFrame(loop);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !fpsFrame) {
+      fc = 0;
+      lt = performance.now();
+      fpsFrame = requestAnimationFrame(loop);
+    }
+  });
 }
 
 // =========================================================
@@ -4094,8 +4177,7 @@ function setupWaypointAndFavoritesSystem(map) {
       el.addEventListener('mouseleave', () => el.style.transform = 'scale(1.0)');
       el.addEventListener('click', () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.5, curPitch);
-        map.flyTo({ center: cameraCenter, zoom: 14.5, pitch: curPitch, offset: [0, 0], duration: 1200 });
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.5, pitch: curPitch, duration: 850 });
       });
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -4287,8 +4369,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.2, curPitch);
-        map.flyTo({ center: cameraCenter, zoom: 14.2, pitch: curPitch, offset: [0, 0], duration: 1200 });
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.2, pitch: curPitch, duration: 850 });
       });
 
       item.querySelector('.fav-item-del').addEventListener('click', (e) => {
@@ -4485,6 +4566,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   const getMap = () => mapInstance || currentOutdoorMap;
   let searchTimer = null;
   let activeCandidates = [];
+  let activeQuery = '';
+  let requestSequence = 0;
 
   const closeDropdown = () => {
     dropdownEl.style.display = 'none';
@@ -4526,7 +4609,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            map.flyTo({ center: item.coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
+            flyToLocationPrecisely(map, item.coords, { zoom: 15.0, pitch: map.getPitch() || 50, duration: 700 });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
@@ -4537,20 +4620,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     }
 
     if (item.coords) {
-      const currentZoom = map.getZoom();
-      const minFlightZoom = Math.max(7.0, Math.min(currentZoom, 15.0) - 2.0);
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-      const cameraCenter = calculateOffsetCameraCenter(map, item.coords, 15.0, targetPitch);
-      map.flyTo({
-        center: cameraCenter,
-        zoom: 15.0,
-        pitch: targetPitch,
-        offset: [0, 0],
-        curve: 1.1,
-        minZoom: minFlightZoom,
-        duration: 1200,
-        essential: true
-      });
+      flyToLocationPrecisely(map, item.coords, { zoom: 15.0, pitch: targetPitch, duration: 850 });
     }
   };
 
@@ -4584,8 +4655,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         row.innerHTML = `
           <span class="route-search-item-icon">${item.icon || '📍'}</span>
           <div class="route-search-item-info">
-            <div class="route-search-item-name">${item.name}</div>
-            <div class="route-search-item-desc">${cleanDesc}</div>
+            <div class="route-search-item-name">${escapeHtml(item.name)}</div>
+            <div class="route-search-item-desc">${escapeHtml(cleanDesc)}</div>
           </div>
         `;
         row.addEventListener('click', (e) => {
@@ -4616,12 +4687,16 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   inputEl.addEventListener('input', () => {
     const val = (inputEl.value || '').trim();
     clearTimeout(searchTimer);
+    activeCandidates = [];
+    activeQuery = val;
+    const seq = ++requestSequence;
     if (!val) {
       closeDropdown();
       return;
     }
     searchTimer = setTimeout(async () => {
       const results = await queryLocationCandidates(val);
+      if (seq !== requestSequence || (inputEl.value || '').trim() !== val) return;
       renderCandidates(results, val);
     }, 180);
   });
@@ -4629,7 +4704,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (activeCandidates.length > 0) {
+      if (activeQuery === (inputEl.value || '').trim() && activeCandidates.length > 0) {
         selectCandidate(activeCandidates[0]);
       } else {
         const val = (inputEl.value || '').trim();
@@ -4695,7 +4770,7 @@ function renderViaList(mapInstance) {
       tagEl.style.cursor = 'pointer';
       tagEl.addEventListener('click', () => {
         if (map && via.coords) {
-          map.flyTo({ center: via.coords, zoom: 13.5, duration: 1200 });
+          flyToLocationPrecisely(map, via.coords, { zoom: 13.5, pitch: map.getPitch() || 50, duration: 800 });
         }
       });
     }
@@ -4810,8 +4885,7 @@ function addViaPoint(map, coords, label) {
     el.innerText = idx;
     el.addEventListener('click', () => {
       const curPitch = m.getPitch() || 50;
-      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch);
-      m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+      flyToLocationPrecisely(m, coords, { zoom: 15.0, pitch: curPitch, duration: 700 });
     });
 
     marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -4874,8 +4948,7 @@ function setRouteStartPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch);
-      m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+      flyToLocationPrecisely(m, coords, { zoom: 15.0, pitch: curPitch, duration: 700 });
     }
   });
   if (m) {
@@ -4902,8 +4975,7 @@ function setRouteEndPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch);
-      m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+      flyToLocationPrecisely(m, coords, { zoom: 15.0, pitch: curPitch, duration: 700 });
     }
   });
   if (m) {
@@ -4950,7 +5022,7 @@ function renderRouteGeometry(map, pathCoords) {
       }
     });
 
-    // 2. 中层 Apple 翡翠绿柔光微光晕 (赋予通透立体的苹果地图质感)
+    // 2. Apple Maps 路线柔和落影：提供层次，不使用霓虹发光
     map.addLayer({
       id: 'outdoor-route-glow',
       type: 'line',
@@ -4960,14 +5032,14 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#10b981',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.5, 10, 10.0, 14, 14.5],
-        'line-opacity': 0.28,
-        'line-blur': 2.2
+        'line-color': '#157f3b',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 5.5, 10, 8.2, 14, 11.4],
+        'line-opacity': 0.24,
+        'line-blur': 1.4
       }
     });
 
-    // 3. 顶层 Apple Maps 标志性导航绿核心带 (自驾/骑行/徒步风格全面统一，清爽显眼)
+    // 3. Apple 系统绿主路线（自驾/骑行/徒步统一）
     map.addLayer({
       id: 'outdoor-route-line',
       type: 'line',
@@ -4977,13 +5049,13 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#059669',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3.0, 10, 4.4, 14, 6.5],
+        'line-color': '#34c759',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3.1, 10, 4.7, 14, 6.8],
         'line-opacity': 1.0
       }
     });
 
-    // 4. 内部晶莹高亮线 (薄荷白绿微发光浮空感)
+    // 4. 细白高光模拟 Apple Maps 的清晰丝带边缘
     map.addLayer({
       id: 'outdoor-route-inner-core',
       type: 'line',
@@ -4993,9 +5065,9 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#ecfdf5',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 1.5, 14, 2.2],
-        'line-opacity': 0.85
+        'line-color': '#f4fff6',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.7, 10, 1.0, 14, 1.35],
+        'line-opacity': 0.58
       }
     });
   }
@@ -5166,9 +5238,14 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       const localRouteUrl = `http://127.0.0.1:${localServerPort}/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
 
       let resp = null;
-      try {
-        resp = await fetch(localRouteUrl, { signal: AbortSignal.timeout(3200) });
-      } catch (localErr) {
+      if (window.electronAPI) {
+        try {
+          resp = await fetch(localRouteUrl, { signal: AbortSignal.timeout(3200) });
+        } catch (localErr) {
+          resp = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(3200) });
+        }
+      } else {
+        // 网页端不存在本机 Electron 瓦片/路由服务，直接请求在线路由，避免每次白等 3.2 秒。
         resp = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(3200) });
       }
 
@@ -5179,8 +5256,9 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
           const roadDistanceKm = data.routes[0].distance / 1000;
           const roadDurationSec = data.routes[0].duration;
 
+          const isRoadMatched = data.source !== 'local-engine';
           renderRouteGeometry(map, roadCoords);
-          updateProfileAndMetrics(map, roadCoords, roadDistanceKm, roadDurationSec, true, false);
+          updateProfileAndMetrics(map, roadCoords, roadDistanceKm, roadDurationSec, isRoadMatched, false);
         }
       }
     } catch (e) {
@@ -5377,8 +5455,7 @@ function setupOutdoorRouteSystem(map) {
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
             const curPitch = map.getPitch() || 50;
-            const cameraCenter = calculateOffsetCameraCenter(map, [lng, lat], 15.0, curPitch);
-            map.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+            flyToLocationPrecisely(map, [lng, lat], { zoom: 15.0, pitch: curPitch, duration: 700 });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
@@ -5845,8 +5922,8 @@ function drawElevationChart(canvas, data) {
   ctx.closePath();
 
   const gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartH);
-  gradient.addColorStop(0, 'rgba(16, 185, 129, 0.38)');
-  gradient.addColorStop(1, 'rgba(16, 185, 129, 0.03)');
+  gradient.addColorStop(0, 'rgba(52, 199, 89, 0.34)');
+  gradient.addColorStop(1, 'rgba(52, 199, 89, 0.03)');
   ctx.fillStyle = gradient;
   ctx.fill();
 
@@ -5858,7 +5935,7 @@ function drawElevationChart(canvas, data) {
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = '#059669';
+  ctx.strokeStyle = '#34c759';
   ctx.lineWidth = 2;
   ctx.stroke();
 }
@@ -6081,7 +6158,7 @@ function setupGlobalKeyboardDispatcher() {
       }
 
       // 6. 收藏夹抽屉面板
-      const favPanel = document.getElementById('favorite-panel');
+      const favPanel = document.getElementById('favorites-drawer');
       if (favPanel && favPanel.style.display !== 'none') {
         favPanel.style.display = 'none';
         e.stopPropagation();

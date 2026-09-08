@@ -9,7 +9,7 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-  const targetVersion = process.argv[2] || '1.2.10';
+  const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
     '1. 默认俯仰调整为 50 度：初始加载与“全国总览”默认锁定为 50° 黄金 3D 俯仰视角，山势地形立体纵深更震撼；',
     '2. 缩放范围科学限制：设定最小缩放层级 minZoom 为 3.5，缩小到极限时刚好饱览中国全境，杜绝无意义缩放到整颗地球；',
