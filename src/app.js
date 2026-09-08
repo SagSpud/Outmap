@@ -4167,10 +4167,10 @@ function setupOutdoorRouteSystem(map) {
 
   // Canvas 鼠标滑过联动 3D 地图
   if (canvas) {
-    canvas.addEventListener('mousemove', e => {
+    const handleProfileHover = (clientX) => {
       if (currentProfileData.length === 0) return;
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));
       const idx = Math.round(ratio * (currentProfileData.length - 1));
       const pt = currentProfileData[idx];
@@ -4188,13 +4188,23 @@ function setupOutdoorRouteSystem(map) {
       } else {
         profileCursorMarker.setLngLat(pt.coord);
       }
-    });
+    };
 
-    canvas.addEventListener('mouseleave', () => {
+    const clearProfileHover = () => {
       if (chartHoverInfo) chartHoverInfo.innerText = '滑过图表联动3D地图';
       if (profileCursorMarker) profileCursorMarker.remove();
       profileCursorMarker = null;
-    });
+    };
+
+    canvas.addEventListener('mousemove', e => handleProfileHover(e.clientX));
+    canvas.addEventListener('touchmove', e => {
+      if (e.touches && e.touches[0]) {
+        handleProfileHover(e.touches[0].clientX);
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('mouseleave', clearProfileHover);
+    canvas.addEventListener('touchend', clearProfileHover);
   }
 }
 
@@ -4351,6 +4361,11 @@ function loadSavedRoute(routeId, map) {
 // 绘制精美流畅的 Canvas 海拔剖面图
 function drawElevationChart(canvas, data) {
   if (!canvas || !data || data.length === 0) return;
+  // 响应式自适应容器宽度 (手机/桌面端皆完美铺满)
+  const containerW = canvas.parentElement ? canvas.parentElement.clientWidth : 370;
+  if (containerW > 50 && Math.abs(canvas.width - containerW) > 2) {
+    canvas.width = containerW;
+  }
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   const h = canvas.height;
@@ -4449,13 +4464,13 @@ function setupMapContextMenu(map) {
     if (ctxMenu) ctxMenu.style.display = 'none';
   };
 
-  // 监听地图右键事件 (展现高质感 Fluent 交互卡片)
-  map.on('contextmenu', e => {
-    const { lng, lat } = e.lngLat;
-    const ele = Math.round(getRealElevation(map, e.lngLat) || 0);
+  // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 交互卡片)
+  const showContextMenuAtPoint = (lngLat, point) => {
+    const { lng, lat } = lngLat;
+    const ele = Math.round(getRealElevation(map, lngLat) || 0);
 
     // 智能提取所点位置的行政区划：仅显示市、县两级 (例如：延安市 · 延长县, 北京市 · 朝阳区)
-    const cleanLocation = resolveLocationInfo(map, e.lngLat, e.point, true);
+    const cleanLocation = resolveLocationInfo(map, lngLat, point, true);
 
     currentContextPoint = {
       lng,
@@ -4469,14 +4484,52 @@ function setupMapContextMenu(map) {
 
     if (ctxMenu) {
       const wrap = document.getElementById('map-wrap');
-      const maxW = wrap ? wrap.clientWidth - 150 : window.innerWidth - 150;
-      const maxH = wrap ? wrap.clientHeight - 160 : window.innerHeight - 160;
-      const x = Math.max(10, Math.min(e.point.x, maxW));
-      const y = Math.max(10, Math.min(e.point.y, maxH));
+      const maxW = wrap ? wrap.clientWidth - 180 : window.innerWidth - 180;
+      const maxH = wrap ? wrap.clientHeight - 180 : window.innerHeight - 180;
+      const x = Math.max(10, Math.min(point.x, maxW));
+      const y = Math.max(10, Math.min(point.y, maxH));
 
       ctxMenu.style.left = `${x}px`;
       ctxMenu.style.top = `${y}px`;
       ctxMenu.style.display = 'block';
+    }
+  };
+
+  map.on('contextmenu', e => {
+    showContextMenuAtPoint(e.lngLat, e.point);
+  });
+
+  // 移动端触屏单指长按 520ms 唤起地点交互菜单 (手机无鼠标右键时流畅选点)
+  let longPressTimer = null;
+  let touchStartPoint = null;
+
+  map.on('touchstart', e => {
+    if (e.points && e.points.length > 1) {
+      if (longPressTimer) clearTimeout(longPressTimer);
+      longPressTimer = null;
+      return;
+    }
+    touchStartPoint = e.point;
+    longPressTimer = setTimeout(() => {
+      showContextMenuAtPoint(e.lngLat, e.point);
+      longPressTimer = null;
+    }, 520);
+  });
+
+  map.on('touchmove', e => {
+    if (longPressTimer && touchStartPoint) {
+      const dist = Math.hypot(e.point.x - touchStartPoint.x, e.point.y - touchStartPoint.y);
+      if (dist > 10) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    }
+  });
+
+  map.on('touchend', () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
     }
   });
 
