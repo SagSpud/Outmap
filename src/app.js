@@ -1578,131 +1578,38 @@ function parseCoordinates(str) {
   return null;
 }
 
-// 极速拼音转汉字引擎 (支持纯网页 JSONP 与 Electron 零跨域并发查询，1.2s 超时防抖与平滑回退)
-function pinyinToChineseWords(pinyin) {
-  const py = (pinyin || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (!py || !/^[a-z]+$/.test(py)) {
-    return Promise.resolve([]);
-  }
-
-  return new Promise((resolve) => {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        resolve([]);
-      }
-    }, 1200);
-
-    const cbName = 'outmap_py_cb_' + Math.random().toString(36).slice(2, 9);
-
-    function cleanup() {
-      if (typeof window !== 'undefined' && window[cbName]) {
-        delete window[cbName];
-      }
-      const el = typeof document !== 'undefined' ? document.getElementById(cbName) : null;
-      if (el && el.parentNode) {
-        el.parentNode.removeChild(el);
-      }
-    }
-
-    if (typeof window === 'undefined') {
-      clearTimeout(timer);
-      resolve([]);
-      return;
-    }
-
-    window[cbName] = function(data) {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        cleanup();
-        if (data && Array.isArray(data.s)) {
-          // 提取包含汉字的候选词，过滤无关词，保留前 5 个最匹配的候选词
-          const words = data.s
-            .filter(w => /[\u4e00-\u9fa5]/.test(w))
-            .slice(0, 5);
-          resolve(words);
-        } else {
-          resolve([]);
-        }
-      }
-    };
-
-    try {
-      const script = document.createElement('script');
-      script.id = cbName;
-      script.src = `https://suggestion.baidu.com/su?wd=${encodeURIComponent(py)}&cb=${cbName}&ie=UTF-8`;
-      script.onerror = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          cleanup();
-          resolve([]);
-        }
-      };
-      document.head.appendChild(script);
-    } catch (e) {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        resolve([]);
-      }
-    }
-  });
-}
-
-// 综合检索引擎：支持任意 POI 全拼联想、本地海量地名字典与在线高精地理编码
+/// 综合检索引擎 (中国专属极速匹配)：彻底废除拼音网络转换，本地字典 0ms 秒出，仅检索中国境内地点
 async function queryLocationCandidates(keyword) {
   const raw = (keyword || '').trim();
   if (!raw) {
     return [];
   }
-  const q = raw.toLowerCase();
-  const cleanPy = q.replace(/\s+/g, '');
-  const isPinyin = /^[a-z]+$/.test(cleanPy);
 
-  const coordMatch = parseCoordinates(q);
+  // 1. GPS 经纬度绝对坐标解析 (如 116.39, 39.90)
+  const coordMatch = parseCoordinates(raw);
   if (coordMatch) {
     return [{
       name: coordMatch.title,
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       icon: '🎯',
-      zoom: 14.5
+      zoom: 15.0
     }];
   }
 
-  // 若输入为全拼或含拼音字母，自动并发异步转换为中文候选词 (如 bailujinan -> ['白鹭金岸', '白鹭金岸天玺'])
-  let chineseWords = [];
-  if (isPinyin) {
-    try {
-      chineseWords = await pinyinToChineseWords(cleanPy);
-    } catch (e) {}
-  }
-
   const localMatches = [];
-  const searchChineseTerms = [raw, ...chineseWords];
 
-  // 1. 省份匹配 (名称 / 全拼 / 简拼 / 首字母缩写 / 转化候选词)
+  // 2. 省份匹配 (中国 34 省级行政区，中文汉字精准/包含匹配)
   if (typeof PROVINCES_DATA !== 'undefined') {
     Object.keys(PROVINCES_DATA).forEach(k => {
       const p = PROVINCES_DATA[k];
-      const pinyin = (p.pinyin || '').toLowerCase();
-      const py = (p.py || '').toLowerCase();
-      const pGroup = (p.pinyinGroup || '').toLowerCase();
-      const en = (p.en || '').toLowerCase();
-      const matchPinyin = pinyin.startsWith(cleanPy) || pinyin.includes(cleanPy) || py === cleanPy || py.startsWith(cleanPy) || pGroup === cleanPy || en.includes(cleanPy);
-      const matchName = searchChineseTerms.some(term => p.name.includes(term) || term.includes(p.name));
-
-      if (matchName || matchPinyin) {
+      if (p.name.includes(raw) || raw.includes(p.name)) {
         let score = 3;
-        if (p.name === raw || pinyin === cleanPy || py === cleanPy) score = 1;
-        else if (pinyin.startsWith(cleanPy) || p.name.startsWith(raw) || py.startsWith(cleanPy)) score = 2;
+        if (p.name === raw) score = 1;
+        else if (p.name.startsWith(raw)) score = 2;
         localMatches.push({
           name: p.name,
-          desc: `省级行政区 · ${p.pinyin || p.en || ''}`,
+          desc: `省级行政区 · ${p.name}`,
           coords: [Number(p.center[0]), Number(p.center[1])],
           icon: '🚩',
           type: 'province',
@@ -1713,18 +1620,13 @@ async function queryLocationCandidates(keyword) {
     });
   }
 
-  // 2. 名山匹配 (名称 / 全拼 / 简拼 / 转化候选词)
+  // 3. 名山峰峦匹配 (中国名山)
   if (typeof MOUNTAIN_POIS !== 'undefined') {
     MOUNTAIN_POIS.forEach(m => {
-      const pinyin = (m.pinyin || '').toLowerCase();
-      const py = (m.py || '').toLowerCase();
-      const matchPinyin = pinyin.startsWith(cleanPy) || pinyin.includes(cleanPy) || py === cleanPy || py.startsWith(cleanPy);
-      const matchName = searchChineseTerms.some(term => m.name.includes(term) || term.includes(m.name));
-
-      if (matchName || matchPinyin) {
+      if (m.name.includes(raw) || raw.includes(m.name)) {
         let score = 3;
-        if (m.name === raw || pinyin === cleanPy || py === cleanPy) score = 1;
-        else if (pinyin.startsWith(cleanPy) || m.name.startsWith(raw)) score = 2;
+        if (m.name === raw) score = 1;
+        else if (m.name.startsWith(raw)) score = 2;
         localMatches.push({
           name: m.name,
           desc: `著名山峰 · 海拔 ${m.ele}米`,
@@ -1738,51 +1640,40 @@ async function queryLocationCandidates(keyword) {
     });
   }
 
-  // 3. 全国地级市与重点城镇全量匹配 (汉字 / 全拼 / 拼音首字母，如 linyi/ly -> 临沂市)
+  // 4. 全国地级市与重点城镇匹配 (中国 360+ 城市，中文汉字匹配)
   if (typeof MAJOR_CITIES !== 'undefined') {
     MAJOR_CITIES.forEach(c => {
-      const pinyin = (c.pinyin || '').toLowerCase();
-      const py = (c.py || '').toLowerCase();
-      const en = (c.en || '').toLowerCase();
-      const matchPinyin = pinyin === cleanPy || pinyin.startsWith(cleanPy) || pinyin.includes(cleanPy) || py === cleanPy || py.startsWith(cleanPy) || en.startsWith(cleanPy);
-      const matchName = searchChineseTerms.some(term => c.name.includes(term) || term.includes(c.name));
-
-      if (matchName || matchPinyin) {
+      if (c.name.includes(raw) || raw.includes(c.name)) {
         let score = 4;
-        if (c.name === raw || pinyin === cleanPy || py === cleanPy) score = 1;
-        else if (pinyin.startsWith(cleanPy) || c.name.startsWith(raw)) score = 2;
-        else if (py.startsWith(cleanPy)) score = 3;
+        if (c.name === raw) score = 1;
+        else if (c.name.startsWith(raw)) score = 2;
 
         localMatches.push({
           name: c.name,
-          desc: `${c.province || '重点城市'} · ${c.pinyin || c.en || ''}`,
+          desc: `${c.province || '重点城市'} · 城市中心`,
           coords: [Number(c.coords[0]), Number(c.coords[1])],
           icon: '🏙️',
           type: 'city',
-          zoom: 12.5,
+          zoom: 12.0,
           _score: score
         });
       }
     });
   }
 
-  // 4. 用户收藏夹匹配
+  // 5. 用户本地收藏夹匹配
   if (typeof savedWaypoints !== 'undefined' && Array.isArray(savedWaypoints)) {
     savedWaypoints.forEach(wp => {
-      if (wp && wp.name) {
-        const wpLower = wp.name.toLowerCase();
-        const matchName = searchChineseTerms.some(term => wp.name.includes(term) || wpLower.includes(term.toLowerCase()));
-        if (matchName) {
-          localMatches.push({
-            name: wp.name,
-            desc: `我的收藏点 · ${wp.ele || 0}m`,
-            coords: [Number(wp.lng), Number(wp.lat)],
-            icon: '⭐',
-            type: 'waypoint',
-            zoom: 14.5,
-            _score: 1
-          });
-        }
+      if (wp && wp.name && (wp.name.includes(raw) || raw.includes(wp.name))) {
+        localMatches.push({
+          name: wp.name,
+          desc: `我的收藏点 · ${wp.ele || 0}m`,
+          coords: [Number(wp.lng), Number(wp.lat)],
+          icon: '⭐',
+          type: 'waypoint',
+          zoom: 15.0,
+          _score: 1
+        });
       }
     });
   }
@@ -1790,103 +1681,92 @@ async function queryLocationCandidates(keyword) {
   // 按相关度评分排序
   localMatches.sort((a, b) => (a._score || 9) - (b._score || 9));
 
-  // 5. 在线全量 OSM Photon 地理编码检索 (对纯拼音输入，并发使用解析出的中文候选词检索)
+  // 6. 【极速 0ms 直出】：若本地中国城市/山峰/省份/收藏已有精确匹配，直接秒级返回，绝不等待海外网络！
+  if (localMatches.length > 0 && localMatches[0]._score <= 2) {
+    return localMatches.slice(0, 16);
+  }
+
+  // 7. 仅在本地无精确匹配时，按需请求在线高精地理编码，且【严格限定仅搜索中国境内】
   try {
-    const photonTerms = [];
-    if (chineseWords.length > 0) {
-      // 优先取前 2 个高质量候选词进行高精地理编码
-      chineseWords.slice(0, 2).forEach(w => {
-        if (!photonTerms.includes(w)) photonTerms.push(w);
-      });
-    }
-    if (!photonTerms.includes(raw) && (!isPinyin || photonTerms.length === 0)) {
-      photonTerms.push(raw);
-    }
-
-    const hasGoodLocal = localMatches.length > 0 && localMatches[0]._score <= 2;
-    const timeoutMs = hasGoodLocal ? 350 : 1600;
     const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => ctrl.abort(), 900); // 严格 900ms 快速超时，杜绝长时间假死
 
-    await Promise.all(photonTerms.map(async (term) => {
-      try {
-        const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(term)}&bbox=73.5,18.0,135.1,53.6&limit=12`;
-        const resp = await fetch(onlineUrl, {
-          signal: ctrl.signal,
-          headers: { 'User-Agent': 'Outmap/1.0' }
-        });
-        if (resp.ok) {
-          const geojson = await resp.json();
-          if (geojson && geojson.features) {
-            geojson.features.forEach(f => {
-              const p = f.properties;
-              const coords = f.geometry.coordinates;
-              if (!coords || coords.length < 2) return;
+    const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+    const resp = await fetch(onlineUrl, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Outmap/1.0' }
+    });
 
-              const lng = Number(coords[0]);
-              const lat = Number(coords[1]);
-              if (isNaN(lng) || isNaN(lat)) return;
+    if (resp.ok) {
+      const geojson = await resp.json();
+      if (geojson && geojson.features) {
+        geojson.features.forEach(f => {
+          const p = f.properties;
+          const coords = f.geometry.coordinates;
+          if (!coords || coords.length < 2) return;
 
-              const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
-              const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
-              if (!inChinaBbox || !isCountryCn) return;
+          const lng = Number(coords[0]);
+          const lat = Number(coords[1]);
+          if (isNaN(lng) || isNaN(lat)) return;
 
-              const name = p.name || p.street || p.city || term;
-              const parts = [p.state, p.city, p.district, p.locality]
-                .filter(Boolean)
-                .filter(s => s !== 'China' && s !== '中国');
-              const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '');
-              const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
+          // 严格边界与国家校验：仅限中国本土
+          const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
+          const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
+          if (!inChinaBbox || !isCountryCn) return;
 
-              let icon = '📍';
-              let type = 'poi';
-              const osmValue = (p.osm_value || '').toLowerCase();
+          const name = p.name || p.street || p.city || raw;
+          const parts = [p.state, p.city, p.district, p.locality]
+            .filter(Boolean)
+            .filter(s => s !== 'China' && s !== '中国');
+          const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '中国地点');
+          const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
 
-              if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑') || name.includes('公馆')) {
-                icon = '🏘️';
-                type = 'community';
-              } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
-                icon = '🏔️';
-                type = 'mountain';
-              } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
-                icon = '🏫';
-              } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
-                icon = '🏥';
-              } else if (osmValue.includes('city') || osmValue.includes('town')) {
-                icon = '🏙️';
-              }
+          let icon = '📍';
+          let type = 'poi';
+          const osmValue = (p.osm_value || '').toLowerCase();
 
-              const isDuplicate = localMatches.some(m => {
-                const dist = Math.hypot(m.coords[0] - lng, m.coords[1] - lat);
-                return (m.name === name && dist < 0.005) || dist < 0.0008;
-              });
+          if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑') || name.includes('公馆')) {
+            icon = '🏘️';
+            type = 'community';
+          } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
+            icon = '🏔️';
+            type = 'mountain';
+          } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
+            icon = '🏫';
+          } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
+            icon = '🏥';
+          } else if (osmValue.includes('city') || osmValue.includes('town')) {
+            icon = '🏙️';
+          }
 
-              if (!isDuplicate) {
-                localMatches.push({
-                  name,
-                  desc,
-                  coords: [lng, lat],
-                  icon,
-                  type,
-                  zoom: 14.5
-                });
-              }
+          const isDuplicate = localMatches.some(m => {
+            const dist = Math.hypot(m.coords[0] - lng, m.coords[1] - lat);
+            return (m.name === name && dist < 0.005) || dist < 0.0008;
+          });
+
+          if (!isDuplicate) {
+            localMatches.push({
+              name,
+              desc,
+              coords: [lng, lat],
+              icon,
+              type,
+              zoom: 15.0
             });
           }
-        }
-      } catch (e) {}
-    }));
+        });
+      }
+    }
 
     clearTimeout(timeoutId);
   } catch (e) {
-    // 离线环境平滑回退
+    // 离线或超时平滑回退本地结果
   }
 
   return localMatches.slice(0, 16);
 }
 
 if (typeof window !== 'undefined') {
-  window.pinyinToChineseWords = pinyinToChineseWords;
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
@@ -5002,7 +4882,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
 
     if (!items || items.length === 0) {
       floatingEl.innerHTML = `
-        <div style="padding: 10px 12px; font-size: 11.5px; color: #64748b; text-align: center;">未找到“${escapeHtml(keyword || '')}”，支持地名/拼音</div>
+        <div style="padding: 10px 12px; font-size: 11.5px; color: #64748b; text-align: center;">未找到“${escapeHtml(keyword || '')}”，支持地名/城市/坐标</div>
         <div class="route-floating-item route-floating-pick-map">
           <span class="route-floating-item-icon">📍</span>
           <div class="route-floating-item-info">
@@ -5161,7 +5041,7 @@ function renderViaList(mapInstance) {
     row.innerHTML = `
       <span class="pt-tag via" title="途径点 ${idx + 1}">${idx + 1}</span>
       <div class="route-input-wrap">
-        <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持拼音/汉字，回车搜索)..." autocomplete="off" />
+        <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
         <div class="route-search-dropdown" style="display: none;"></div>
       </div>
       <button class="btn-via-del" title="删除该途径点">✕</button>
