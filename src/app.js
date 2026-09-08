@@ -509,6 +509,8 @@ let provinceMarkers = [];
 let cityMarkers = [];
 let currentLandingMarker = null;
 let localServerPort = 28795;
+let totalOfflineCount = 0;
+let totalOfflineBytes = 0;
 
 // 离线瓦片计数格式化 (支持中文“万/亿”与体积清晰表达，彻底消除 200k 与 200KB 的误解)
 function formatTileCount(n) {
@@ -596,8 +598,9 @@ function mergeFolders(localList = [], cloudList = []) {
 
 async function initApplication() {
   let port = 28795;
-  let totalOfflineCount = 0;
-  let totalOfflineBytes = 0;
+  totalOfflineCount = 0;
+  totalOfflineBytes = 0;
+
 
   if (window.electronAPI) {
     try {
@@ -2981,11 +2984,27 @@ function setupPyramidModal(map) {
     btnOpen.classList.add('expanded');
     updateBtnTooltip();
 
-    await syncOfflineManifest();
-    renderProvinceGrid();
-    updateEstimation();
+    try {
+      await syncOfflineManifest();
+    } catch (e) {
+      console.warn('[Offline Modal] syncOfflineManifest error:', e);
+    }
+
+    try {
+      renderProvinceGrid();
+    } catch (e) {
+      console.warn('[Offline Modal] renderProvinceGrid error:', e);
+    }
+
+    try {
+      updateEstimation();
+    } catch (e) {
+      console.warn('[Offline Modal] updateEstimation error:', e);
+    }
+
     modal.style.display = 'flex';
   };
+
 
   const togglePyramidModal = () => {
     if (modal.style.display !== 'none') {
