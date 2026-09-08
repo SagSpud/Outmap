@@ -3137,11 +3137,17 @@ body.web-mode .office-prov-group {
     overflow: visible;
   }
 
-  /* 隐藏桌面专用/非核心元素 */
+  /* 隐藏桌面专用/非核心元素与底部PC状态栏 */
   #titlebar-cache-stat,
+  #status-bar,
   .brand-wrapper::after,
   .search-kbd-hint {
     display: none !important;
+  }
+
+  #map-wrap {
+    height: calc(100vh - 46px) !important;
+    height: calc(100dvh - 46px) !important;
   }
 
   .header-left {
