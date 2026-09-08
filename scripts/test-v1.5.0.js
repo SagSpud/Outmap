@@ -16,7 +16,7 @@ setTimeout(() => {
 }, 30000).unref();
 
 // 1. 静态代码与配置审查
-console.log('--- 1. Static Configuration & Code Assertions (v1.4.6) ---');
+console.log('--- 1. Static Configuration & Code Assertions (v1.5.0) ---');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const mainSrc = fs.readFileSync('main.js', 'utf8');
 const preloadSrc = fs.readFileSync('preload.js', 'utf8');
@@ -27,12 +27,12 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.4.6', 'package.json version must be 1.4.6');
-assert(htmlSrc.includes('app.js?v=1.4.6'), 'index.html must reference app.js?v=1.4.6');
-assert(htmlSrc.includes('location-camera.js?v=1.4.6'), 'index.html must reference location-camera.js?v=1.4.6');
-assert(htmlSrc.includes('style.css?v=1.4.6'), 'index.html must reference style.css?v=1.4.6');
-assert(htmlSrc.includes('v1.4.6'), 'index.html must show v1.4.6 badge');
-assert(appSrc.includes("const APP_VERSION = '1.4.6'"), 'app.js must declare APP_VERSION 1.4.6');
+assert.strictEqual(pkg.version, '1.5.0', 'package.json version must be 1.5.0');
+assert(htmlSrc.includes('app.js?v=1.5.0'), 'index.html must reference app.js?v=1.5.0');
+assert(htmlSrc.includes('location-camera.js?v=1.5.0'), 'index.html must reference location-camera.js?v=1.5.0');
+assert(htmlSrc.includes('style.css?v=1.5.0'), 'index.html must reference style.css?v=1.5.0');
+assert(htmlSrc.includes('v1.5.0'), 'index.html must show v1.5.0 badge');
+assert(appSrc.includes("const APP_VERSION = '1.5.0'"), 'app.js must declare APP_VERSION 1.5.0');
 
 // 离线统计与卫星图层检查 (针对 88万 / 9G vs 20+G Bug 的修复断言)
 assert(workerSrc.includes("dirName: 'sat'"), 'offline-worker.cjs must scan sat layer');
@@ -58,6 +58,17 @@ assert(styleSrc.includes('--cursor-grab: url('), 'style.css must define high-DPI
 assert(styleSrc.includes('--cursor-grabbing: url('), 'style.css must define high-DPI SVG closed fist cursor');
 assert(styleSrc.includes('--cursor-crosshair: url('), 'style.css must define high-DPI SVG crosshair cursor');
 
+// 离线状态单一圆点与语义状态断言 (彻底解决双重绿点 Bug)
+assert(styleSrc.includes('.prov-status-dot'), 'style.css must define .prov-status-dot');
+assert(styleSrc.includes('.prov-status-line.pending'), 'style.css must define pending state for prov-status-line');
+assert(appSrc.includes('prov-status-dot pending'), 'app.js must use prov-status-dot pending');
+assert(appSrc.includes('prov-status-dot ready'), 'app.js must use prov-status-dot ready');
+assert(!appSrc.includes('<span class="downloaded-dot">●</span> 待下载'), 'app.js must NOT place bullet inside downloaded-dot for pending download');
+
+// 相机与手势优化断言
+assert(locCamSrc.includes('0.62'), 'location-camera.js must anchor landing point at 0.62');
+assert(locCamSrc.includes('endpoint(zoom, pitch, bearing)'), 'location-camera.js must commit endpoint on final frame');
+
 // 原生感 UI 检查
 assert(styleSrc.includes('::-webkit-scrollbar'), 'style.css must define native overlay scrollbar');
 assert(styleSrc.includes('scrollbar-width: thin'), 'style.css must define standard thin scrollbar');
@@ -80,6 +91,7 @@ ipcMain.handle('save-offline-manifest', () => ({ success: true }));
 ipcMain.handle('search-location', () => ({ type: 'FeatureCollection', features: [] }));
 ipcMain.handle('rescan-offline-tiles', () => ({ totalTiles: 1210, totalBytes: 25000000, satCount: 300 }));
 ipcMain.handle('get-power-state', () => ({ powerSource: 'ac', isLowPower: false }));
+ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false, key: 'default' }));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -101,6 +113,7 @@ app.whenReady().then(async () => {
   });
 
   await win.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
+  await new Promise(r => setTimeout(r, 600));
 
   const domCheck = await win.webContents.executeJavaScript(`
     (() => {
@@ -114,6 +127,20 @@ app.whenReady().then(async () => {
       const btnFabImport = document.getElementById('btn-fab-import');
       const trackInput = document.getElementById('track-file-import-input');
       const cacheStat = document.getElementById('titlebar-cache-stat');
+
+      // 光标测试
+      const rootStyle = getComputedStyle(document.documentElement);
+      const grabCursor = rootStyle.getPropertyValue('--cursor-grab');
+      const grabbingCursor = rootStyle.getPropertyValue('--cursor-grabbing');
+
+      // 右键菜单地名智能解算测试 (合肥、蒙阴)
+      const locHefei = window.resolveLocationInfo ? window.resolveLocationInfo(window.mapInstance, { lng: 117.28, lat: 31.86 }, { x: 400, y: 300 }, true) : '';
+      const locMengyin = window.resolveLocationInfo ? window.resolveLocationInfo(window.mapInstance, { lng: 117.95, lat: 35.71 }, { x: 400, y: 300 }, true) : '';
+
+      // 图层顺序测试
+      const layerRows = document.querySelectorAll('.layer-toggle-row');
+      const layerNames = Array.from(layerRows).map(r => r.innerText.trim());
+
       return {
         brandText: brand ? brand.innerText : null,
         hasRoutePanel: !!routePanel,
@@ -124,13 +151,18 @@ app.whenReady().then(async () => {
         hasBtnFabLayers: !!btnFabLayers,
         hasBtnFabImport: !!btnFabImport,
         hasTrackInput: !!trackInput,
-        cacheStatText: cacheStat ? cacheStat.innerText : null
+        cacheStatText: cacheStat ? cacheStat.innerText : null,
+        hasSvgGrab: grabCursor.includes('data:image/svg+xml'),
+        hasSvgGrabbing: grabbingCursor.includes('data:image/svg+xml'),
+        locHefei,
+        locMengyin,
+        layerNames
       };
     })()
   `);
 
-  console.log('DOM Check result:', domCheck);
-  assert.strictEqual(domCheck.brandText, 'v1.4.6', 'Brand badge in DOM must display v1.4.6');
+  console.log('DOM & Runtime Check result:', domCheck);
+  assert.strictEqual(domCheck.brandText, 'v1.5.0', 'Brand badge in DOM must display v1.5.0');
   assert(domCheck.hasRoutePanel, 'routePanel must exist');
   assert(domCheck.hasViaList, 'route-via-list must exist');
   assert(domCheck.hasCanvas, 'elevation-chart-canvas must exist');
@@ -139,12 +171,33 @@ app.whenReady().then(async () => {
   assert(domCheck.hasBtnFabLayers, 'btn-fab-layers must exist');
   assert(domCheck.hasBtnFabImport, 'btn-fab-import must exist');
   assert(domCheck.hasTrackInput, 'track-file-import-input must exist');
+  assert(domCheck.hasSvgGrab, 'Must have high-DPI SVG grab cursor');
+  assert(domCheck.hasSvgGrabbing, 'Must have high-DPI SVG grabbing cursor');
+  assert(!domCheck.locHefei.includes('安徽省') || domCheck.locHefei.includes('合肥'), 'Context menu must not be only province');
+  assert(domCheck.layerNames[0].includes('3D地貌效果'), 'Top layer must be 3D地貌效果');
+
+  console.log('--- 3. Mobile Emulation & Safe Area Audit (390x844) ---');
+  await win.setSize(390, 844);
+  const mobileCheck = await win.webContents.executeJavaScript(`
+    (() => {
+      const isNarrow = window.innerWidth <= 768;
+      const anchor = window.OutmapLocationCamera ? window.OutmapLocationCamera.anchor(window.mapInstance, false) : null;
+      return {
+        isNarrow,
+        anchorY: anchor ? anchor.y : 0,
+        viewportH: window.innerHeight
+      };
+    })()
+  `);
+  console.log('Mobile Check result:', mobileCheck);
+  assert(mobileCheck.isNarrow, 'Must detect narrow/mobile viewport');
+  assert(mobileCheck.anchorY > mobileCheck.viewportH * 0.5, 'Mobile anchor must be biased downwards to avoid bottom sheets');
 
   if (pageErrors.length > 0) {
     console.error('Page errors encountered:', pageErrors);
     process.exit(1);
   }
 
-  console.log('\n🎉 ALL v1.4.6 VERIFICATIONS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL v1.5.0 DESKTOP & MOBILE VERIFICATIONS PASSED SUCCESSFULLY!');
   app.exit(0);
 });

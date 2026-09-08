@@ -18,9 +18,9 @@
   --status-text: #94a3b8;
   --font-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Cascadia Code", "Consolas", monospace;
-  --cursor-grab: default;
-  --cursor-grabbing: move;
-  --cursor-crosshair: crosshair;
+  --cursor-grab: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M7%2011V4.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V3.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V5.5a1.5%201.5%200%200%201%203%200v8a6.5%206.5%200%200%201-6.5%206.5h-1a6.5%206.5%200%200%201-5-2.4l-2.6-3.2a1.4%201.4%200%200%201%202.2-1.8L7%2013.5V11z%22%20fill%3D%22none%22%20stroke%3D%22rgba(0%2C0%2C0%2C0.35)%22%20stroke-width%3D%223.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M7%2011V4.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V3.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V5.5a1.5%201.5%200%200%201%203%200v8a6.5%206.5%200%200%201-6.5%206.5h-1a6.5%206.5%200%200%201-5-2.4l-2.6-3.2a1.4%201.4%200%200%201%202.2-1.8L7%2013.5V11z%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E') 10 10, grab;
+  --cursor-grabbing: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M6%2010.5c0-1.7%201.3-3%203-3h6.5c2.5%200%204.5%202%204.5%204.5v1.5c0%203.3-2.7%206-6%206h-2c-2.1%200-4-.9-5.3-2.4l-2-2.3a1.8%201.8%200%200%201%20.3-2.5%201.8%201.8%200%200%201%202.5.3L9%2014V10.5H6z%22%20fill%3D%22none%22%20stroke%3D%22rgba(0%2C0%2C0%2C0.35)%22%20stroke-width%3D%223.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M6%2010.5c0-1.7%201.3-3%203-3h6.5c2.5%200%204.5%202%204.5%204.5v1.5c0%203.3-2.7%206-6%206h-2c-2.1%200-4-.9-5.3-2.4l-2-2.3a1.8%201.8%200%200%201%20.3-2.5%201.8%201.8%200%200%201%202.5.3L9%2014V10.5H6z%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M9.5%208.5v4M12.5%208.5v4M15.5%208.5v4%22%20stroke%3D%22%2364748b%22%20stroke-width%3D%221.2%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E') 10 10, grabbing;
+  --cursor-crosshair: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%225%22%20fill%3D%22none%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%223%22%20opacity%3D%220.9%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%225%22%20fill%3D%22none%22%20stroke%3D%22%230284c7%22%20stroke-width%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M12%202v4M12%2018v4M2%2012h4M18%2012h4%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.9%22%2F%3E%3Cpath%20d%3D%22M12%202v4M12%2018v4M2%2012h4M18%2012h4%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%221.5%22%20fill%3D%22%230284c7%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%220.8%22%2F%3E%3C%2Fsvg%3E') 12 12, crosshair;
   --cursor-pointer: pointer;
 }
 
@@ -115,7 +115,11 @@ html, body {
 }
 
 .maplibregl-canvas-container.maplibregl-interactive:active,
-#map canvas:active {
+#map canvas:active,
+body.map-is-dragging,
+body.map-is-dragging #map,
+body.map-is-dragging #map canvas,
+body.map-is-dragging .maplibregl-canvas-container {
   cursor: var(--cursor-grabbing) !important;
 }
 
@@ -992,8 +996,8 @@ body.web-mode #manage-modal {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  border: 2.5px solid #0284c7;
-  animation: landingRing 1.8s infinite ease-out;
+  border: 2px solid #0284c7;
+  animation: landingRing 1.6s 3 ease-out forwards;
   pointer-events: none;
 }
 
@@ -1003,16 +1007,14 @@ body.web-mode #manage-modal {
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: #ffffff;
   color: #0f172a;
-  border: 1px solid rgba(203, 213, 225, 0.95);
+  border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 8px 10px;
   min-width: 185px;
   max-width: 240px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22), 0 2px 6px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.06);
   z-index: 1000;
   animation: fadeInLandingCard 0.26s cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
   pointer-events: auto;
@@ -1419,18 +1421,61 @@ body.web-mode #manage-modal {
   box-shadow: 0 0 6px rgba(52, 211, 153, 0.9);
 }
 
-/* 弹窗中的就绪与操作样式 */
+/* 弹窗中的状态标签（待下载/部分就绪/全部就绪，语义清晰，单点居中无双重重叠） */
 .prov-status-line {
-  color: #047857;
   font-size: 11.5px;
   font-weight: 600;
   margin-top: 0;
-  padding: 4px 8px;
+  padding: 4px 9px;
   background: #ffffff;
-  border-radius: 4px;
-  border: 1px solid #a7f3d0;
+  border-radius: 6px;
   white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.prov-status-line.pending {
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+  background: #f0f9ff;
+}
+
+.prov-status-line.partial {
+  color: #b45309;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
+.prov-status-line.ready {
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  background: #f0fdf4;
+}
+
+.prov-status-dot {
+  display: inline-block;
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.prov-status-dot.pending {
+  background-color: #0284c7;
+  box-shadow: 0 0 5px rgba(2, 132, 199, 0.45);
+}
+
+.prov-status-dot.partial {
+  background-color: #f59e0b;
+  box-shadow: 0 0 5px rgba(245, 158, 11, 0.45);
+}
+
+.prov-status-dot.ready {
+  background-color: #16a34a;
+  box-shadow: 0 0 5px rgba(22, 163, 74, 0.5);
 }
 
 .modal-btn.success {
@@ -2024,7 +2069,7 @@ body.web-mode #manage-modal {
   box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
   padding: 5px;
   min-width: 120px;
-  max-width: 160px;
+  max-width: 200px;
   width: max-content;
   z-index: 3000;
   transform-origin: top left;

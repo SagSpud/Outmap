@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.5.0';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -773,7 +773,7 @@ async function initApplication() {
     ? { workers: 2, demCache: 512, tileCache: 512, prefetch: 0 }
     : isWebMode
       ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 1800, tileCache: 1800, prefetch: 1 }
-      : { workers: Math.min(8, Math.max(4, (navigator.hardwareConcurrency || 8))), demCache: 6000, tileCache: 6000, prefetch: 2 };
+      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 3200, tileCache: 3200, prefetch: 1 };
   maplibregl.workerCount = mapPerformance.workers;
 
   // 初始化 DEM 高程数据源 (工作站满血模式：扩大高程网格缓存至 6000 片，反复缩放平移零延迟)
@@ -823,6 +823,10 @@ async function initApplication() {
   if (typeof map.setPrefetchZoomDelta === 'function') {
     map.setPrefetchZoomDelta(mapPerformance.prefetch);
   }
+
+  // 鼠标按压拖拽地图时实时切换为紧握拳头手型，松手恢复平展打开手掌 (0 毫秒延迟，无缝跟随)
+  map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });
+  map.on('dragend', () => { document.body.classList.remove('map-is-dragging'); });
 
   map.on('load', () => {
     // 3D 地形高度网格
@@ -1560,6 +1564,17 @@ async function initApplication() {
     // 适配屏幕分辨率并确保三维地图精确居中
     map.resize();
     window.addEventListener('resize', () => map.resize());
+
+    // 3D 地形曲面与 WebGL 着色器管线静默预热：
+    // 当地图首次空闲时触发一次重绘，驱动 GPU 提前编译并缓存 3D terrain 与山体着色器，
+    // 彻底消除用户第一次点击地点飞掠时的首帧着色器编译掉帧！
+    map.once('idle', () => {
+      try {
+        if (typeof map.triggerRepaint === 'function') {
+          map.triggerRepaint();
+        }
+      } catch (e) {}
+    });
   });
 
   setupOfficeHeaderInteractions(map);
@@ -2415,15 +2430,14 @@ function setupOfficeHeaderInteractions(map) {
     const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
     const flightDuration = isLongFlight ? 1100 : 500;
 
-    // 始终立即创建落地 Marker 挂载在目标坐标上，随三维摄像机平稳巡航到位；到达后平滑更新最新地面高程，零闪烁零跳动
-    showLandingMarker(validCoords, item.name, item.desc);
-
+    // 先行启动硬件加速平滑巡航，长距离飞行在着陆瞬间挂载落地 Marker DOM，杜绝巡航期间 DOM 频繁矩阵重算导致掉帧
     flyToLocationPrecisely(map, validCoords, {
       zoom: targetZoom,
       pitch: targetPitch,
       centered: isProv,
       duration: flightDuration,
       onArrival: () => {
+        showLandingMarker(validCoords, item.name, item.desc);
         if (currentLandingMarker) {
           const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
           const descEl = currentLandingMarker.getElement()?.querySelector('.landing-card-desc');
@@ -2434,6 +2448,12 @@ function setupOfficeHeaderInteractions(map) {
         }
       }
     });
+
+    if (!isLongFlight) {
+      requestAnimationFrame(() => {
+        showLandingMarker(validCoords, item.name, item.desc);
+      });
+    }
   }
 
   // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史)
@@ -3340,8 +3360,9 @@ function setupPyramidModal(map) {
       statCount.innerText = '已全部就绪';
       statSize.innerText = '0 MB';
       if (provStatusTag) {
+        provStatusTag.className = 'prov-status-line ready';
         provStatusTag.style.display = 'inline-flex';
-        provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 所选省份在 L${maxZ} 已全部就绪`;
+        provStatusTag.innerHTML = `<span class="prov-status-dot ready"></span> 所选省份在 L${maxZ} 已全部就绪`;
       }
       btnStart.style.display = 'none';
       if (btnUpdate) {
@@ -3364,9 +3385,11 @@ function setupPyramidModal(map) {
       if (provStatusTag) {
         provStatusTag.style.display = 'inline-flex';
         if (hasAnySaved && minSavedZ >= 10) {
-          provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 已就绪至 L${minSavedZ}，将扩充下载至 L${maxZ}`;
+          provStatusTag.className = 'prov-status-line partial';
+          provStatusTag.innerHTML = `<span class="prov-status-dot partial"></span> 已就绪至 L${minSavedZ} · 待扩充至 L${maxZ}`;
         } else {
-          provStatusTag.innerHTML = `<span class="downloaded-dot">●</span> 待下载至 L${maxZ}`;
+          provStatusTag.className = 'prov-status-line pending';
+          provStatusTag.innerHTML = `<span class="prov-status-dot pending"></span> 待下载至 L${maxZ}`;
         }
       }
 
@@ -3560,11 +3583,12 @@ function setupPyramidModal(map) {
         if (btnUpdate) btnUpdate.style.display = 'inline-block';
 
         if (provStatusTag) {
+          provStatusTag.className = 'prov-status-line ready';
           provStatusTag.style.display = 'inline-flex';
           if (data.isIncrementalUpdate) {
-            provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 增量更新已完成 · 旧切片完好保留';
+            provStatusTag.innerHTML = '<span class="prov-status-dot ready"></span> 增量更新已完成 · 旧切片完好保留';
           } else {
-            provStatusTag.innerHTML = '<span class="downloaded-dot">●</span> 全部图层已就绪';
+            provStatusTag.innerHTML = '<span class="prov-status-dot ready"></span> 全部图层已就绪';
           }
         }
 
@@ -4032,59 +4056,118 @@ function flyToProvince(map, key) {
 
 
 
-// 重点地级市/省会/自治州地理范围 (用于状态栏精确反查“省·市·县”)
-const CHINA_DIVISIONS = [
-  // 四川
-  { prov: '四川省', city: '成都市', bbox: [102.9, 104.9, 30.0, 31.5] },
-  { prov: '四川省', city: '阿坝藏族羌族自治州', bbox: [100.5, 104.4, 30.5, 34.3] },
-  { prov: '四川省', city: '甘孜藏族自治州', bbox: [97.3, 102.5, 27.9, 33.1] },
-  { prov: '四川省', city: '凉山彝族自治州', bbox: [100.0, 103.9, 26.0, 29.5] },
-  { prov: '四川省', city: '绵阳市', bbox: [103.7, 105.7, 30.7, 33.0] },
-  { prov: '四川省', city: '乐山市', bbox: [102.8, 104.3, 28.8, 29.9] },
-  { prov: '四川省', city: '雅安市', bbox: [102.1, 103.3, 29.4, 30.9] },
-  // 山东
-  { prov: '山东省', city: '济南市', bbox: [116.1, 117.7, 36.0, 37.5] },
-  { prov: '山东省', city: '青岛市', bbox: [119.5, 121.2, 35.5, 37.2] },
-  { prov: '山东省', city: '泰安市', bbox: [116.3, 117.9, 35.6, 36.5] },
-  { prov: '山东省', city: '烟台市', bbox: [119.5, 122.0, 36.5, 38.4] },
-  { prov: '山东省', city: '潍坊市', bbox: [118.1, 120.2, 35.7, 37.4] },
-  { prov: '山东省', city: '临沂市', bbox: [117.4, 119.2, 34.4, 36.2] },
-  { prov: '山东省', city: '威海市', bbox: [121.6, 122.7, 36.6, 37.6] },
-  // 西藏
-  { prov: '西藏自治区', city: '拉萨市', bbox: [89.7, 92.6, 29.2, 31.0] },
-  { prov: '西藏自治区', city: '日喀则市', bbox: [82.0, 90.3, 27.5, 31.8] },
-  { prov: '西藏自治区', city: '林芝市', bbox: [92.1, 98.9, 26.8, 30.7] },
-  { prov: '西藏自治区', city: '昌都市', bbox: [95.5, 99.1, 28.5, 32.7] },
-  { prov: '西藏自治区', city: '阿里地区', bbox: [78.4, 86.5, 30.0, 36.0] },
-  // 云南
-  { prov: '云南省', city: '昆明市', bbox: [102.1, 103.7, 24.3, 26.5] },
-  { prov: '云南省', city: '丽江市', bbox: [99.3, 101.5, 25.9, 27.9] },
-  { prov: '云南省', city: '大理白族自治州', bbox: [98.8, 101.3, 24.6, 26.7] },
-  { prov: '云南省', city: '迪庆藏族自治州', bbox: [98.5, 100.3, 26.9, 29.2] },
-  // 新疆
-  { prov: '新疆维吾尔自治区', city: '乌鲁木齐市', bbox: [86.6, 88.9, 42.7, 44.3] },
-  { prov: '新疆维吾尔自治区', city: '阿勒泰地区', bbox: [85.5, 91.1, 45.0, 49.2] },
-  { prov: '新疆维吾尔自治区', city: '喀什地区', bbox: [73.5, 80.0, 35.4, 40.3] },
-  { prov: '新疆维吾尔自治区', city: '伊犁哈萨克自治州', bbox: [80.1, 85.0, 42.2, 45.0] },
-  // 陕西
-  { prov: '陕西省', city: '西安市', bbox: [107.6, 109.8, 33.6, 34.8] },
-  { prov: '陕西省', city: '延安市', bbox: [107.6, 110.5, 35.3, 37.5] },
-  { prov: '陕西省', city: '汉中市', bbox: [105.5, 108.3, 32.4, 34.0] },
-  // 直辖市
-  { prov: '北京市', city: '北京市', bbox: [115.4, 117.5, 39.4, 41.1] },
-  { prov: '上海市', city: '上海市', bbox: [120.8, 122.2, 30.7, 31.9] },
-  { prov: '重庆市', city: '重庆市', bbox: [105.3, 110.2, 28.2, 32.2] },
-  { prov: '天津市', city: '天津市', bbox: [116.7, 118.1, 38.5, 40.3] },
-  // 东南沿海
-  { prov: '浙江省', city: '杭州市', bbox: [118.3, 120.7, 29.1, 30.6] },
-  { prov: '广东省', city: '广州市', bbox: [112.9, 114.1, 22.4, 23.9] },
-  { prov: '广东省', city: '深圳市', bbox: [113.7, 114.7, 22.4, 22.9] }
+// 全国 340+ 地级行政区 (地级市、地区、自治州、盟与直辖市) 高精质心索引表
+const CHINA_CITIES = [
+  ['北京市', '北京市', 116.40, 39.90], ['天津市', '天津市', 117.20, 39.12], ['上海市', '上海市', 121.47, 31.23], ['重庆市', '重庆市', 106.55, 29.56],
+  ['石家庄市', '河北省', 114.51, 38.04], ['唐山市', '河北省', 118.18, 39.63], ['秦皇岛市', '河北省', 119.60, 39.93], ['邯郸市', '河北省', 114.49, 36.61],
+  ['邢台市', '河北省', 114.50, 37.07], ['保定市', '河北省', 115.46, 38.87], ['张家口市', '河北省', 114.88, 40.77], ['承德市', '河北省', 117.96, 40.95],
+  ['沧州市', '河北省', 116.83, 38.30], ['廊坊市', '河北省', 116.68, 39.53], ['衡水市', '河北省', 115.66, 37.73],
+  ['太原市', '山西省', 112.55, 37.87], ['大同市', '山西省', 113.30, 40.08], ['阳泉市', '山西省', 113.58, 37.86], ['长治市', '山西省', 113.12, 36.20],
+  ['晋城市', '山西省', 112.85, 35.50], ['朔州市', '山西省', 112.43, 39.33], ['晋中市', '山西省', 112.75, 37.69], ['运城市', '山西省', 111.01, 35.03],
+  ['忻州市', '山西省', 112.73, 38.42], ['临汾市', '山西省', 111.52, 36.09], ['吕梁市', '山西省', 111.14, 37.52],
+  ['呼和浩特市', '内蒙古自治区', 111.75, 40.84], ['包头市', '内蒙古自治区', 109.84, 40.66], ['乌海市', '内蒙古自治区', 106.82, 39.67], ['赤峰市', '内蒙古自治区', 118.96, 42.28],
+  ['通辽市', '内蒙古自治区', 122.26, 43.62], ['鄂尔多斯市', '内蒙古自治区', 109.99, 39.82], ['呼伦贝尔市', '内蒙古自治区', 119.77, 49.21], ['巴彦淖尔市', '内蒙古自治区', 107.42, 40.76],
+  ['乌兰察布市', '内蒙古自治区', 113.13, 41.03], ['兴安盟', '内蒙古自治区', 122.07, 46.08], ['锡林郭勒盟', '内蒙古自治区', 116.09, 43.93], ['阿拉善盟', '内蒙古自治区', 105.73, 38.85],
+  ['沈阳市', '辽宁省', 123.43, 41.81], ['大连市', '辽宁省', 121.61, 38.91], ['鞍山市', '辽宁省', 122.99, 41.11], ['抚顺市', '辽宁省', 123.96, 41.88],
+  ['本溪市', '辽宁省', 123.77, 41.30], ['丹东市', '辽宁省', 124.38, 40.13], ['锦州市', '辽宁省', 121.13, 41.10], ['营口市', '辽宁省', 122.23, 40.67],
+  ['阜新市', '辽宁省', 121.67, 42.02], ['辽阳市', '辽宁省', 123.17, 41.27], ['盘锦市', '辽宁省', 122.07, 41.12], ['铁岭市', '辽宁省', 123.84, 42.29],
+  ['朝阳市', '辽宁省', 120.45, 41.57], ['葫芦岛市', '辽宁省', 120.84, 40.71],
+  ['长春市', '吉林省', 125.32, 43.90], ['吉林市', '吉林省', 126.55, 43.84], ['四平市', '吉林省', 124.37, 43.17], ['辽源市', '吉林省', 125.14, 42.90],
+  ['通化市', '吉林省', 125.94, 41.73], ['白山市', '吉林省', 126.42, 41.94], ['松原市', '吉林省', 124.82, 45.14], ['白城市', '吉林省', 122.84, 45.62],
+  ['延边朝鲜族自治州', '吉林省', 129.51, 42.90],
+  ['哈尔滨市', '黑龙江省', 126.53, 45.80], ['齐齐哈尔市', '黑龙江省', 123.95, 47.35], ['鸡西市', '黑龙江省', 130.97, 45.30], ['鹤岗市', '黑龙江省', 130.28, 47.35],
+  ['双鸭山市', '黑龙江省', 131.16, 46.65], ['大庆市', '黑龙江省', 125.10, 46.59], ['伊春市', '黑龙江省', 128.90, 47.73], ['佳木斯市', '黑龙江省', 130.36, 46.81],
+  ['七台河市', '黑龙江省', 130.85, 45.77], ['牡丹江市', '黑龙江省', 129.63, 44.58], ['黑河市', '黑龙江省', 127.53, 50.24], ['绥化市', '黑龙江省', 126.99, 46.64],
+  ['大兴安岭地区', '黑龙江省', 124.71, 52.34],
+  ['南京市', '江苏省', 118.80, 32.06], ['无锡市', '江苏省', 120.31, 31.49], ['徐州市', '江苏省', 117.18, 34.27], ['常州市', '江苏省', 119.97, 31.81],
+  ['苏州市', '江苏省', 120.58, 31.30], ['南通市', '江苏省', 120.89, 31.98], ['连云港市', '江苏省', 119.22, 34.60], ['淮安市', '江苏省', 119.02, 33.60],
+  ['盐城市', '江苏省', 120.16, 33.35], ['扬州市', '江苏省', 119.41, 32.40], ['镇江市', '江苏省', 119.45, 32.20], ['泰州市', '江苏省', 119.92, 32.46],
+  ['宿迁市', '江苏省', 118.28, 33.96],
+  ['杭州市', '浙江省', 120.15, 30.28], ['宁波市', '浙江省', 121.55, 29.87], ['温州市', '浙江省', 120.70, 28.00], ['嘉兴市', '浙江省', 120.76, 30.75],
+  ['湖州市', '浙江省', 120.09, 30.89], ['绍兴市', '浙江省', 120.58, 30.03], ['金华市', '浙江省', 119.65, 29.08], ['衢州市', '浙江省', 118.87, 28.94],
+  ['舟山市', '浙江省', 122.21, 29.99], ['台州市', '浙江省', 121.42, 28.66], ['丽水市', '浙江省', 119.92, 28.47],
+  ['合肥市', '安徽省', 117.23, 31.82], ['芜湖市', '安徽省', 118.38, 31.33], ['蚌埠市', '安徽省', 117.39, 32.92], ['淮南市', '安徽省', 117.00, 32.63],
+  ['马鞍山市', '安徽省', 118.51, 31.69], ['淮北市', '安徽省', 116.80, 33.96], ['铜陵市', '安徽省', 117.82, 30.93], ['安庆市', '安徽省', 117.06, 30.53],
+  ['黄山市', '安徽省', 118.34, 29.71], ['滁州市', '安徽省', 118.32, 32.30], ['阜阳市', '安徽省', 115.82, 32.89], ['宿州市', '安徽省', 116.98, 33.63],
+  ['六安市', '安徽省', 116.51, 31.75], ['亳州市', '安徽省', 115.78, 33.85], ['池州市', '安徽省', 117.49, 30.66], ['宣城市', '安徽省', 118.76, 30.95],
+  ['福州市', '福建省', 119.30, 26.08], ['厦门市', '福建省', 118.09, 24.48], ['莆田市', '福建省', 119.01, 25.45], ['三明市', '福建省', 117.64, 26.26],
+  ['泉州市', '福建省', 118.68, 24.87], ['漳州市', '福建省', 117.65, 24.51], ['南平市', '福建省', 118.18, 26.64], ['龙岩市', '福建省', 117.03, 25.08],
+  ['宁德市', '福建省', 119.55, 26.67],
+  ['南昌市', '江西省', 115.86, 28.68], ['景德镇市', '江西省', 117.18, 29.27], ['萍乡市', '江西省', 113.85, 27.62], ['九江市', '江西省', 116.00, 29.70],
+  ['新余市', '江西省', 114.93, 27.82], ['鹰潭市', '江西省', 117.07, 28.27], ['赣州市', '江西省', 114.93, 25.83], ['吉安市', '江西省', 114.99, 27.11],
+  ['宜春市', '江西省', 114.42, 27.81], ['抚州市', '江西省', 116.36, 27.95], ['上饶市', '江西省', 117.94, 28.45],
+  ['济南市', '山东省', 117.00, 36.67], ['青岛市', '山东省', 120.38, 36.07], ['淄博市', '山东省', 118.05, 36.81], ['枣庄市', '山东省', 117.32, 34.81],
+  ['东营市', '山东省', 118.67, 37.43], ['烟台市', '山东省', 121.45, 37.46], ['潍坊市', '山东省', 119.16, 36.71], ['济宁市', '山东省', 116.59, 35.42],
+  ['泰安市', '山东省', 117.09, 36.20], ['威海市', '山东省', 122.12, 37.51], ['日照市', '山东省', 119.53, 35.42], ['临沂市', '山东省', 118.36, 35.10],
+  ['德州市', '山东省', 116.36, 37.43], ['聊城市', '山东省', 115.98, 36.46], ['滨州市', '山东省', 117.97, 37.38], ['菏泽市', '山东省', 115.48, 35.23],
+  ['郑州市', '河南省', 113.63, 34.75], ['开封市', '河南省', 114.31, 34.80], ['洛阳市', '河南省', 112.45, 34.62], ['平顶山市', '河南省', 113.19, 33.77],
+  ['安阳市', '河南省', 114.39, 36.10], ['鹤壁市', '河南省', 114.30, 35.75], ['新乡市', '河南省', 113.93, 35.30], ['焦作市', '河南省', 113.24, 35.22],
+  ['濮阳市', '河南省', 115.04, 35.76], ['许昌市', '河南省', 113.85, 34.04], ['漯河市', '河南省', 114.02, 33.58], ['三门峡市', '河南省', 111.20, 34.77],
+  ['南阳市', '河南省', 112.53, 32.99], ['商丘市', '河南省', 115.66, 34.41], ['信阳市', '河南省', 114.09, 32.15], ['周口市', '河南省', 114.70, 33.63],
+  ['驻马店市', '河南省', 114.02, 32.98], ['济源市', '河南省', 112.60, 35.07],
+  ['武汉市', '湖北省', 114.31, 30.59], ['黄石市', '湖北省', 115.04, 30.20], ['十堰市', '湖北省', 110.80, 32.65], ['宜昌市', '湖北省', 111.29, 30.69],
+  ['襄阳市', '湖北省', 112.14, 32.04], ['鄂州市', '湖北省', 114.89, 30.39], ['荆门市', '湖北省', 112.20, 31.04], ['孝感市', '湖北省', 113.92, 30.93],
+  ['荆州市', '湖北省', 112.24, 30.33], ['黄冈市', '湖北省', 114.87, 30.45], ['咸宁市', '湖北省', 114.33, 29.84], ['随州市', '湖北省', 113.38, 31.69],
+  ['恩施土家族苗族自治州', '湖北省', 109.48, 30.27], ['仙桃市', '湖北省', 113.45, 30.36], ['潜江市', '湖北省', 112.90, 30.42], ['天门市', '湖北省', 113.17, 30.66],
+  ['神农架林区', '湖北省', 110.68, 31.75],
+  ['长沙市', '湖南省', 112.94, 28.23], ['株洲市', '湖南省', 113.13, 27.83], ['湘潭市', '湖南省', 112.94, 27.83], ['衡阳市', '湖南省', 112.57, 26.90],
+  ['邵阳市', '湖南省', 111.47, 27.24], ['岳阳市', '湖南省', 113.13, 29.36], ['常德市', '湖南省', 111.69, 29.03], ['张家界市', '湖南省', 110.48, 29.12],
+  ['益阳市', '湖南省', 112.36, 28.55], ['郴州市', '湖南省', 113.01, 25.77], ['永州市', '湖南省', 111.61, 26.42], ['怀化市', '湖南省', 110.00, 27.57],
+  ['娄底市', '湖南省', 112.00, 27.70], ['湘西土家族苗族自治州', '湖南省', 109.74, 28.31],
+  ['广州市', '广东省', 113.26, 23.13], ['深圳市', '广东省', 114.06, 22.54], ['珠海市', '广东省', 113.58, 22.27], ['汕头市', '广东省', 116.68, 23.35],
+  ['佛山市', '广东省', 113.12, 23.02], ['韶关市', '广东省', 113.60, 24.81], ['湛江市', '广东省', 110.36, 21.27], ['肇庆市', '广东省', 112.47, 23.05],
+  ['江门市', '广东省', 113.08, 22.58], ['茂名市', '广东省', 110.93, 21.66], ['惠州市', '广东省', 114.42, 23.11], ['梅州市', '广东省', 116.12, 24.29],
+  ['汕尾市', '广东省', 115.36, 22.79], ['河源市', '广东省', 114.70, 23.74], ['阳江市', '广东省', 111.98, 21.86], ['清远市', '广东省', 113.06, 23.68],
+  ['东莞市', '广东省', 113.75, 23.02], ['中山市', '广东省', 113.39, 22.52], ['潮州市', '广东省', 116.62, 23.66], ['揭阳市', '广东省', 116.37, 23.55],
+  ['云浮市', '广东省', 112.04, 22.92],
+  ['南宁市', '广西壮族自治区', 108.37, 22.82], ['柳州市', '广西壮族自治区', 109.43, 24.33], ['桂林市', '广西壮族自治区', 110.29, 25.27], ['梧州市', '广西壮族自治区', 111.32, 23.48],
+  ['北海市', '广西壮族自治区', 109.12, 21.48], ['防城港市', '广西壮族自治区', 108.35, 21.69], ['钦州市', '广西壮族自治区', 108.65, 21.98], ['贵港市', '广西壮族自治区', 109.60, 23.10],
+  ['玉林市', '广西壮族自治区', 110.18, 22.64], ['百色市', '广西壮族自治区', 106.62, 23.90], ['贺州市', '广西壮族自治区', 111.57, 24.40], ['河池市', '广西壮族自治区', 108.06, 24.70],
+  ['来宾市', '广西壮族自治区', 109.23, 23.73], ['崇左市', '广西壮族自治区', 107.36, 22.38],
+  ['海口市', '海南省', 110.33, 20.04], ['三亚市', '海南省', 109.51, 18.25], ['三沙市', '海南省', 112.35, 16.84], ['儋州市', '海南省', 109.58, 19.52],
+  ['成都市', '四川省', 104.07, 30.66], ['自贡市', '四川省', 104.78, 29.34], ['攀枝花市', '四川省', 101.72, 26.58], ['泸州市', '四川省', 105.44, 28.87],
+  ['德阳市', '四川省', 104.40, 31.13], ['绵阳市', '四川省', 104.74, 31.47], ['广元市', '四川省', 105.84, 32.44], ['遂宁市', '四川省', 105.59, 30.53],
+  ['内江市', '四川省', 105.06, 29.58], ['乐山市', '四川省', 103.77, 29.56], ['南充市', '四川省', 106.08, 30.79], ['眉山市', '四川省', 103.85, 30.08],
+  ['宜宾市', '四川省', 104.64, 28.75], ['广安市', '四川省', 106.63, 30.46], ['达州市', '四川省', 107.47, 31.21], ['雅安市', '四川省', 103.04, 29.98],
+  ['巴中市', '四川省', 106.75, 31.87], ['资阳市', '四川省', 106.63, 30.13], ['阿坝藏族羌族自治州', '四川省', 102.22, 31.90], ['甘孜藏族自治州', '四川省', 101.96, 30.05],
+  ['凉山彝族自治州', '四川省', 102.27, 27.88],
+  ['贵阳市', '贵州省', 106.63, 26.65], ['六盘水市', '贵州省', 104.83, 26.58], ['遵义市', '贵州省', 106.93, 27.73], ['安顺市', '贵州省', 105.95, 26.25],
+  ['毕节市', '贵州省', 105.29, 27.30], ['铜仁市', '贵州省', 109.19, 27.72], ['黔西南布依族苗族自治州', '贵州省', 104.90, 25.09], ['黔东南苗族侗族自治州', '贵州省', 107.98, 26.58],
+  ['黔南布依族苗族自治州', '贵州省', 107.52, 26.26],
+  ['昆明市', '云南省', 102.83, 24.88], ['曲靖市', '云南省', 103.80, 25.49], ['玉溪市', '云南省', 102.55, 24.35], ['保山市', '云南省', 99.17, 25.12],
+  ['昭通市', '云南省', 103.72, 27.34], ['丽江市', '云南省', 100.23, 26.86], ['普洱市', '云南省', 100.98, 22.79], ['临沧市', '云南省', 100.09, 23.89],
+  ['楚雄彝族自治州', '云南省', 101.53, 25.03], ['红河哈尼族彝族自治州', '云南省', 103.38, 23.36], ['文山壮族苗族自治州', '云南省', 104.24, 23.37],
+  ['西双版纳傣族自治州', '云南省', 100.80, 22.00], ['大理白族自治州', '云南省', 100.23, 25.60], ['德宏傣族景颇族自治州', '云南省', 98.58, 24.43],
+  ['怒江傈僳族自治州', '云南省', 98.85, 25.85], ['迪庆藏族自治州', '云南省', 99.71, 27.83],
+  ['拉萨市', '西藏自治区', 91.13, 29.65], ['日喀则市', '西藏自治区', 88.88, 29.27], ['昌都市', '西藏自治区', 97.18, 31.14], ['林芝市', '西藏自治区', 94.36, 29.65],
+  ['山南市', '西藏自治区', 91.77, 29.24], ['那曲市', '西藏自治区', 92.06, 31.48], ['阿里地区', '西藏自治区', 80.11, 32.50],
+  ['西安市', '陕西省', 108.94, 34.34], ['铜川市', '陕西省', 108.95, 34.90], ['宝鸡市', '陕西省', 107.14, 34.37], ['咸阳市', '陕西省', 108.71, 34.33],
+  ['渭南市', '陕西省', 109.50, 34.50], ['延安市', '陕西省', 109.49, 36.59], ['汉中市', '陕西省', 107.03, 33.07], ['榆林市', '陕西省', 109.74, 38.29],
+  ['安康市', '陕西省', 109.03, 32.69], ['商洛市', '陕西省', 109.94, 33.87],
+  ['兰州市', '甘肃省', 103.83, 36.06], ['嘉峪关市', '甘肃省', 98.28, 39.77], ['金昌市', '甘肃省', 102.19, 38.51], ['白银市', '甘肃省', 104.14, 36.55],
+  ['天水市', '甘肃省', 105.72, 34.58], ['武威市', '甘肃省', 102.64, 37.93], ['张掖市', '甘肃省', 100.46, 38.93], ['平凉市', '甘肃省', 106.67, 35.54],
+  ['酒泉市', '甘肃省', 98.51, 39.74], ['庆阳市', '甘肃省', 107.64, 35.73], ['定西市', '甘肃省', 104.63, 35.58], ['陇南市', '甘肃省', 104.93, 33.39],
+  ['临夏回族自治州', '甘肃省', 103.21, 35.60], ['甘南藏族自治州', '甘肃省', 102.91, 34.98],
+  ['西宁市', '青海省', 101.78, 36.62], ['海东市', '青海省', 102.10, 36.50], ['海北藏族自治州', '青海省', 100.90, 36.96], ['黄南藏族自治州', '青海省', 102.02, 35.52],
+  ['海南藏族自治州', '青海省', 100.62, 36.28], ['果洛藏族自治州', '青海省', 100.24, 34.47], ['玉树藏族自治州', '青海省', 97.01, 33.00], ['海西蒙古族藏族自治州', '青海省', 97.37, 37.37],
+  ['银川市', '宁夏回族自治区', 106.23, 38.49], ['石嘴山市', '宁夏回族自治区', 106.38, 39.01], ['吴忠市', '宁夏回族自治区', 106.20, 37.99], ['固原市', '宁夏回族自治区', 106.24, 36.00],
+  ['中卫市', '宁夏回族自治区', 105.19, 37.51],
+  ['乌鲁木齐市', '新疆维吾尔自治区', 87.62, 43.83], ['克拉玛依市', '新疆维吾尔自治区', 84.87, 45.60], ['吐鲁番市', '新疆维吾尔自治区', 89.19, 42.95], ['哈密市', '新疆维吾尔自治区', 93.52, 42.83],
+  ['昌吉回族自治州', '新疆维吾尔自治区', 87.30, 44.01], ['博尔塔拉蒙古自治州', '新疆维吾尔自治区', 82.07, 44.90], ['巴音郭楞蒙古自治州', '新疆维吾尔自治区', 86.15, 41.76],
+  ['阿克苏地区', '新疆维吾尔自治区', 80.26, 41.17], ['克孜勒苏柯尔克孜自治州', '新疆维吾尔自治区', 76.17, 39.71], ['喀什地区', '新疆维吾尔自治区', 75.99, 39.47],
+  ['和田地区', '新疆维吾尔自治区', 79.92, 37.11], ['伊犁哈萨克自治州', '新疆维吾尔自治区', 81.32, 43.92], ['塔城地区', '新疆维吾尔自治区', 82.98, 46.75],
+  ['阿勒泰地区', '新疆维吾尔自治区', 88.14, 47.85], ['石河子市', '新疆维吾尔自治区', 86.04, 44.31],
+  ['台北市', '台湾省', 121.57, 25.04], ['新北市', '台湾省', 121.47, 25.01], ['高雄市', '台湾省', 120.31, 22.62], ['台中市', '台湾省', 120.68, 24.15],
+  ['台南市', '台湾省', 120.20, 23.00], ['香港特别行政区', '香港特别行政区', 114.17, 22.28], ['澳门特别行政区', '澳门特别行政区', 113.54, 22.20]
 ];
+const CHINA_DIVISIONS = CHINA_CITIES;
 
-// 智能解算当前坐标所属的“市 · 县/区/镇”或完整行政区划 (支持仅显示市、县两级)
+// 智能解算当前坐标所属的“市 · 县/区/镇”或完整行政区划
+// 专为右键菜单定制：绝不显示“省”（状态栏已显示过），显示“市、县”；空间不够只显示“县”
 function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
-  const zoom = map.getZoom();
-  if (zoom < 5.0) {
+  if (!map || !lngLat) return onlyCityCounty ? '地点' : '区域: 全国';
+  const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 8;
+  if (zoom < 4.0) {
     return onlyCityCounty ? '地点' : '区域: 全国';
   }
 
@@ -4092,82 +4175,96 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
   let foundProv = '';
   let foundCity = '';
 
-  // 1. 空间包围盒优先匹配市州
-  for (let i = 0; i < CHINA_DIVISIONS.length; i++) {
-    const div = CHINA_DIVISIONS[i];
-    const [x1, x2, y1, y2] = div.bbox;
+  // 1. 匹配 34 省级行政区外包围盒
+  const provKeys = Object.keys(PROVINCES_DATA);
+  for (let i = 0; i < provKeys.length; i++) {
+    const k = provKeys[i];
+    if (k === 'china') continue;
+    const p = PROVINCES_DATA[k];
+    const [x1, x2, y1, y2] = p.bbox;
     if (lng >= x1 && lng <= x2 && lat >= y1 && lat <= y2) {
-      foundProv = div.prov;
-      foundCity = div.city;
+      foundProv = p.name;
       break;
     }
   }
 
-  // 2. 若未精准落入重点市州范围，则匹配 34 省份地理包围盒
-  if (!foundProv) {
-    const keys = Object.keys(PROVINCES_DATA);
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      if (k === 'china') continue;
-      const p = PROVINCES_DATA[k];
-      const [x1, x2, y1, y2] = p.bbox;
-      if (lng >= x1 && lng <= x2 && lat >= y1 && lat <= y2) {
-        foundProv = p.name;
-        break;
-      }
+  // 2. 在省内 (或全国) 匹配距离最近的地级市/自治州/盟 (极速空间计算)
+  let minCityDist = Infinity;
+  for (let i = 0; i < CHINA_CITIES.length; i++) {
+    const [cName, pName, cLng, cLat] = CHINA_CITIES[i];
+    if (foundProv && pName !== foundProv) continue;
+    const d = Math.hypot((lng - cLng) * Math.cos(lat * Math.PI / 180), lat - cLat);
+    if (d < minCityDist) {
+      minCityDist = d;
+      foundCity = cName;
+      if (!foundProv) foundProv = pName;
     }
   }
 
-  if (!foundProv && !foundCity) {
-    return onlyCityCounty ? '地点' : '区域: 全国';
-  }
-
-  // 3. 从矢量图层探查光标所在微观县/区/镇/地标
-  let microFeature = '';
-  if (point) {
+  // 3. 从渲染切片探查微观县/区/旗/镇/地标 (仅右键菜单需要精准县级，状态栏漫游跳过耗时查询)
+  let foundCounty = '';
+  if (onlyCityCounty && point) {
     try {
-      const bbox = [[point.x - 35, point.y - 35], [point.x + 35, point.y + 35]];
+      const bbox = [[point.x - 120, point.y - 120], [point.x + 120, point.y + 120]];
       const feats = map.queryRenderedFeatures(bbox, {
-        layers: ['osm-places-towns', 'osm-places-villages', 'osm-places-cities', 'osm-outdoor-scenic-pois']
+        layers: ['osm-places-towns', 'osm-places-villages', 'osm-places-cities', 'osm-outdoor-scenic-pois', 'osm-all-pois']
       });
       if (feats && feats.length > 0) {
+        let bestDist = Infinity;
         for (let i = 0; i < feats.length; i++) {
           const f = feats[i];
           const name = f.properties['name:zh'] || f.properties.name_zh || f.properties.name;
-          if (name && name !== foundCity && name !== foundProv) {
-            microFeature = name;
-            break;
+          if (!name || name === foundCity || name === foundProv) continue;
+          let dist = 100;
+          if (f.geometry && f.geometry.type === 'Point') {
+            const p = map.project(f.geometry.coordinates);
+            dist = Math.hypot(p.x - point.x, p.y - point.y);
+          }
+          // 优先匹配县、区、旗、市、镇
+          const isCounty = /[县市区旗镇乡街道]$/.test(name);
+          const weight = isCounty ? dist : dist * 1.8;
+          if (weight < bestDist) {
+            bestDist = weight;
+            foundCounty = name;
           }
         }
       }
     } catch (e) {}
   }
 
-  // 仅显示市、县两级 (例如：延安市 · 延长县, 北京市 · 朝阳区)
+  // 右键快捷菜单专用模式：绝不显示“省”（状态栏已显示过），仅显示“市、县”；空间不够只显示“县”
   if (onlyCityCounty) {
-    if (foundCity && microFeature) {
-      return `${foundCity} · ${microFeature}`;
+    if (foundCity && foundCounty) {
+      if (foundCity.includes(foundCounty) || foundCounty.includes(foundCity)) {
+        return foundCounty;
+      }
+      const combined = `${foundCity} · ${foundCounty}`;
+      // 空间足够（11字以内）显示“市 · 县”，字数过长则遵照用户诉求仅显示精炼的“县”
+      return combined.length <= 11 ? combined : foundCounty;
+    } else if (foundCounty) {
+      return foundCounty;
     } else if (foundCity) {
       return foundCity;
-    } else if (foundProv && microFeature) {
-      return `${foundProv} · ${microFeature}`;
-    } else if (microFeature) {
-      return microFeature;
     } else {
-      return foundProv || '地点';
+      return '地点';
     }
   }
 
-  if (foundCity && microFeature) {
-    return `区域: ${foundProv} · ${foundCity} · ${microFeature}`;
-  } else if (foundCity) {
-    return `区域: ${foundProv} · ${foundCity}`;
-  } else if (microFeature) {
-    return `区域: ${foundProv} · ${microFeature}`;
-  } else {
+  // 底部状态栏完整模式：区域: 省 · 市 · 县
+  if (foundProv) {
+    if (foundCity && foundCounty) {
+      return `区域: ${foundProv} · ${foundCity} · ${foundCounty}`;
+    } else if (foundCity) {
+      return `区域: ${foundProv} · ${foundCity}`;
+    } else if (foundCounty) {
+      return `区域: ${foundProv} · ${foundCounty}`;
+    }
     return `区域: ${foundProv}`;
   }
+
+  return '区域: 全国';
 }
+window.resolveLocationInfo = resolveLocationInfo;
 
 // 获取经由真实客观海拔校准的地表高程 (米)
 // MapLibre 的 queryTerrainElevation 默认返回的是经由 3D 渲染夸张系数 (exaggeration) 放大后的 WebGL 空间高程
@@ -4197,19 +4294,21 @@ function setupStatusBar(map) {
   let rafPending = false;
   let latestMouseEvt = null;
 
+  let moveRafPending = false;
+  let lastPitchVal = -1, lastBearingVal = -1, lastZoomVal = '';
+
   map.on('mousemove', e => {
+    // 拖拽平移或正在飞行时彻底跳过主线程坐标与高程计算，杜绝掉帧
+    if (document.body.classList.contains('map-is-dragging') || (map.isMoving && map.isMoving())) return;
     latestMouseEvt = e;
     if (rafPending) return;
     rafPending = true;
 
     requestAnimationFrame(() => {
       rafPending = false;
-      if (!latestMouseEvt) return;
+      if (!latestMouseEvt || document.body.classList.contains('map-is-dragging') || (map.isMoving && map.isMoving())) return;
       const ev = latestMouseEvt;
       if (sCoords) sCoords.innerText = `坐标: ${ev.lngLat.lng.toFixed(4)}°E, ${ev.lngLat.lat.toFixed(4)}°N`;
-
-      // 地图处于拖拽平移/缩放动画时跳过耗时的 GPU 高程读取与要素探测，彻底消除平移掉帧卡顿
-      if (map.isMoving && map.isMoving()) return;
 
       try {
         const ele = getRealElevation(map, ev.lngLat);
@@ -4222,9 +4321,9 @@ function setupStatusBar(map) {
         }
       } catch (err) {}
 
-      // 节流实时反查并更新“省 · 市 · 县/镇/峰”
+      // 节流实时反查并更新“省 · 市”
       const now = performance.now();
-      if (now - lastResolveTime > 250 && sRegion) {
+      if (now - lastResolveTime > 350 && sRegion) {
         lastResolveTime = now;
         sRegion.innerText = resolveLocationInfo(map, ev.lngLat, ev.point);
       }
@@ -4232,9 +4331,17 @@ function setupStatusBar(map) {
   });
 
   map.on('move', () => {
-    if (sPitch) sPitch.innerText = `俯仰: ${Math.round(map.getPitch())}°`;
-    if (sBearing) sBearing.innerText = `航向: ${Math.round(map.getBearing())}°`;
-    if (sZoom) sZoom.innerText = `层级: ${map.getZoom().toFixed(1)}`;
+    if (moveRafPending) return;
+    moveRafPending = true;
+    requestAnimationFrame(() => {
+      moveRafPending = false;
+      const curPitch = Math.round(map.getPitch());
+      const curBearing = Math.round(map.getBearing());
+      const curZoom = map.getZoom().toFixed(1);
+      if (curPitch !== lastPitchVal && sPitch) { sPitch.innerText = `俯仰: ${curPitch}°`; lastPitchVal = curPitch; }
+      if (curBearing !== lastBearingVal && sBearing) { sBearing.innerText = `航向: ${curBearing}°`; lastBearingVal = curBearing; }
+      if (curZoom !== lastZoomVal && sZoom) { sZoom.innerText = `层级: ${curZoom}`; lastZoomVal = curZoom; }
+    });
   });
 
   let fc = 0;
