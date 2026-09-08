@@ -45,6 +45,63 @@ html, body {
   position: relative;
 }
 
+/* 高分屏 (Retina / 2K / 4K / High-DPI) 极致抗锯齿矢量手型光标，彻底根除 Windows/Chromium 原生抓手位图锯齿 */
+.maplibregl-canvas-container.maplibregl-interactive,
+.maplibregl-canvas-container.maplibregl-interactive:hover,
+#map,
+#map canvas {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M12.5 3a1.5 1.5 0 0 0-3 0v6.5h-1a1.5 1.5 0 0 0-3 0v1.5h-.5a1.5 1.5 0 0 0-3 0v4.5c0 3.5 2.5 6.5 6 6.5h4c3.5 0 6.5-3 6.5-6.5v-3.5a1.5 1.5 0 0 0-3 0v-1h-.5a1.5 1.5 0 0 0-2.5-1.1V3z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 10 10, grab !important;
+}
+
+.maplibregl-canvas-container.maplibregl-interactive:active,
+#map canvas:active {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M8 7a1.5 1.5 0 0 1 3 0v2h.5a1.5 1.5 0 0 1 3 0v.5h.5a1.5 1.5 0 0 1 3 0v5c0 3.5-3 6-6.5 6h-3c-3.5 0-6-2.5-6-6v-3.5a1.5 1.5 0 0 1 3 0v1.5h1V7z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 10 10, grabbing !important;
+}
+
+/* 原生丝滑微动效反馈：全局按钮、药丸胶囊、操作项触控/点击按压弹性回弹 */
+button,
+.tool-btn,
+.fab-btn,
+.landing-act-btn,
+.route-btn,
+.route-mode-btn,
+.type-pill,
+.fav-tab,
+.quick-action-btn,
+.pill-btn,
+.header-btn,
+.route-act-btn {
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease !important;
+}
+
+button:active,
+.tool-btn:active,
+.fab-btn:active,
+.landing-act-btn:active,
+.route-btn:active,
+.route-mode-btn:active,
+.type-pill:active,
+.fav-tab:active,
+.quick-action-btn:active,
+.pill-btn:active,
+.header-btn:active,
+.route-act-btn:active {
+  transform: scale(0.95) !important;
+}
+
+.search-result-item,
+.route-search-item,
+.fav-item-card,
+.route-via-item {
+  transition: background-color 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease !important;
+}
+
+.search-result-item:active,
+.route-search-item:active,
+.fav-item-card:active {
+  transform: scale(0.98);
+}
+
 /* =========================================================
    1. Office 365 现代极简一体化顶栏 (高 44px，与操作系统标题栏完全融合)
    ========================================================= */
@@ -600,18 +657,20 @@ body.web-mode #manage-modal {
   transform: translateX(-50%);
   width: 560px;
   max-width: 92vw;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18), 0 4px 14px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.08);
   z-index: 1250;
-  animation: searchFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: searchFadeIn 0.26s cubic-bezier(0.16, 1, 0.3, 1);
   -webkit-app-region: no-drag;
   overflow: hidden;
 }
 
 @keyframes searchFadeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.98); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-12px) scale(0.97); }
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
@@ -1812,22 +1871,25 @@ body.web-mode #manage-modal {
 /* Fluent 风格右键交互快捷菜单 (紧凑纤巧，消除多余空白) */
 .fluent-context-menu {
   position: absolute;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.04);
-  padding: 4px;
-  min-width: 148px;
-  max-width: 220px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 10px;
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 5px;
+  min-width: 152px;
+  max-width: 230px;
   width: max-content;
   z-index: 3000;
-  animation: ctxFadeIn 0.12s ease-out;
+  transform-origin: top left;
+  animation: ctxFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   -webkit-app-region: no-drag;
 }
 
 @keyframes ctxFadeIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1.0); }
+  from { opacity: 0; transform: scale(0.92) translateY(-4px); }
+  to { opacity: 1; transform: scale(1.0) translateY(0); }
 }
 
 .ctx-header {
@@ -1899,20 +1961,22 @@ body.web-mode #manage-modal {
 /* 浮动卡片与侧边面板 (Office 365 / Windows 11 Fluent 风格) */
 .floating-card, .floating-panel {
   position: absolute;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
-  z-index: 90;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.06);
+  z-index: 1050;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: panelSlideIn 0.16s ease-out;
+  animation: panelSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   -webkit-app-region: no-drag;
 }
 
 @keyframes panelSlideIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 

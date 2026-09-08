@@ -12,8 +12,7 @@ try {
 // 启用工业 GIS 工作站级极限硬件与多核加速架构 (解锁内存与磁盘限制，极致吞吐与零卡顿)
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy'); // 开启零拷贝显存直通，专为 Intel 358H/核显消除 CPU-GPU 内存拷贝瓶颈
-app.commandLine.appendSwitch('gpu-rasterization-msaa-sample-count', '0'); // 关闭光栅化多重采样抗锯齿，降低核显带宽占用并稳定 60 FPS
+app.commandLine.appendSwitch('high-dpi-support', '1'); // 启用 Windows 高分屏原生 DPI 硬件级抗锯齿与精准光标缩放
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
 app.commandLine.appendSwitch('disk-cache-size', '10737418240'); // 开放 10GB 专用超大高速磁盘缓存

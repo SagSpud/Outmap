@@ -2086,6 +2086,15 @@ function setupOfficeHeaderInteractions(map) {
     renderSearchHistory();
   }
 
+  function stripChinaPrefix(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/^中国\s*[·,\-–\s]\s*/, '')
+      .replace(/China\s*[·,\-–\s]\s*/i, '')
+      .replace(/\b中国\s*[·,\-–\s]\s*/g, '')
+      .trim();
+  }
+
   function renderSearchHistory() {
     const history = getSearchHistory();
     if (!resultsContainer) return;
@@ -2112,11 +2121,12 @@ function setupOfficeHeaderInteractions(map) {
     history.forEach(item => {
       const row = document.createElement('div');
       row.className = 'search-result-item';
+      const cleanDesc = stripChinaPrefix(item.desc || '历史搜索地点');
       row.innerHTML = `
         <div class="search-result-icon">${item.icon || '⏱️'}</div>
         <div class="search-result-info">
           <div class="search-result-name">${item.name}</div>
-          <div class="search-result-desc">${item.desc || '历史搜索地点'}</div>
+          <div class="search-result-desc">${cleanDesc}</div>
         </div>
       `;
       row.addEventListener('click', () => {
@@ -2141,9 +2151,7 @@ function setupOfficeHeaderInteractions(map) {
     }
 
     const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
-    const cleanDesc = (desc || '')
-      .replace(/^中国\s*[·,\-–]\s*/, '')
-      .replace(/China\s*[·,\-–]\s*/i, '');
+    const cleanDesc = stripChinaPrefix(desc || '');
     const metaText = cleanDesc || `${validCoords[0].toFixed(4)}°E, ${validCoords[1].toFixed(4)}°N · ${ele}m`;
 
     const el = document.createElement('div');
@@ -2218,12 +2226,12 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-    // 点击图钉重新飞到此处居中偏下 (zoom 15)
+    // 点击图钉重新飞到此处完美正中居中 (zoom 15, offset: [0, 0])
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
-        map.flyTo({ center: validCoords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+        map.flyTo({ center: validCoords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
       });
     }
 
@@ -2267,11 +2275,12 @@ function setupOfficeHeaderInteractions(map) {
     items.forEach(item => {
       const row = document.createElement('div');
       row.className = 'search-result-item';
+      const cleanDesc = stripChinaPrefix(item.desc || '');
       row.innerHTML = `
         <div class="search-result-icon">${item.icon || '📍'}</div>
         <div class="search-result-info">
           <div class="search-result-name">${item.name}</div>
-          <div class="search-result-desc">${item.desc || ''}</div>
+          <div class="search-result-desc">${cleanDesc}</div>
         </div>
       `;
 
@@ -2314,10 +2323,10 @@ function setupOfficeHeaderInteractions(map) {
       center: validCoords,
       zoom: targetZoom,
       pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
-      offset: [0, 65],
-      curve: 1.0,
+      offset: [0, 0], // 完美正中居中，彻底根除高分屏/笔记本将地点甩出屏幕外的问题
+      curve: 1.1,
       minZoom: minFlightZoom,
-      duration: 1500,
+      duration: 1200,
       essential: true
     });
 
@@ -4438,7 +4447,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            map.flyTo({ center: item.coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+            map.flyTo({ center: item.coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
@@ -4455,10 +4464,10 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         center: item.coords,
         zoom: 15.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
-        offset: [0, 65],
-        curve: 1.0,
+        offset: [0, 0],
+        curve: 1.1,
         minZoom: minFlightZoom,
-        duration: 1400,
+        duration: 1200,
         essential: true
       });
     }
@@ -4718,7 +4727,7 @@ function addViaPoint(map, coords, label) {
     el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
     el.innerText = idx;
     el.addEventListener('click', () => {
-      m.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+      m.flyTo({ center: coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
     });
 
     marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -4778,7 +4787,7 @@ function setRouteStartPoint(map, coords, label) {
   el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '起';
   el.addEventListener('click', () => {
-    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
   });
   if (m) {
     routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
@@ -4801,7 +4810,7 @@ function setRouteEndPoint(map, coords, label) {
   el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '终';
   el.addEventListener('click', () => {
-    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
   });
   if (m) {
     routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
@@ -5260,7 +5269,7 @@ function setupOutdoorRouteSystem(map) {
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
-            map.flyTo({ center: [lng, lat], zoom: 15.0, offset: [0, 65], duration: 800, essential: true });
+            map.flyTo({ center: [lng, lat], zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
