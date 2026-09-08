@@ -18,6 +18,9 @@
   --status-text: #94a3b8;
   --font-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Cascadia Code", "Consolas", monospace;
+  --cursor-grab: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'%3E%3Cpath d='M 7.5 12.5 V 5 A 1.5 1.5 0 0 1 10.5 5 V 8.5 L 11 8.5 V 3.5 A 1.5 1.5 0 0 1 14 3.5 V 8.5 L 14.5 8.5 V 4.5 A 1.5 1.5 0 0 1 17.5 4.5 V 10 L 18 10 V 7 A 1.25 1.25 0 0 1 20.5 7 V 15.5 C 20.5 19.5 17.5 22.5 13.5 22.5 H 10 C 6.5 22.5 5 19.5 5 16.5 L 5 15 L 2.5 13 A 1.5 1.5 0 0 1 4.5 10.8 L 7.5 12.5 Z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") 10 10, grab;
+  --cursor-grabbing: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'%3E%3Cpath d='M 7.5 12.5 V 9.5 A 1.5 1.5 0 0 1 10.5 9.5 V 10 L 11 10 V 8.5 A 1.5 1.5 0 0 1 14 8.5 V 10 L 14.5 10 V 9 A 1.5 1.5 0 0 1 17.5 9 V 10.5 L 18 10.5 V 10 A 1.25 1.25 0 0 1 20.5 10 V 15 C 20.5 19 17.5 22 13.5 22 H 10 C 6.5 22 5 19 5 16 L 5 14.5 L 2.5 12.5 A 1.5 1.5 0 0 1 4.5 10.5 L 7.5 12.5 Z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") 10 10, grabbing;
+  --cursor-crosshair: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='7' fill='none' stroke='%230284c7' stroke-width='1.8'/%3E%3Cline x1='12' y1='1' x2='12' y2='6' stroke='%230284c7' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='12' y1='18' x2='12' y2='23' stroke='%230284c7' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='1' y1='12' x2='6' y2='12' stroke='%230284c7' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='18' y1='12' x2='23' y2='12' stroke='%230284c7' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='12' r='2' fill='%23ef4444' stroke='%23ffffff' stroke-width='1'/%3E%3C/svg%3E") 12 12, crosshair;
 }
 
 * {
@@ -50,12 +53,19 @@ html, body {
 .maplibregl-canvas-container.maplibregl-interactive:hover,
 #map,
 #map canvas {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'%3E%3Cpath d='M 7.5 12.5 V 5 A 1.5 1.5 0 0 1 10.5 5 V 8.5 L 11 8.5 V 3.5 A 1.5 1.5 0 0 1 14 3.5 V 8.5 L 14.5 8.5 V 4.5 A 1.5 1.5 0 0 1 17.5 4.5 V 10 L 18 10 V 7 A 1.25 1.25 0 0 1 20.5 7 V 15.5 C 20.5 19.5 17.5 22.5 13.5 22.5 H 10 C 6.5 22.5 5 19.5 5 16.5 L 5 15 L 2.5 13 A 1.5 1.5 0 0 1 4.5 10.8 L 7.5 12.5 Z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") 10 10, grab !important;
+  cursor: var(--cursor-grab) !important;
 }
 
 .maplibregl-canvas-container.maplibregl-interactive:active,
 #map canvas:active {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'%3E%3Cpath d='M 7.5 12.5 V 9.5 A 1.5 1.5 0 0 1 10.5 9.5 V 10 L 11 10 V 8.5 A 1.5 1.5 0 0 1 14 8.5 V 10 L 14.5 10 V 9 A 1.5 1.5 0 0 1 17.5 9 V 10.5 L 18 10.5 V 10 A 1.25 1.25 0 0 1 20.5 10 V 15 C 20.5 19 17.5 22 13.5 22 H 10 C 6.5 22 5 19 5 16 L 5 14.5 L 2.5 12.5 A 1.5 1.5 0 0 1 4.5 10.5 L 7.5 12.5 Z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") 10 10, grabbing !important;
+  cursor: var(--cursor-grabbing) !important;
+}
+
+body.picking-mode,
+body.picking-mode #map,
+body.picking-mode #map canvas,
+body.picking-mode .maplibregl-canvas-container {
+  cursor: var(--cursor-crosshair) !important;
 }
 
 /* 原生丝滑微动效反馈：全局按钮、药丸胶囊、操作项触控/点击按压弹性回弹 */
@@ -949,7 +959,7 @@ body.web-mode #manage-modal {
   min-width: 185px;
   max-width: 240px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22), 0 2px 6px rgba(0, 0, 0, 0.08);
-  z-index: 10000;
+  z-index: 1000;
   animation: fadeInLandingCard 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   pointer-events: auto;
 }
@@ -1645,7 +1655,7 @@ body.web-mode #manage-modal {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 30000 !important;
   padding: 16px;
   box-sizing: border-box;
 }
@@ -2404,17 +2414,20 @@ body.web-mode #manage-modal {
   font-size: 13px;
   border-color: transparent;
   background: transparent;
-  cursor: grab;
+  cursor: var(--cursor-grab) !important;
 }
 
 .via-drag-handle:hover {
   background: #e2e8f0;
   border-color: #cbd5e1;
   color: #0284c7;
+  cursor: var(--cursor-grab) !important;
 }
 
-.via-drag-handle:active {
-  cursor: grabbing;
+.via-drag-handle:active,
+.route-via-item.dragging,
+.route-via-item.dragging * {
+  cursor: var(--cursor-grabbing) !important;
 }
 
 /* 动态途径点列表 (支持数十个点纵向顺滑滚动与拖拽重排) */
@@ -3361,13 +3374,13 @@ body.web-mode #manage-modal {
   max-width: 380px;
 }
 
-/* 系统标准手势光标适配 */
+/* 系统标准手势光标适配 (Retina 高分屏矢量抗锯齿) */
 .maplibregl-canvas-container.maplibregl-interactive {
-  cursor: grab;
+  cursor: var(--cursor-grab) !important;
 }
 
 .maplibregl-canvas-container.maplibregl-interactive:active {
-  cursor: grabbing;
+  cursor: var(--cursor-grabbing) !important;
 }
 
 /* 多省批量选择：下拉菜单触发器与展开浮层面板 */
@@ -4017,7 +4030,7 @@ body.web-mode .office-prov-group {
     top: auto !important;
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 80vh !important;
+    max-height: 82vh !important;
     border-radius: 18px 18px 0 0 !important;
     border-left: none !important;
     border-right: none !important;
@@ -4025,9 +4038,13 @@ body.web-mode .office-prov-group {
     box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.28) !important;
     z-index: 1200 !important;
     padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
   }
 
   #route-panel .panel-header {
+    flex-shrink: 0 !important;
     padding: 12px 14px 8px;
     position: relative;
   }
@@ -4042,6 +4059,15 @@ body.web-mode .office-prov-group {
     height: 4px;
     background: #cbd5e1;
     border-radius: 2px;
+  }
+
+  #route-panel .panel-body {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    max-height: calc(82vh - 56px) !important;
+    padding-bottom: 24px !important;
   }
 
   .route-mode-btn {
@@ -4122,7 +4148,7 @@ body.web-mode .office-prov-group {
     top: auto !important;
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 75vh !important;
+    max-height: 80vh !important;
     border-radius: 18px 18px 0 0 !important;
     border-left: none !important;
     border-right: none !important;
@@ -4130,9 +4156,13 @@ body.web-mode .office-prov-group {
     box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.28) !important;
     z-index: 1200 !important;
     padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
   }
 
   #favorites-drawer .panel-header {
+    flex-shrink: 0 !important;
     padding: 12px 14px 8px;
     position: relative;
   }
@@ -4147,6 +4177,20 @@ body.web-mode .office-prov-group {
     height: 4px;
     background: #cbd5e1;
     border-radius: 2px;
+  }
+
+  #favorites-drawer .panel-body {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior: contain !important;
+    max-height: calc(80vh - 56px) !important;
+    padding-bottom: 24px !important;
+  }
+
+  .route-floating-dropdown {
+    max-width: calc(100vw - 16px) !important;
+    z-index: 99999 !important;
   }
 
   /* 5. 移动端大尺寸高程起伏调节抽屉 */

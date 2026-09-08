@@ -761,7 +761,7 @@ async function initApplication() {
     ? { workers: 2, demCache: 256, tileCache: 256, prefetch: 0 }
     : isWebMode
       ? { workers: Math.min(3, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 900, tileCache: 900, prefetch: 1 }
-      : { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 5000, tileCache: 4000, prefetch: 2 };
+      : { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 2)), demCache: 1200, tileCache: 1200, prefetch: 1 };
   maplibregl.workerCount = mapPerformance.workers;
 
   // 初始化 DEM 高程数据源 (工作站模式：扩大高程网格缓存至 5000 片，反复缩放平移零延迟)
@@ -824,6 +824,18 @@ async function initApplication() {
     map.setTerrain({
       source: 'terrain-dem',
       exaggeration: currentExaggeration
+    });
+
+    let terrainRealignDebounce = null;
+    map.on('sourcedata', (e) => {
+      if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
+        if (!terrainRealignDebounce) {
+          terrainRealignDebounce = setTimeout(() => {
+            terrainRealignDebounce = null;
+            refreshAllRouteMarkersElevation(map);
+          }, 120);
+        }
+      }
     });
 
     // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
@@ -1791,8 +1803,10 @@ async function queryLocationCandidates(keyword) {
       photonTerms.push(raw);
     }
 
+    const hasGoodLocal = localMatches.length > 0 && localMatches[0]._score <= 2;
+    const timeoutMs = hasGoodLocal ? 350 : 1600;
     const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 2200);
+    const timeoutId = setTimeout(() => ctrl.abort(), timeoutMs);
 
     await Promise.all(photonTerms.map(async (term) => {
       try {
@@ -1886,123 +1900,138 @@ function triggerTerrainRealign(map) {
 }
 window.triggerTerrainRealign = triggerTerrainRealign;
 
-// 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
+// 全局路网标记与图钉高程重对齐系统：杜绝高原/山地异步 DEM 加载后标记点被埋入地底
+function refreshAllRouteMarkersElevation(map) {
+  const m = map || currentOutdoorMap;
+  if (!m) return;
+  const markers = [];
+  if (routeStartMarker) markers.push(routeStartMarker);
+  if (routeEndMarker) markers.push(routeEndMarker);
+  if (Array.isArray(routeViaPoints)) {
+    routeViaPoints.forEach(v => {
+      if (v && v.marker) markers.push(v.marker);
+    });
+  }
+  if (currentLandingMarker) markers.push(currentLandingMarker);
+
+  markers.forEach(marker => {
+    try {
+      const pos = marker.getLngLat();
+      if (pos) {
+        marker.setLngLat(pos);
+      }
+    } catch (e) {}
+  });
+
+  if (typeof m.triggerRepaint === 'function') {
+    m.triggerRepaint();
+  }
+}
+window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
+
 // 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
 // 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (!map || !targetCoords || targetCoords.length < 2) return;
-  if (typeof map.resize === 'function') {
-    map.resize();
-  }
   const lng = Number(targetCoords[0]);
   const lat = Number(targetCoords[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-  const zoom = Number.isFinite(options.zoom) ? options.zoom : 14.5;
+  const zoom = Number.isFinite(options.zoom) ? options.zoom : 15.0;
   const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
   const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() || 0);
   const centered = Boolean(options.centered);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const duration = reducedMotion ? 0 : (options.duration ?? 900);
 
-  // 1. 同步目标真实物理高程至相机投影矩阵 (彻底根除首次搜索从全国总览起飞时由于残留西部高海拔导致图钉偏下 472px 出界的致命 Bug)
-  if (map && map.transform) {
-    let targetEle = 0;
-    if (map.terrain && typeof map.terrain.getElevationForLngLatZoom === 'function') {
-      targetEle = map.terrain.getElevationForLngLatZoom(
-        new maplibregl.LngLat(lng, lat),
-        map.transform._helper?._tileZoom || 12
-      ) || 0;
+  // 检测移动端底部抽屉 (路线规划抽屉 / 收藏夹抽屉 / 高程起伏抽屉) 展开高度
+  let bottomCover = 0;
+  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+    const routePanel = document.getElementById('route-panel');
+    const favDrawer = document.getElementById('favorites-drawer');
+    const eleSheet = document.getElementById('mobile-ele-sheet');
+    if (routePanel && routePanel.style.display !== 'none') {
+      bottomCover = Math.max(bottomCover, routePanel.getBoundingClientRect().height);
     }
-    if (!targetEle && typeof getRealElevation === 'function') {
-      targetEle = getRealElevation(map, { lng, lat }) || 0;
+    if (favDrawer && favDrawer.style.display !== 'none') {
+      bottomCover = Math.max(bottomCover, favDrawer.getBoundingClientRect().height);
     }
-    try {
-      map.transform.elevation = targetEle;
-      if (map.transform._helper) map.transform._helper._elevation = targetEle;
-      if (typeof map.transform._calcMatrices === 'function') map.transform._calcMatrices();
-    } catch (e) {}
-  }
-
-  let cameraCenter = [lng, lat];
-
-  if (!centered) {
-    const container = map.getContainer() || {};
-    const screenHeight = Math.max(320, container.clientHeight || window.innerHeight || 720);
-    const pitchRad = (curPitch || 0) * Math.PI / 180;
-    const fovRad = 36.87 * Math.PI / 180;
-    const d0 = 0.5 / Math.tan(fovRad / 2) * screenHeight;
-
-    // 黄金视口定位：2D 下 ratioY 设为 0.58，3D (50°) 下设为 0.63
-    // 图钉稳居屏幕中偏下，上方操作卡片与信息标签居于垂直黄金正中，彻底消除偏上感与出界
-    const ratioY = pitchRad === 0 ? 0.58 : (0.58 + (pitchRad / (Math.PI / 2)) * 0.08);
-    const dy = screenHeight * (ratioY - 0.5);
-
-    const denom = d0 * Math.cos(pitchRad) - dy * Math.sin(pitchRad);
-    const groundY = denom > 1e-4 ? (d0 * dy) / denom : dy;
-
-    const scale = 512 * Math.pow(2, zoom);
-    const sinLat = Math.sin(lat * Math.PI / 180);
-    const yWorld = (0.5 - 0.25 * Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI) * scale;
-
-    const dxWorld = groundY * Math.sin(curBearing * Math.PI / 180);
-    const dyWorld = -groundY * Math.cos(curBearing * Math.PI / 180);
-
-    const camX = ((lng + 180) / 360) * scale + dxWorld;
-    const camY = yWorld + dyWorld;
-
-    const camLng = (camX / scale) * 360 - 180;
-    const normY = camY / scale;
-    const y2 = (180 - normY * 360) * Math.PI / 180;
-    const camLat = 360 * Math.atan(Math.exp(y2)) / Math.PI - 90;
-
-    if (Number.isFinite(camLng) && Number.isFinite(camLat)) {
-      cameraCenter = [camLng, camLat];
+    if (eleSheet && eleSheet.style.display !== 'none') {
+      bottomCover = Math.max(bottomCover, eleSheet.getBoundingClientRect().height);
     }
   }
+
+  // 视口安全内边距配置 (Padding 系统：让目标点在整个飞行过程中始终稳居黄金视觉中心，图层随之平滑旋转缩放，彻底消除中途漂移与落地跳动)
+  const topPadding = 46;
+  let bottomPadding = 0;
+  if (bottomCover > 0) {
+    bottomPadding = Math.min(Math.round(window.innerHeight * 0.7), Math.round(bottomCover) + 24);
+  } else if (!centered) {
+    // 留出上方信息卡片 (约 160px) 的视口舒适净空间
+    const screenH = typeof window !== 'undefined' ? window.innerHeight : 720;
+    bottomPadding = Math.max(120, Math.min(180, Math.round(screenH * 0.22)));
+  }
+
+  const cameraPadding = {
+    top: topPadding,
+    bottom: bottomPadding,
+    left: 20,
+    right: 20
+  };
+
+  // 智能航程判定与极速平滑动画调度
+  const curCenter = map.getCenter() || { lng, lat };
+  const curZoom = map.getZoom() || 10;
+  const distKm = calculateDistanceKm([curCenter.lng, curCenter.lat], [lng, lat]);
+  const zoomDiff = Math.abs(curZoom - zoom);
+
+  // 近距离或同城跳转 (25km 内且层级差 <= 3.5)：使用极速平滑 easeTo (450~550ms)，不产生多层级瓦片下发与GC抖动，极致 60fps
+  const isNearbyHop = distKm < 25 && zoomDiff <= 3.5;
+  const defaultDuration = reducedMotion ? 0 : (isNearbyHop ? 480 : (distKm > 500 ? 1100 : 850));
+  const duration = reducedMotion ? 0 : (options.duration !== undefined ? options.duration : defaultDuration);
 
   map.stop();
-  map.flyTo({
-    center: cameraCenter,
-    zoom,
-    pitch: curPitch,
-    bearing: curBearing,
-    offset: [0, 0],
-    curve: 1.42, // van Wijk 理论最优平滑曲率，彻底杜绝 minZoom 截断与出界失控
-    speed: 1.2,
-    duration,
-    essential: true
-  });
+
+  if (isNearbyHop) {
+    map.easeTo({
+      center: [lng, lat],
+      zoom,
+      pitch: curPitch,
+      bearing: curBearing,
+      padding: cameraPadding,
+      duration,
+      essential: true
+    });
+  } else {
+    map.flyTo({
+      center: [lng, lat],
+      zoom,
+      pitch: curPitch,
+      bearing: curBearing,
+      padding: cameraPadding,
+      curve: 1.42,
+      speed: 1.2,
+      duration,
+      essential: true
+    });
+  }
 
   let arrivalTriggered = false;
   const handleArrival = () => {
     if (arrivalTriggered) return;
     arrivalTriggered = true;
-    if (map && map.transform) {
-      let targetEle = 0;
-      if (map.terrain && typeof map.terrain.getElevationForLngLatZoom === 'function') {
-        targetEle = map.terrain.getElevationForLngLatZoom(
-          new maplibregl.LngLat(lng, lat),
-          map.transform._helper?._tileZoom || 12
-        ) || 0;
-      }
-      if (!targetEle && typeof getRealElevation === 'function') {
-        targetEle = getRealElevation(map, { lng, lat }) || 0;
-      }
-      try {
-        map.transform.elevation = targetEle;
-        if (map.transform._helper) map.transform._helper._elevation = targetEle;
-        if (typeof map.transform._calcMatrices === 'function') map.transform._calcMatrices();
-      } catch (e) {}
-    }
-    triggerTerrainRealign(map);
+
+    // 落地后分批次通知所有标记点贴合最新 DEM 真实海拔
+    refreshAllRouteMarkersElevation(map);
+    setTimeout(() => refreshAllRouteMarkersElevation(map), 180);
+    setTimeout(() => refreshAllRouteMarkersElevation(map), 420);
+
     if (typeof options.onArrival === 'function') {
       options.onArrival();
     }
   };
 
   map.once('moveend', handleArrival);
-  setTimeout(handleArrival, duration + 60);
+  setTimeout(handleArrival, duration + 80);
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
 
@@ -2540,30 +2569,30 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    // 智能层级适配：省份 7.2，地级市 12.0，名山 13.5，地标/建筑/小区 14.5 (视野更舒展立体，根除 15 级过度贴地导致的透视压迫畸变)
-    let targetZoom = 14.5;
+    // 智能层级适配：省份 7.2，地级市 12.0，名山 13.8，地标/建筑/小区/选点 15.0
+    let targetZoom = 15.0;
     if (isProv) {
       targetZoom = item.zoom || 7.2;
     } else if (item.type === 'city') {
       targetZoom = item.zoom || 12.0;
     } else if (item.type === 'mountain') {
-      targetZoom = item.zoom || 13.5;
+      targetZoom = item.zoom || 13.8;
     } else if (item.type === 'waypoint') {
-      targetZoom = item.zoom || 14.2;
+      targetZoom = item.zoom || 15.0;
     } else if (typeof item.zoom === 'number') {
       targetZoom = item.zoom;
     }
 
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
 
-    // 智能跨度感知：从全国总览 (zoom 4.45) 远距飞跃时，采用 1600ms 丝滑平稳巡航，落地后才弹出卡片，彻底根除“在屏幕底部出界又被拉回”；同城近距飞跃则立即响应
+    // 智能跨度感知：远距离平滑巡航，同城近距极速平滑直达
     const curZoom = map.getZoom();
     const curCenter = map.getCenter();
     const distDeg = Math.hypot((curCenter.lng || 104.5) - lng, (curCenter.lat || 36.0) - lat);
     const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
-    const flightDuration = isLongFlight ? 1600 : 750;
+    const flightDuration = isLongFlight ? 1100 : 500;
 
-    // 始终立即创建落地 Marker 挂载在目标坐标上，随三维摄像机平稳巡航到位；落地后回调再刷新一次精确海拔，100% 杜绝首次搜索无标签！
+    // 始终立即创建落地 Marker 挂载在目标坐标上，随三维摄像机平稳巡航到位；到达后平滑更新最新地面高程，零闪烁零跳动
     showLandingMarker(validCoords, item.name, item.desc);
 
     flyToLocationPrecisely(map, validCoords, {
@@ -2572,7 +2601,14 @@ function setupOfficeHeaderInteractions(map) {
       centered: isProv,
       duration: flightDuration,
       onArrival: () => {
-        showLandingMarker(validCoords, item.name, item.desc);
+        if (currentLandingMarker) {
+          const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
+          const descEl = currentLandingMarker.getElement()?.querySelector('.landing-card-desc');
+          if (descEl) {
+            const cleanDesc = stripChinaPrefix(item.desc || '');
+            descEl.innerText = cleanDesc || `${validCoords[0].toFixed(4)}°E, ${validCoords[1].toFixed(4)}°N · ${ele}m`;
+          }
+        }
       }
     });
   }
@@ -2749,21 +2785,27 @@ async function syncOfflineManifest() {
   if (window.electronAPI && window.electronAPI.getOfflineManifest) {
     try {
       let manifest = await window.electronAPI.getOfflineManifest();
-      // 若清单中尚未登记省份，但本地磁盘实际已存在切片，主动触发一次底层磁盘反向检索
-      if (!manifest || !manifest.provinces || Object.keys(manifest.provinces).length === 0) {
-        if (window.electronAPI.rescanOfflineTiles) {
-          await window.electronAPI.rescanOfflineTiles();
-          manifest = await window.electronAPI.getOfflineManifest();
-        }
-      }
       if (manifest && manifest.provinces) {
         offlineProvCache = manifest.provinces;
+        // 清理由于历史遗留探测错误导致的 33 省全虚假选中问题：如果本地磁盘实际切片极少 (< 500)，强行清空虚假省份记录
+        if (totalOfflineCount < 500 && Object.keys(offlineProvCache).length > 2) {
+          offlineProvCache = {};
+          if (window.electronAPI.saveOfflineManifest) {
+            await window.electronAPI.saveOfflineManifest({ provinces: {} }, true);
+          }
+        }
         try { localStorage.setItem('outmap_offline_provinces', JSON.stringify(offlineProvCache)); } catch (e) {}
         return offlineProvCache;
       }
     } catch (e) {}
   }
-  return getOfflineProvState();
+  const cached = getOfflineProvState();
+  if (totalOfflineCount < 500 && Object.keys(cached).length > 2) {
+    offlineProvCache = {};
+    try { localStorage.setItem('outmap_offline_provinces', '{}'); } catch (e) {}
+    return offlineProvCache;
+  }
+  return cached;
 }
 
 function getOfflineProvState() {
@@ -3077,6 +3119,13 @@ function setupPyramidModal(map) {
     const searchPopover = document.getElementById('search-popover');
     if (searchPopover) searchPopover.style.display = 'none';
 
+    if (typeof window.clearLandingMarker === 'function') {
+      window.clearLandingMarker();
+    }
+    if (typeof hideRouteFloatingDropdown === 'function') {
+      hideRouteFloatingDropdown();
+    }
+
     toggleDropdown(false);
 
     btnOpen.classList.add('expanded');
@@ -3159,11 +3208,27 @@ function setupPyramidModal(map) {
     }
   };
 
-  // 渲染全国省份网格 (去除字母前缀，已就绪带发光绿点并默认勾选)
+  // 渲染全国省份网格 (去除字母前缀，已就绪带发光绿点；默认仅勾选当前所在单个省份，绝不全选)
   const renderProvinceGrid = () => {
     if (!multiGrid) return;
     multiGrid.innerHTML = '';
     const offlineState = getOfflineProvState();
+
+    // 默认仅勾选当前地图视口所在省份，避免历史脏数据误勾选全国 33 省
+    let defaultKey = (currentSelectedProvKey && currentSelectedProvKey !== 'china') ? currentSelectedProvKey : null;
+    if (!defaultKey && map) {
+      const c = map.getCenter();
+      if (c) {
+        for (const [k, p] of Object.entries(PROVINCES_DATA)) {
+          if (k === 'china' || !p.bbox) continue;
+          if (c.lng >= p.bbox[0] && c.lng <= p.bbox[1] && c.lat >= p.bbox[2] && c.lat <= p.bbox[3]) {
+            defaultKey = k;
+            break;
+          }
+        }
+      }
+    }
+    if (!defaultKey) defaultKey = 'shandong';
 
     // 按拼音排序省份 (排除 china)
     const sortedKeys = Object.keys(PROVINCES_DATA)
@@ -3178,15 +3243,16 @@ function setupPyramidModal(map) {
       const p = PROVINCES_DATA[k];
       const saved = offlineState[k];
       const isReady = saved && saved.maxZ >= 10;
+      const isDefaultChecked = (k === defaultKey);
 
       const label = document.createElement('label');
-      label.className = `prov-chip-item${isReady ? ' ready checked' : ''}`;
+      label.className = `prov-chip-item${isReady ? ' ready' : ''}${isDefaultChecked ? ' checked' : ''}`;
       label.dataset.key = k;
 
       const chk = document.createElement('input');
       chk.type = 'checkbox';
       chk.value = k;
-      chk.checked = !!isReady; // 已全部下载就绪的省份默认勾选
+      chk.checked = isDefaultChecked; // 仅默认勾选当前省份，如需多选点击全选或复选
 
       chk.addEventListener('change', () => {
         label.classList.toggle('checked', chk.checked);
@@ -3198,26 +3264,16 @@ function setupPyramidModal(map) {
 
       const spanName = document.createElement('span');
       spanName.className = 'prov-chip-name';
-      spanName.innerText = p.name; // 不带字母前缀
+      spanName.innerText = p.name;
       label.appendChild(spanName);
 
       const spanDot = document.createElement('span');
       spanDot.className = 'prov-chip-dot';
-      spanDot.title = '该省份基础离线包已就绪';
+      spanDot.title = isReady ? '该省份基础离线包已就绪' : '未下载完整离线包';
       label.appendChild(spanDot);
 
       multiGrid.appendChild(label);
     });
-
-    // 如果没有任何已就绪省份，默认勾选山东省
-    const checked = multiGrid.querySelectorAll('input[type="checkbox"]:checked');
-    if (checked.length === 0) {
-      const sdItem = multiGrid.querySelector('input[value="shandong"]');
-      if (sdItem) {
-        sdItem.checked = true;
-        sdItem.closest('.prov-chip-item')?.classList.add('checked');
-      }
-    }
 
     updateCounter();
   };
@@ -3302,18 +3358,33 @@ function setupPyramidModal(map) {
     let minSavedZ = Infinity;
     let hasAnySaved = false;
 
+    const downloadDem = Boolean(chkDem?.checked);
+    const downloadVec = Boolean(chkVec?.checked);
+
     selectedKeys.forEach(k => {
       const prov = PROVINCES_DATA[k];
       if (!prov || !prov.bbox) return;
       const saved = offlineState[k];
       const savedMaxZ = saved ? (saved.maxZ || 0) : 0;
-      if (savedMaxZ > 0) hasAnySaved = true;
-      if (savedMaxZ < minSavedZ) minSavedZ = savedMaxZ;
 
-      if (savedMaxZ < maxZ) {
+      const demSavedMaxZ = saved && saved.layers && saved.layers.dem
+        ? (saved.layers.dem.maxZ || 0)
+        : (saved && saved.dem ? savedMaxZ : 0);
+      const vectorSavedMaxZ = saved && saved.layers && saved.layers.vector
+        ? (saved.layers.vector.maxZ || 0)
+        : (saved && saved.vec ? savedMaxZ : 0);
+      const requestedLayerLevels = [];
+      if (downloadDem) requestedLayerLevels.push(demSavedMaxZ);
+      if (downloadVec) requestedLayerLevels.push(vectorSavedMaxZ);
+      const requestedSavedMaxZ = requestedLayerLevels.length > 0 ? Math.min(...requestedLayerLevels) : 0;
+
+      if (requestedSavedMaxZ > 0) hasAnySaved = true;
+      if (requestedSavedMaxZ < minSavedZ) minSavedZ = requestedSavedMaxZ;
+
+      if (requestedSavedMaxZ < maxZ) {
         allReady = false;
         const [minLon, maxLon, minLat, maxLat] = prov.bbox;
-        const startZ = savedMaxZ > 0 ? savedMaxZ + 1 : 0;
+        const startZ = requestedSavedMaxZ > 0 ? requestedSavedMaxZ + 1 : 0;
         for (let z = startZ; z <= maxZ; z++) {
           const n = 1 << z;
           const x1 = Math.max(0, Math.floor((minLon + 180) / 360 * n));
@@ -3328,8 +3399,8 @@ function setupPyramidModal(map) {
     });
 
     let multiplier = 0;
-    if (chkDem.checked) multiplier += 1;
-    if (chkVec.checked) multiplier += 1;
+    if (chkDem?.checked) multiplier += 1;
+    if (chkVec?.checked) multiplier += 1;
     if (multiplier === 0) multiplier = 1;
 
     const totalTiles = totalIncrementalTiles * multiplier;
@@ -3829,9 +3900,14 @@ function setupCloudSync(map) {
     }
   };
 
-  // 监听地图视口停止拖动/平移，实时自动同步当前中心点与仰角
+  // 监听地图视口停止拖动/平移，节流自动同步当前中心点与仰角 (5s 节流，杜绝每次拖动都阻塞 IPC)
+  let moveSyncThrottleTimer = null;
   map.on('moveend', () => {
-    triggerRealtimeCloudSync('view_changed');
+    if (moveSyncThrottleTimer) return;
+    moveSyncThrottleTimer = setTimeout(() => {
+      moveSyncThrottleTimer = null;
+      triggerRealtimeCloudSync('view_changed');
+    }, 5000);
   });
 
   // 执行双向智能合并同步
@@ -4256,7 +4332,7 @@ let tempPickedPoint = null;
 
 // 右下角悬浮面板统一互斥调度管理 (收藏抽屉、新建地标收藏弹窗、路线规划面板互斥关闭，杜绝界面重叠)
 function closeConflictingBottomPanels(exceptId = null) {
-  const panelIds = ['waypoint-modal', 'favorites-drawer', 'route-panel'];
+  const panelIds = ['waypoint-modal', 'favorites-drawer', 'route-panel', 'save-route-modal', 'mobile-ele-sheet'];
   panelIds.forEach(id => {
     if (id !== exceptId) {
       const el = document.getElementById(id);
@@ -4713,12 +4789,14 @@ function setupWaypointAndFavoritesSystem(map) {
 let routeStartCoord = null;
 let routeStartName = '';
 let routeStartMarker = null;
+let routeStartZoom = 14.5;
 
 let routeEndCoord = null;
 let routeEndName = '';
 let routeEndMarker = null;
+let routeEndZoom = 14.5;
 
-let routeViaPoints = []; // 存储途径点数组 [{ id, coords, name, marker }]
+let routeViaPoints = []; // 存储途径点数组 [{ id, coords, name, marker, zoom }]
 let isContinuousPicking = false; // 连续拾点模式开关
 let pickingRoutePt = null; // 'start' | 'end' | 'via' | null
 let activeRouteMode = 'drive'; // 'drive' | 'cycle' | 'hike'
@@ -4768,15 +4846,20 @@ function positionRouteFloatingDropdown(inputEl) {
   }
   const spaceBelow = window.innerHeight - rect.bottom;
   const spaceAbove = rect.top;
-  const dropdownHeight = 220;
 
-  const left = Math.max(10, Math.min(window.innerWidth - 300, rect.left));
-  const width = Math.max(260, rect.width);
+  const isMobile = window.innerWidth <= 768;
+  const margin = isMobile ? 8 : 10;
+  const maxW = window.innerWidth - margin * 2;
+  const width = Math.min(maxW, Math.max(isMobile ? 240 : 260, rect.width));
+  const left = Math.max(margin, Math.min(window.innerWidth - width - margin, rect.left));
 
   floatingEl.style.left = `${left}px`;
   floatingEl.style.width = `${width}px`;
 
-  if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+  const availableHeight = Math.max(spaceBelow, spaceAbove);
+  floatingEl.style.maxHeight = `${Math.min(240, Math.max(120, availableHeight - 14))}px`;
+
+  if (spaceBelow < 180 && spaceAbove > spaceBelow) {
     floatingEl.style.top = 'auto';
     floatingEl.style.bottom = `${window.innerHeight - rect.top + 4}px`;
   } else {
@@ -4818,6 +4901,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       pickingRoutePt = pointType;
     }
     if (map) map.getCanvas().style.cursor = 'crosshair';
+    document.body.classList.add('picking-mode');
   };
 
   const selectCandidate = (item) => {
@@ -4828,15 +4912,30 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const map = getMap();
     if (!map) return;
 
+    // 智能层级适配：省份 7.2，地级市 12.0，名山 13.8，地标/收藏点/选点 15.0
+    let targetZoom = 15.0;
+    if (Number.isFinite(item.zoom)) {
+      targetZoom = item.zoom;
+    } else if (item.type === 'province') {
+      targetZoom = 7.2;
+    } else if (item.type === 'city') {
+      targetZoom = 12.0;
+    } else if (item.type === 'mountain') {
+      targetZoom = 13.8;
+    } else if (item.type === 'waypoint') {
+      targetZoom = 15.0;
+    }
+
     if (pointType === 'start') {
-      setRouteStartPoint(map, item.coords, item.name);
+      setRouteStartPoint(map, item.coords, item.name, targetZoom);
     } else if (pointType === 'end') {
-      setRouteEndPoint(map, item.coords, item.name);
+      setRouteEndPoint(map, item.coords, item.name, targetZoom);
     } else if (pointType === 'via') {
       if (viaIndex !== null && routeViaPoints[viaIndex]) {
         const via = routeViaPoints[viaIndex];
         via.name = item.name;
         via.coords = item.coords;
+        via.zoom = targetZoom;
         if (via.marker) {
           via.marker.setLngLat(item.coords);
         } else {
@@ -4844,19 +4943,20 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            flyToLocationPrecisely(map, item.coords, { zoom: 14.5, pitch: map.getPitch() || 50, duration: 700 });
+            flyToLocationPrecisely(map, item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() || 50, duration: 600 });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
             .addTo(map);
         }
+        renderViaList(map);
         autoPlanMultiPointRoute(map);
       }
     }
 
     if (item.coords) {
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-      flyToLocationPrecisely(map, item.coords, { zoom: 14.5, pitch: targetPitch, duration: 850 });
+      flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650 });
     }
   };
 
@@ -4946,7 +5046,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     searchTimer = setTimeout(async () => {
       const results = await queryLocationCandidates(val);
       if (seq !== requestSequence || (inputEl.value || '').trim() !== val) return;
-      if (document.activeElement === inputEl) {
+      if (document.activeElement === inputEl || activeQuery === val) {
         renderCandidates(results, val);
       }
     }, 150);
@@ -5006,7 +5106,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const val = (inputEl.value || '').trim();
     if (val) {
       queryLocationCandidates(val).then(res => {
-        if (document.activeElement === inputEl) {
+        if (document.activeElement === inputEl || (inputEl.value || '').trim() === val) {
           renderCandidates(res, val);
         }
       });
@@ -5054,7 +5154,7 @@ function renderViaList(mapInstance) {
       tagEl.style.cursor = 'pointer';
       tagEl.addEventListener('click', () => {
         if (map && via.coords) {
-          flyToLocationPrecisely(map, via.coords, { zoom: 13.5, pitch: map.getPitch() || 50, duration: 800 });
+          flyToLocationPrecisely(map, via.coords, { zoom: via.zoom || 15.0, pitch: map.getPitch() || 50, duration: 600 });
         }
       });
     }
@@ -5158,10 +5258,11 @@ function renderViaList(mapInstance) {
 }
 
 // 添加途径点并自动刷新规划
-function addViaPoint(map, coords, label) {
+function addViaPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   const idx = routeViaPoints.length + 1;
+  const targetZoom = Number.isFinite(zoom) ? zoom : 15.0;
   let marker = null;
   if (coords && m) {
     const el = document.createElement('div');
@@ -5169,7 +5270,7 @@ function addViaPoint(map, coords, label) {
     el.innerText = idx;
     el.addEventListener('click', () => {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: 14.5, pitch: curPitch, duration: 700 });
+      flyToLocationPrecisely(m, coords, { zoom: targetZoom, pitch: curPitch, duration: 600 });
     });
 
     marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -5182,7 +5283,8 @@ function addViaPoint(map, coords, label) {
     id: 'via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     coords,
     name: viaName,
-    marker
+    marker,
+    zoom: targetZoom
   });
 
   renderViaList(m);
@@ -5217,11 +5319,14 @@ function removeViaPoint(map, index) {
 }
 
 // 设置起点
-function setRouteStartPoint(map, coords, label) {
+function setRouteStartPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   routeStartCoord = coords;
   routeStartName = label || `起点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
+  if (Number.isFinite(zoom)) {
+    routeStartZoom = zoom;
+  }
   const startInput = document.getElementById('route-start-input');
   const routePanel = document.getElementById('route-panel');
   if (startInput) startInput.value = routeStartName;
@@ -5232,7 +5337,7 @@ function setRouteStartPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: 14.5, pitch: curPitch, duration: 700 });
+      flyToLocationPrecisely(m, coords, { zoom: routeStartZoom || 15.0, pitch: curPitch, duration: 600 });
     }
   });
   if (m) {
@@ -5244,11 +5349,14 @@ function setRouteStartPoint(map, coords, label) {
 }
 
 // 设置终点
-function setRouteEndPoint(map, coords, label) {
+function setRouteEndPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   routeEndCoord = coords;
   routeEndName = label || `终点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
+  if (Number.isFinite(zoom)) {
+    routeEndZoom = zoom;
+  }
   const endInput = document.getElementById('route-end-input');
   const routePanel = document.getElementById('route-panel');
   if (endInput) endInput.value = routeEndName;
@@ -5259,7 +5367,7 @@ function setRouteEndPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: 14.5, pitch: curPitch, duration: 700 });
+      flyToLocationPrecisely(m, coords, { zoom: routeEndZoom || 15.0, pitch: curPitch, duration: 600 });
     }
   });
   if (m) {
@@ -5428,7 +5536,21 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
 
   if (shouldFitBounds && pathCoords.length > 0) {
     const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
-    map.fitBounds(bounds, { padding: 90, pitch: 58, bearing: 20, duration: 1800 });
+    let bPadding = 90;
+    let tPadding = 80;
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      const routePanel = document.getElementById('route-panel');
+      if (routePanel && routePanel.style.display !== 'none') {
+        const panelH = routePanel.getBoundingClientRect().height;
+        bPadding = Math.max(90, Math.round(panelH) + 24);
+      }
+      tPadding = 60;
+    }
+    map.fitBounds(bounds, {
+      padding: { top: tPadding, bottom: bPadding, left: 36, right: 36 },
+      pitch: Math.min(map.getPitch() || 50, 52),
+      duration: 1400
+    });
   }
 }
 
@@ -5438,12 +5560,20 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   const reqId = ++currentRouteRequestId;
   const ordered = [];
   if (routeStartCoord) ordered.push({ coords: routeStartCoord, role: 'start', name: routeStartName });
-  routeViaPoints.forEach((v, i) => {
-    if (v && v.coords) {
+  const validVias = routeViaPoints.filter(v => v && v.coords);
+  if (routeEndCoord) {
+    validVias.forEach((v, i) => {
       ordered.push({ coords: v.coords, role: 'via', name: v.name, index: i + 1 });
+    });
+    ordered.push({ coords: routeEndCoord, role: 'end', name: routeEndName });
+  } else if (validVias.length > 0) {
+    // 若未单独设定终点，最后一个途径点作为路线终点
+    for (let i = 0; i < validVias.length - 1; i++) {
+      ordered.push({ coords: validVias[i].coords, role: 'via', name: validVias[i].name, index: i + 1 });
     }
-  });
-  if (routeEndCoord) ordered.push({ coords: routeEndCoord, role: 'end', name: routeEndName });
+    const lastVia = validVias[validVias.length - 1];
+    ordered.push({ coords: lastVia.coords, role: 'end', name: lastVia.name, index: validVias.length });
+  }
 
   const statsBox = document.getElementById('route-stats-box');
   const chartSection = document.getElementById('route-chart-section');
@@ -5613,6 +5743,7 @@ function setupOutdoorRouteSystem(map) {
   const exitRoutePickingMode = () => {
     pickingRoutePt = null;
     targetViaIndexForPick = null;
+    document.body.classList.remove('picking-mode');
     map.getCanvas().style.cursor = '';
     btnPickViaInline?.classList.remove('picking');
     btnAddViaInline?.classList.remove('picking');
@@ -5633,6 +5764,7 @@ function setupOutdoorRouteSystem(map) {
     }
     pickingRoutePt = 'via';
     targetViaIndexForPick = null;
+    document.body.classList.add('picking-mode');
     map.getCanvas().style.cursor = 'crosshair';
     btnPickViaInline?.classList.add('picking');
     btnAddViaInline?.classList.add('picking');
@@ -5663,14 +5795,17 @@ function setupOutdoorRouteSystem(map) {
     const tCoord = routeStartCoord;
     const tName = routeStartName;
     const tMarker = routeStartMarker;
+    const tZoom = routeStartZoom;
 
     routeStartCoord = routeEndCoord;
     routeStartName = routeEndName;
     routeStartMarker = routeEndMarker;
+    routeStartZoom = routeEndZoom;
 
     routeEndCoord = tCoord;
     routeEndName = tName;
     routeEndMarker = tMarker;
+    routeEndZoom = tZoom;
 
     if (startInput) startInput.value = routeStartName || '';
     if (endInput) endInput.value = routeEndName || '';
@@ -5752,14 +5887,18 @@ function setupOutdoorRouteSystem(map) {
   // 1. 规划按钮 (无⚡图标)
   btnCalcRoute?.addEventListener('click', () => {
     exitRoutePickingMode();
-    if (!routeStartCoord || !routeEndCoord) {
-      if (!routeStartCoord && !routeEndCoord) {
-        setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)');
-        addViaPoint(map, [103.6210, 31.0020], '都江堰 (紫坪铺水库)');
-        addViaPoint(map, [103.1250, 31.0260], '卧龙巴朗山垭口 (4481m)');
-        setRouteEndPoint(map, [102.8360, 30.9980], '四姑娘山镇 (蜀山之后)');
+    const validVias = routeViaPoints.filter(v => v && v.coords);
+    const hasEnoughPoints = (routeStartCoord && (routeEndCoord || validVias.length > 0)) ||
+                            (routeEndCoord && validVias.length > 0) ||
+                            (validVias.length >= 2);
+    if (!hasEnoughPoints) {
+      if (!routeStartCoord && !routeEndCoord && validVias.length === 0) {
+        setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)', 15.0);
+        addViaPoint(map, [103.6210, 31.0020], '都江堰 (紫坪铺水库)', 15.0);
+        addViaPoint(map, [103.1250, 31.0260], '卧龙巴朗山垭口 (4481m)', 15.0);
+        setRouteEndPoint(map, [102.8360, 30.9980], '四姑娘山镇 (蜀山之后)', 15.0);
       } else {
-        alert('请先设定完整的起点和终点！');
+        alert('请至少设定起点与一个终点或途径点！');
         return;
       }
     }
@@ -5771,7 +5910,19 @@ function setupOutdoorRouteSystem(map) {
     e.stopPropagation();
     if (!routeExportMenu) return;
     const isShown = routeExportMenu.style.display !== 'none';
-    routeExportMenu.style.display = isShown ? 'none' : 'flex';
+    if (!isShown) {
+      const rect = btnRouteExportTrigger.getBoundingClientRect();
+      if (rect.top < 110) {
+        routeExportMenu.style.bottom = 'auto';
+        routeExportMenu.style.top = 'calc(100% + 5px)';
+      } else {
+        routeExportMenu.style.bottom = 'calc(100% + 5px)';
+        routeExportMenu.style.top = 'auto';
+      }
+      routeExportMenu.style.display = 'flex';
+    } else {
+      routeExportMenu.style.display = 'none';
+    }
   });
 
   // 3. 详情切换按钮 (展开/收起 距离与海拔等详情)
@@ -5832,6 +5983,8 @@ function setupOutdoorRouteSystem(map) {
     routeEndCoord = null;
     routeEndName = '';
     routeEndMarker = null;
+    routeStartZoom = 14.5;
+    routeEndZoom = 14.5;
 
     hideRouteFloatingDropdown();
 

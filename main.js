@@ -17,7 +17,6 @@ app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
 app.commandLine.appendSwitch('disk-cache-size', '2147483648'); // 2GB 浏览器缓存；离线瓦片仍保存在独立 offline-tiles
 app.commandLine.appendSwitch('media-cache-size', '268435456');
-app.commandLine.appendSwitch('js-flags', '--max-reduce-memory');
 
 let mainWindow;
 
@@ -102,16 +101,19 @@ function loadOfflineManifest() {
   return { provinces: {} };
 }
 
-function saveOfflineManifest(data) {
+function saveOfflineManifest(data, replaceProvinces = false) {
   try {
     const existing = loadOfflineManifest();
+    const mergedProvinces = replaceProvinces
+      ? (data.provinces || {})
+      : {
+          ...(existing.provinces || {}),
+          ...(data.provinces || {})
+        };
     const merged = {
       ...existing,
       ...data,
-      provinces: {
-        ...(existing.provinces || {}),
-        ...(data.provinces || {})
-      },
+      provinces: mergedProvinces,
       stats: data.stats !== undefined ? data.stats : existing.stats
     };
     fs.writeFileSync(OFFLINE_MANIFEST_FILE, JSON.stringify(merged, null, 2), 'utf8');
@@ -703,12 +705,16 @@ function scanDirStats(dir) {
 
 function scanProvincesFromDisk() {
   const detected = {};
+  const provTileCounts = {};
+
   function scanLayer(dir, layerName) {
     if (!fs.existsSync(dir)) return;
     try {
       const zoomDirs = fs.readdirSync(dir).filter(z => /^\d+$/.test(z));
       for (const zStr of zoomDirs) {
         const z = parseInt(zStr);
+        // 低层级 (0-8) 属于中国总览切片，绝不可作为“具体省份完整离线包已就绪”的判据
+        if (z < 9) continue;
         const zPath = path.join(dir, zStr);
         let xDirs = [];
         try { xDirs = fs.readdirSync(zPath).filter(x => /^\d+$/.test(x)); } catch (e) {}
@@ -725,18 +731,9 @@ function scanProvincesFromDisk() {
             const lat = tile2lat(y + 0.5, z);
             for (const [k, bbox] of CHINA_PROVINCE_BBOX_ENTRIES) {
               if (lng >= bbox[0] && lng <= bbox[1] && lat >= bbox[2] && lat <= bbox[3]) {
-                detected[k] = detected[k] || { maxZ: 0, dem: false, vec: false, layers: {} };
-                detected[k].maxZ = Math.max(detected[k].maxZ, z);
-                if (layerName === 'dem') {
-                  detected[k].dem = true;
-                  detected[k].layers.dem = detected[k].layers.dem || { maxZ: 0 };
-                  detected[k].layers.dem.maxZ = Math.max(detected[k].layers.dem.maxZ, z);
-                }
-                if (layerName === 'vector') {
-                  detected[k].vec = true;
-                  detected[k].layers.vector = detected[k].layers.vector || { maxZ: 0 };
-                  detected[k].layers.vector.maxZ = Math.max(detected[k].layers.vector.maxZ, z);
-                }
+                provTileCounts[k] = provTileCounts[k] || {};
+                provTileCounts[k][layerName] = provTileCounts[k][layerName] || {};
+                provTileCounts[k][layerName][z] = (provTileCounts[k][layerName][z] || 0) + 1;
               }
             }
           }
@@ -744,8 +741,41 @@ function scanProvincesFromDisk() {
       }
     } catch (e) {}
   }
+
   scanLayer(OFFLINE_VEC_DIR, 'vector');
   scanLayer(OFFLINE_DEM_DIR, 'dem');
+
+  // 严密判定阈值：省份在层级 z 下的瓦片数必须达到实质覆盖(至少 60 块)，杜绝单片浏览瓦片误标整省
+  function getLayerMaxZ(zCounts) {
+    if (!zCounts) return 0;
+    let maxZ = 0;
+    for (const [zStr, count] of Object.entries(zCounts)) {
+      const z = parseInt(zStr);
+      const minThreshold = z <= 9 ? 30 : 60;
+      if (count >= minThreshold && z > maxZ) {
+        maxZ = z;
+      }
+    }
+    return maxZ;
+  }
+
+  for (const [k, layers] of Object.entries(provTileCounts)) {
+    const demMaxZ = getLayerMaxZ(layers.dem);
+    const vecMaxZ = getLayerMaxZ(layers.vector);
+    const maxReadyZ = Math.max(demMaxZ, vecMaxZ);
+    if (maxReadyZ >= 9) {
+      detected[k] = {
+        maxZ: maxReadyZ,
+        dem: demMaxZ > 0,
+        vec: vecMaxZ > 0,
+        layers: {
+          ...(demMaxZ > 0 ? { dem: { maxZ: demMaxZ } } : {}),
+          ...(vecMaxZ > 0 ? { vector: { maxZ: vecMaxZ } } : {})
+        }
+      };
+    }
+  }
+
   return detected;
 }
 
@@ -878,7 +908,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('save-offline-manifest', (event, data) => {
-    saveOfflineManifest(data);
+    saveOfflineManifest(data, Boolean(data && data.replaceProvinces));
     return { success: true };
   });
 
