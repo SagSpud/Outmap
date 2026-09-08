@@ -82,13 +82,7 @@ let ofmTileTemplate = 'https://tiles.openfreemap.org/planet/20260830_080001_pt/{
   }
 });
 
-// 自动彻底回收旧版本遗留的卫星切片 (释放数十GB磁盘空间)
-if (fs.existsSync(OFFLINE_SAT_DIR)) {
-  try {
-    fs.rmSync(OFFLINE_SAT_DIR, { recursive: true, force: true });
-    console.log('[Offline Cache] Cleaned legacy sat directory:', OFFLINE_SAT_DIR);
-  } catch (e) {}
-}
+// 旧图层仍属于用户离线数据，启动和更新均不自动删除。
 
 // 本地离线切片持久化元数据清单 (程序重启后永久保留各省份已下载最高层级与图层类型)
 const OFFLINE_MANIFEST_FILE = path.join(OFFLINE_BASE_DIR, 'manifest.json');
@@ -118,7 +112,9 @@ function saveOfflineManifest(data, replaceProvinces = false) {
       provinces: mergedProvinces,
       stats: data.stats !== undefined ? data.stats : existing.stats
     };
-    fs.writeFileSync(OFFLINE_MANIFEST_FILE, JSON.stringify(merged, null, 2), 'utf8');
+    const tempFile = OFFLINE_MANIFEST_FILE + '.tmp';
+    fs.writeFileSync(tempFile, JSON.stringify(merged, null, 2), 'utf8');
+    fs.renameSync(tempFile, OFFLINE_MANIFEST_FILE);
   } catch (e) {
     console.warn('[Manifest Save Error]', e.message);
   }
@@ -744,177 +740,44 @@ function startLocalTileServer() {
 
 let memoryTileStats = null;
 
-function scanDirStats(dir) {
-  let count = 0;
-  let bytes = 0;
-  let sampleCount = 0;
-  let sampleBytes = 0;
+let inventoryScan = null;
+let offlineDownloadRunning = false;
 
-  function walk(d) {
-    if (!fs.existsSync(d)) return;
-    try {
-      const list = fs.readdirSync(d, { withFileTypes: true });
-      for (const ent of list) {
-        if (ent.isDirectory()) {
-          walk(path.join(d, ent.name));
-        } else {
-          count++;
-          // 高性能采样计算切片体积：前 150 个文件精确采样计算平均切片大小，其余文件仅统计数量
-          // 彻底消除对数万甚至数十万个小文件的连续同步 fs.statSync，杜绝 Windows 消息队列阻塞触发的“程序未响应”
-          if (sampleCount < 150) {
-            try {
-              const st = fs.statSync(path.join(d, ent.name));
-              sampleBytes += st.size;
-              sampleCount++;
-            } catch (e) {}
-          }
+function refreshOfflineInventory() {
+  if (inventoryScan) return inventoryScan;
+  const { Worker } = require('worker_threads');
+  inventoryScan = new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, 'src', 'offline-worker.cjs'), {
+      workerData: { baseDir: OFFLINE_BASE_DIR, provinces: CHINA_PROVINCE_BBOX_ENTRIES, boxes: CHINA_TILES_BOXES }
+    });
+    worker.on('message', msg => {
+      if (msg && msg.type === 'progress') {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('offline-scan-progress', msg);
         }
+        return;
       }
-    } catch (e) {}
-  }
-  walk(dir);
-
-  if (sampleCount > 0) {
-    const avg = sampleBytes / sampleCount;
-    bytes = Math.round(count * avg);
-  }
-  return { count, bytes };
-}
-
-function scanProvincesFromDisk() {
-  const detected = {};
-  const provTileCounts = {};
-
-  function scanLayer(dir, layerName) {
-    if (!fs.existsSync(dir)) return;
-    try {
-      const zoomDirs = fs.readdirSync(dir).filter(z => /^\d+$/.test(z));
-      for (const zStr of zoomDirs) {
-        const z = parseInt(zStr);
-        // 低层级 (0-8) 属于中国总览切片，绝不可作为“具体省份完整离线包已就绪”的判据
-        if (z < 9) continue;
-        const zPath = path.join(dir, zStr);
-        let xDirs = [];
-        try { xDirs = fs.readdirSync(zPath).filter(x => /^\d+$/.test(x)); } catch (e) {}
-        for (const xStr of xDirs) {
-          const x = parseInt(xStr);
-          const xPath = path.join(zPath, xStr);
-          let files = [];
-          try { files = fs.readdirSync(xPath); } catch (e) {}
-          for (const f of files) {
-            const m = f.match(/^(\d+)\./);
-            if (!m) continue;
-            const y = parseInt(m[1]);
-            const lng = tile2lon(x + 0.5, z);
-            const lat = tile2lat(y + 0.5, z);
-            for (const [k, bbox] of CHINA_PROVINCE_BBOX_ENTRIES) {
-              if (lng >= bbox[0] && lng <= bbox[1] && lat >= bbox[2] && lat <= bbox[3]) {
-                provTileCounts[k] = provTileCounts[k] || {};
-                provTileCounts[k][layerName] = provTileCounts[k][layerName] || {};
-                provTileCounts[k][layerName][z] = (provTileCounts[k][layerName][z] || 0) + 1;
-              }
-            }
-          }
-        }
+      const result = msg && msg.type === 'done' ? msg.result : (msg.result || msg);
+      memoryTileStats = result.stats;
+      saveOfflineManifest(result, true);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('offline-inventory-updated', result);
       }
-    } catch (e) {}
-  }
-
-  scanLayer(OFFLINE_VEC_DIR, 'vector');
-  scanLayer(OFFLINE_DEM_DIR, 'dem');
-
-  // 科学精准判定：省份在层级 z 下必须达到真实包围盒理论切片数的 96% 以上才判定为完整绿标；5%~95% 判定为蓝标部分就绪
-  function getLayerStatus(zCounts, bbox) {
-    if (!zCounts) return { maxZ: 0, partialZ: 0 };
-    let maxZ = 0;
-    let partialZ = 0;
-    for (let z = 10; z <= 14; z++) {
-      const count = zCounts[z] || 0;
-      const expected = getBboxTileCount(bbox, z);
-      const fullThreshold = Math.max(z <= 10 ? 4 : 20, Math.floor(expected * 0.96));
-      const partialThreshold = Math.max(2, Math.floor(expected * 0.05));
-      if (count >= fullThreshold) {
-        maxZ = z;
-      }
-      if (count >= partialThreshold) {
-        partialZ = Math.max(partialZ, z);
-      }
-    }
-    return { maxZ, partialZ };
-  }
-
-  for (const [k, bbox] of CHINA_PROVINCE_BBOX_ENTRIES) {
-    const layers = provTileCounts[k];
-    if (!layers) continue;
-    const demStatus = getLayerStatus(layers.dem, bbox);
-    const vecStatus = getLayerStatus(layers.vector, bbox);
-    const maxReadyZ = Math.max(demStatus.maxZ, vecStatus.maxZ);
-    const maxPartialZ = Math.max(demStatus.partialZ, vecStatus.partialZ);
-    if (maxReadyZ >= 10 || maxPartialZ >= 10) {
-      detected[k] = {
-        maxZ: maxReadyZ,
-        partialZ: maxPartialZ,
-        dem: demStatus.maxZ > 0 || demStatus.partialZ > 0,
-        vec: vecStatus.maxZ > 0 || vecStatus.partialZ > 0,
-        layers: {
-          ...(layers.dem ? { dem: { maxZ: demStatus.maxZ, partialZ: demStatus.partialZ } } : {}),
-          ...(layers.vector ? { vector: { maxZ: vecStatus.maxZ, partialZ: vecStatus.partialZ } } : {})
-        }
-      };
-    }
-  }
-
-  return detected;
+      resolve(result.stats);
+    });
+    worker.once('error', reject);
+    worker.once('exit', code => { if (code !== 0) reject(new Error('离线扫描异常退出: ' + code)); });
+  }).finally(() => { inventoryScan = null; });
+  return inventoryScan;
 }
 
 function getQuickTileCount(forceRefresh = false) {
   const manifest = loadOfflineManifest();
-  const hasProvRecord = manifest.provinces && Object.keys(manifest.provinces).length > 0;
-
-  // 历史脏数据熔断检测：如果清单中记录了省份，但全机切片数极少 (< 3000) 却存在 >= 2 个省份
-  const isSuspicious = hasProvRecord && (
-    (manifest.stats && manifest.stats.totalTiles < 3000 && Object.keys(manifest.provinces).length > 1)
-  );
-
-  if (memoryTileStats && !forceRefresh && !isSuspicious) return memoryTileStats;
-  if (manifest.stats && typeof manifest.stats.totalTiles === 'number' && manifest.stats.totalBytes && !forceRefresh && hasProvRecord && !isSuspicious) {
-    memoryTileStats = manifest.stats;
-    return memoryTileStats;
+  if (!memoryTileStats) memoryTileStats = manifest.stats || { totalTiles: 0, totalBytes: 0 };
+  if (forceRefresh || manifest.inventoryVersion !== 2) {
+    refreshOfflineInventory().catch(error => console.warn('[Offline Scan]', error.message));
   }
-
-  // 毫秒级极速统计本地瓦片目录总数与体积 (采样计算，绝对不卡死主线程)
-  const dem = scanDirStats(OFFLINE_DEM_DIR);
-  const vec = scanDirStats(OFFLINE_VEC_DIR);
-  memoryTileStats = {
-    demCount: dem.count,
-    vectorCount: vec.count,
-    totalTiles: dem.count + vec.count,
-    demBytes: dem.bytes,
-    vectorBytes: vec.bytes,
-    totalBytes: dem.bytes + vec.bytes,
-    lastScannedAt: Date.now()
-  };
-
-  // 关键优化：如果已有省份记录，只更新统计数据，绝不在主线程运行长达数秒的 scanProvincesFromDisk() 同步大循环
-  if (hasProvRecord && !isSuspicious) {
-    saveOfflineManifest({ stats: memoryTileStats, provinces: manifest.provinces }, false);
-    return memoryTileStats;
-  }
-
-  // 仅在首次启动无任何省份记录或数据异常时，反向检索磁盘
-  const detectedProvs = scanProvincesFromDisk();
-  const sanitizedProvinces = {};
-  for (const [k, diskState] of Object.entries(detectedProvs)) {
-    const prev = (manifest.provinces && manifest.provinces[k]) || {};
-    sanitizedProvinces[k] = {
-      ...diskState,
-      updatedAt: prev.updatedAt || Date.now()
-    };
-  }
-
-  // 强制替换保存，彻底肃清 manifest.json 中的历史脏数据
-  saveOfflineManifest({ stats: memoryTileStats, provinces: sanitizedProvinces }, true);
-  return memoryTileStats;
+  return { ...memoryTileStats, scanning: Boolean(inventoryScan) };
 }
 
 function createWindow() {
@@ -1026,19 +889,18 @@ app.whenReady().then(async () => {
       vectorCount: stats.vectorCount || 0,
       fontCount: stats.fontCount || 0,
       totalTiles: stats.totalTiles || 0,
-      totalBytes: stats.totalBytes || 0
+      totalBytes: stats.totalBytes || 0,
+      scanning: stats.scanning,
+      exact: stats.exact === true
     };
   });
 
   ipcMain.handle('rescan-offline-tiles', () => {
-    const stats = getQuickTileCount(true);
-    return stats;
+    return refreshOfflineInventory();
   });
 
-  ipcMain.handle('get-offline-manifest', () => {
-    if (!memoryTileStats) {
-      getQuickTileCount();
-    }
+  ipcMain.handle('get-offline-manifest', async () => {
+    if (loadOfflineManifest().inventoryVersion !== 2) await refreshOfflineInventory();
     return loadOfflineManifest();
   });
 
@@ -1110,16 +972,17 @@ app.whenReady().then(async () => {
 
   // 多线程金字塔瓦片批量并发下载引擎 (支持多省批量选择、已下载零扫描秒跳过、方案 A 切片级增量更新与无阻塞校验)
   ipcMain.handle('start-pyramid-download', async (event, { bbox, minZ, maxZ, downloadDem, downloadVec, provinceKey, provinces, isVerify, isIncrementalUpdate }) => {
+    if (offlineDownloadRunning) return { success: false, message: '已有下载或校验正在进行，请先取消并等待结束' };
+    offlineDownloadRunning = true;
+    try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
     }
     activeDownloadAbort = new AbortController();
     const signal = activeDownloadAbort.signal;
-    const manifest = loadOfflineManifest();
-    manifest.provinces = manifest.provinces || {};
-    if (!memoryTileStats) {
-      getQuickTileCount();
-    }
+    if (inventoryScan) await inventoryScan;
+    if (loadOfflineManifest().inventoryVersion !== 2) await refreshOfflineInventory();
+    const baselineStats = { ...(memoryTileStats || loadOfflineManifest().stats || {}) };
 
     // 规整目标省份列表 (支持多选批量下载)
     const provTasks = [];
@@ -1137,104 +1000,36 @@ app.whenReady().then(async () => {
       return { success: false, message: '未选择任何目标省份' };
     }
 
-    // 快速目录内存映射缓存 (单次批量 readdirSync 取代逐片 statSync，检索性能提升 100 倍)
+    // A bounded async directory cache preserves existing tiles without blocking
+    // the main event loop or trusting historical maxZ completion guesses.
     const dirFileSets = new Map();
-    function checkTileExistsFast(dirPath, fileName) {
-      let set = dirFileSets.get(dirPath);
-      if (set === undefined) {
-        if (fs.existsSync(dirPath)) {
-          try {
-            set = new Set(fs.readdirSync(dirPath));
-          } catch (e) {
-            set = new Set();
-          }
-        } else {
-          set = new Set();
-        }
-        dirFileSets.set(dirPath, set);
-      }
-      return set.has(fileName);
-    }
-
-    // 收集所有省份的新增切片任务 (自动跳过各省已下载层级)
-    const allTiles = [];
-    let allReadyCount = 0;
-
-    for (const prov of provTasks) {
-      const provSaved = manifest.provinces[prov.key];
-      const savedMaxZ = provSaved ? (provSaved.maxZ || 0) : 0;
-
-      // 非校验模式下：若该省份当前请求层级已全部就绪，0ms 秒级跳过！
-      const demSavedMaxZ = provSaved && provSaved.layers && provSaved.layers.dem
-        ? (provSaved.layers.dem.maxZ || 0)
-        : (provSaved && provSaved.dem ? savedMaxZ : 0);
-      const vectorSavedMaxZ = provSaved && provSaved.layers && provSaved.layers.vector
-        ? (provSaved.layers.vector.maxZ || 0)
-        : (provSaved && provSaved.vec ? savedMaxZ : 0);
-      const requestedLayerLevels = [];
-      if (downloadDem) requestedLayerLevels.push(demSavedMaxZ);
-      if (downloadVec) requestedLayerLevels.push(vectorSavedMaxZ);
-      const requestedSavedMaxZ = requestedLayerLevels.length > 0 ? Math.min(...requestedLayerLevels) : 0;
-
-      if (!isVerify && !isIncrementalUpdate && requestedSavedMaxZ >= maxZ && maxZ > 0) {
-        allReadyCount++;
-        continue;
-      }
-
-      let effectiveMinZ = minZ || 0;
-      if (!isVerify && !isIncrementalUpdate && requestedSavedMaxZ > 0 && maxZ > requestedSavedMaxZ) {
-        effectiveMinZ = requestedSavedMaxZ + 1;
-      }
-
-      const [minLon, maxLon, minLat, maxLat] = prov.bbox;
-      for (let z = effectiveMinZ; z <= maxZ; z++) {
-        const n = 1 << z;
-        const x1 = Math.max(0, Math.floor((minLon + 180) / 360 * n));
-        const x2 = Math.min(n - 1, Math.floor((maxLon + 180) / 360 * n));
-        const latRad1 = Math.min(85.0511, maxLat) * Math.PI / 180;
-        const latRad2 = Math.max(-85.0511, minLat) * Math.PI / 180;
-        const y1 = Math.max(0, Math.floor((1 - Math.log(Math.tan(latRad1) + 1 / Math.cos(latRad1)) / Math.PI) / 2 * n));
-        const y2 = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latRad2) + 1 / Math.cos(latRad2)) / Math.PI) / 2 * n));
-
-        for (let x = x1; x <= x2; x++) {
-          for (let y = y1; y <= y2; y++) {
-            if (z >= 11 && !isTileInChina(z, x, y)) continue;
-            if (downloadDem) allTiles.push({ provKey: prov.key, provName: prov.name, type: 'dem', z, x, y, ext: 'webp' });
-            if (downloadVec) allTiles.push({ provKey: prov.key, provName: prov.name, type: 'vector', z, x, y, ext: 'pbf' });
-          }
-        }
-      }
-    }
-
-    // 若全部选中的省份均已就绪且非增量更新，瞬间返回
-    if (allTiles.length === 0) {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const st = getQuickTileCount();
-        mainWindow.webContents.send('download-progress', {
-          completed: 0,
-          total: 0,
-          savedCount: 0,
-          failedCount: 0,
-          speed: 0,
-          percent: 100,
-          bytes: 0,
-          done: true,
-          totalTiles: st.totalTiles
+    async function checkTileExistsFast(dirPath, fileName) {
+      let pending = dirFileSets.get(dirPath);
+      if (!pending) {
+        pending = fs.promises.readdir(dirPath).then(names => new Set(names)).catch(error => {
+          if (error.code !== 'ENOENT') throw error;
+          return new Set();
         });
+        dirFileSets.set(dirPath, pending);
+        if (dirFileSets.size > 128) dirFileSets.delete(dirFileSets.keys().next().value);
       }
-      return { success: true, alreadyDone: true, total: 0, completed: 0, savedCount: 0 };
+      const names = await pending;
+      if (!names.has(fileName)) return false;
+      try { return (await fs.promises.stat(path.join(dirPath, fileName))).size > 20; }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
     }
 
-    // 多省相交重叠瓦片极速去重 (根据 type/z/x/y 唯一键)
-    const uniqueMap = new Map();
-    for (const t of allTiles) {
-      const key = `${t.type}/${t.z}/${t.x}/${t.y}`;
-      if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, t);
+    const { enumerateTiles } = require('./src/offline-worker.cjs');
+    const plan = { provinces: provTasks, minZ: Math.max(0, minZ || 0), maxZ: Math.min(14, maxZ), downloadDem, downloadVec, boxes: CHINA_TILES_BOXES };
+    let total = 0;
+    for (const task of enumerateTiles(plan)) {
+      total++;
+      if (total % 4096 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (signal.aborted) return { success: false, aborted: true, total: 0 };
       }
     }
-    const tileList = Array.from(uniqueMap.values());
-    const total = tileList.length;
+    const tileIterator = enumerateTiles(plan);
     let completed = 0;
     let savedCount = 0;
     let failedCount = 0;
@@ -1245,15 +1040,16 @@ app.whenReady().then(async () => {
     let newlyAddedCount = 0;
     const startTime = Date.now();
     const concurrency = 32;
-    let index = 0;
     const createdDirs = new Set();
     let lastProgressTime = 0;
     let activeProvName = '';
     let activeZ = 10;
 
     async function worker() {
-      while (index < tileList.length && !signal.aborted) {
-        const task = tileList[index++];
+      while (!signal.aborted) {
+        const next = tileIterator.next();
+        if (next.done) break;
+        const task = next.value;
         if (task.provName) activeProvName = task.provName;
         if (task.z) activeZ = task.z;
         const { type, z, x, y, ext } = task;
@@ -1262,7 +1058,7 @@ app.whenReady().then(async () => {
         const fileName = `${y}.${ext}`;
         const localPath = path.join(dirPath, fileName);
 
-        const existsLocally = checkTileExistsFast(dirPath, fileName);
+        const existsLocally = await checkTileExistsFast(dirPath, fileName);
 
         if (isIncrementalUpdate) {
           if (!existsLocally) {
@@ -1277,14 +1073,12 @@ app.whenReady().then(async () => {
                 if (buf.length > 20) {
                   const dirKey = `${type}/${z}/${x}`;
                   if (!createdDirs.has(dirKey)) {
-                    if (!fs.existsSync(dirPath)) {
-                      fs.mkdirSync(dirPath, { recursive: true });
-                    }
+                    await fs.promises.mkdir(dirPath, { recursive: true });
                     createdDirs.add(dirKey);
                   }
                   await fs.promises.writeFile(localPath, buf);
                   if (dirFileSets.has(dirPath)) {
-                    dirFileSets.get(dirPath).add(fileName);
+                    (await dirFileSets.get(dirPath)).add(fileName);
                   }
                   totalBytes += buf.length;
                   savedCount++;
@@ -1304,7 +1098,7 @@ app.whenReady().then(async () => {
               let onlineUrl = type === 'dem'
                 ? `https://tiles.mapterhorn.com/${z}/${x}/${fileName}`
                 : ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
-              const stat = fs.statSync(localPath);
+              const stat = await fs.promises.stat(localPath);
               const mtime = stat.mtime;
               const headers = {};
               if (mtime) {
@@ -1355,14 +1149,12 @@ app.whenReady().then(async () => {
               if (buf.length > 20) {
                 const dirKey = `${type}/${z}/${x}`;
                 if (!createdDirs.has(dirKey)) {
-                  if (!fs.existsSync(dirPath)) {
-                    fs.mkdirSync(dirPath, { recursive: true });
-                  }
+                  await fs.promises.mkdir(dirPath, { recursive: true });
                   createdDirs.add(dirKey);
                 }
                 await fs.promises.writeFile(localPath, buf);
                 if (dirFileSets.has(dirPath)) {
-                  dirFileSets.get(dirPath).add(fileName);
+                  (await dirFileSets.get(dirPath)).add(fileName);
                 }
                 totalBytes += buf.length;
                 savedCount++;
@@ -1392,39 +1184,18 @@ app.whenReady().then(async () => {
           const speed = elapsed > 0 ? Math.round(completed / elapsed) : 0;
           const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
 
-          // 仅在全部成功时提高“已完成层级”。失败任务下次启动会继续补齐，不会被清单误判后永久跳过。
-          if (isDone && !signal.aborted && failedCount === 0) {
-            manifest.provinces = manifest.provinces || {};
-            for (const prov of provTasks) {
-              const prev = manifest.provinces[prov.key] || {};
-              const prevLayers = prev.layers || {};
-              manifest.provinces[prov.key] = {
-                ...prev,
-                maxZ: Math.max(prev.maxZ || 0, maxZ),
-                dem: Boolean(prev.dem || downloadDem),
-                vec: Boolean(prev.vec || downloadVec),
-                layers: {
-                  ...prevLayers,
-                  ...(downloadDem ? { dem: { ...(prevLayers.dem || {}), maxZ: Math.max(prevLayers.dem?.maxZ || 0, maxZ) } } : {}),
-                  ...(downloadVec ? { vector: { ...(prevLayers.vector || {}), maxZ: Math.max(prevLayers.vector?.maxZ || 0, maxZ) } } : {})
-                },
-                updatedAt: Date.now()
-              };
-            }
-            if (!manifest.stats) manifest.stats = { totalTiles: 0, totalBytes: 0 };
-            manifest.stats.totalTiles = (manifest.stats.totalTiles || 0) + newlySavedCount + newlyAddedCount;
-            manifest.stats.totalBytes = (manifest.stats.totalBytes || 0) + totalBytes;
-            memoryTileStats = manifest.stats;
-            saveOfflineManifest({ stats: memoryTileStats, provinces: manifest.provinces });
-          }
+          // Completion is derived from disk after all workers settle, including
+          // cancellations and failures. Never promote a whole province here.
 
           if (mainWindow && !mainWindow.isDestroyed()) {
-            const curTiles = (memoryTileStats ? (memoryTileStats.totalTiles || 0) : 0) + newlySavedCount + newlyAddedCount;
-            const curBytes = (memoryTileStats ? (memoryTileStats.totalBytes || 0) : 0) + totalBytes;
+            const curTiles = (baselineStats.totalTiles || 0) + newlySavedCount + newlyAddedCount;
+            const curBytes = (baselineStats.totalBytes || 0) + totalBytes;
             mainWindow.webContents.send('download-progress', {
               completed,
               total,
               savedCount,
+              newlySavedCount,
+              existingCount: Math.max(0, savedCount - newlySavedCount - newlyAddedCount - updatedCount),
               failedCount,
               unchangedCount,
               updatedCount,
@@ -1432,7 +1203,8 @@ app.whenReady().then(async () => {
               speed,
               percent,
               bytes: totalBytes,
-              done: isDone,
+              done: false,
+              scanning: isDone,
               isVerify,
               isIncrementalUpdate,
               totalTiles: curTiles,
@@ -1450,15 +1222,28 @@ app.whenReady().then(async () => {
       workers.push(worker());
     }
     await Promise.all(workers);
+    // Discard any in-flight scan snapshot from before the last tile write.
+    if (inventoryScan) await inventoryScan;
+    const finalStats = await refreshOfflineInventory();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('download-progress', {
+      completed, total, savedCount, failedCount, unchangedCount, updatedCount, newlyAddedCount,
+      percent: total ? Math.round(completed / total * 100) : 100,
+      speed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
+      isVerify, isIncrementalUpdate, ...finalStats
+    });
 
     return {
-      success: !signal.aborted,
+      success: !signal.aborted && failedCount === 0,
       aborted: signal.aborted,
       total,
       completed,
       savedCount,
       failedCount
     };
+    } finally {
+      offlineDownloadRunning = false;
+      activeDownloadAbort = null;
+    }
   });
 
   ipcMain.handle('cancel-pyramid-download', () => {

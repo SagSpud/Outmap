@@ -17,8 +17,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uploadCloudSyncData: (payload) => ipcRenderer.invoke('upload-cloud-sync-data', payload),
   pullCloudSyncData: (payload) => ipcRenderer.invoke('pull-cloud-sync-data', payload),
   rescanOfflineTiles: () => ipcRenderer.invoke('rescan-offline-tiles'),
+  onOfflineScanProgress: (callback) => {
+    const listener = (event, data) => callback(data);
+    ipcRenderer.on('offline-scan-progress', listener);
+    return () => ipcRenderer.removeListener('offline-scan-progress', listener);
+  },
+  onOfflineInventoryUpdated: (callback) => {
+    const listener = (event, data) => callback(data);
+    ipcRenderer.on('offline-inventory-updated', listener);
+    return () => ipcRenderer.removeListener('offline-inventory-updated', listener);
+  },
   checkTileUpdates: () => ipcRenderer.invoke('check-tile-updates'),
   searchLocation: (query) => ipcRenderer.invoke('search-location', query),
   onPowerStateChange: (callback) => ipcRenderer.on('power-state-change', (event, data) => callback(data))
 });
-

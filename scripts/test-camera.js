@@ -32,6 +32,9 @@ app.whenReady().then(async () => {
     await new Promise(r => m.once('load',r)); m.setTerrain({source:'terrain-dem',exaggeration:1.5});
     await sleep(450);
     const rows=[];
+    let correctiveJumps=0;
+    const nativeJump=m.jumpTo.bind(m);
+    m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
     function sample(name, c, centered=false) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),padding:m.getPadding()}); }
     for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
       OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await sleep(onlineTerrainTest ? 3000 : 500); sample(name,c,centered);
@@ -43,6 +46,9 @@ app.whenReady().then(async () => {
     OutmapLocationCamera.fly(m,[117,36],{duration:500,onArrival:()=>interruptedArrival++}); await sleep(40);
     m.getCanvas().dispatchEvent(new Event('wheel')); m.jumpTo({center:[110,30],zoom:10}); await sleep(650);
     const userCenter=m.getCenter();
+    OutmapLocationCamera.fly(m,[91,29],{duration:500}); await sleep(30);
+    m.jumpTo({center:[111,31],zoom:9}); await sleep(250);
+    const replacementCenter=m.getCenter();
     let instantArrival=0;
     OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(250); sample('instant',[118,35]);
     // Simulate a late, higher resolution DEM response after arrival.
@@ -56,7 +62,7 @@ app.whenReady().then(async () => {
       OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:0,duration:0}); await sleep(200); sample('hidden drawer',[118,35]);
     }
     m.remove();
-    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter};
+    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps};
   })()`);
   console.log(JSON.stringify(result, null, 2));
   for (const row of result.rows) { assert(row.error < 3, `${row.name}: ${row.error}px`); assert(Object.values(row.padding).every(x => x === 0)); }
@@ -66,6 +72,8 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.interruptedArrival, 0);
   assert.strictEqual(result.instantArrival, 1);
   assert(Math.abs(result.userCenter.lng - 110) < 1e-6);
+  assert(Math.abs(result.replacementCenter.lng - 111) < 1e-6, 'External camera changes must not be hijacked');
+  assert.strictEqual(result.correctiveJumps,0,'Terrain settling must not teleport the camera');
   clearTimeout(watchdog);
   console.log('Camera projection and cancellation passed.'); app.quit();
 }).catch(e => { console.error(e); app.exit(1); });

@@ -20,8 +20,8 @@
       }
     }
     // All coordinates are CSS pixels, independent of devicePixelRatio.
-    // 将普通搜索图钉微调至 0.585（63%高处），此时上方 160px 的落地点卡片恰好居于屏幕黄金正中 (48%~50%)，彻底解决“偏上”问题
-    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.63));
+    // Anchor the geographic pin, not a screen-fixed imitation of its marker.
+    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.56));
   }
 
   function cancel(map) { active.get(map)?.dispose(); }
@@ -33,16 +33,21 @@
     cancel(map); // Remove the old arrival handler BEFORE stop emits moveend.
     map.stop();
     let disposed = false, arrived = false, internal = false, frame = 0, deadline;
+    let progress = 0;
+    let isFlying = true;
+    const previousCameraUpdate = map.transformCameraUpdate;
     const subscriptions = [];
     const listen = (type, fn) => { map.on(type, fn); subscriptions.push([type, fn]); };
     const canvas = map.getCanvas();
     const dispose = () => {
       if (disposed) return;
       disposed = true;
+      isFlying = false;
       subscriptions.forEach(([type, fn]) => map.off(type, fn));
       for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.removeEventListener(type, dispose, true);
       cancelAnimationFrame(frame);
       clearTimeout(deadline);
+      if (map.transformCameraUpdate === cameraUpdate) map.transformCameraUpdate = previousCameraUpdate;
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
     active.set(map, { dispose });
@@ -50,7 +55,7 @@
     listen('remove', dispose);
     listen('movestart', () => { if (!internal) dispose(); });
 
-    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 14.8));
+    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 13.5));
     const pitch = Math.max(map.getMinPitch(), Math.min(map.getMaxPitch(), Number.isFinite(options.pitch) ? options.pitch : map.getPitch()));
     const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -70,15 +75,32 @@
       return { center: tr.center, elevation: tr.elevation };
     }
 
+    // Public MapLibre camera hook: commit the geographic endpoint on the FINAL
+    // animation frame, rather than teleporting the camera after moveend.
+    function cameraUpdate(transform) {
+      const prior = previousCameraUpdate?.(transform) || {};
+      if (disposed) return prior;
+      if (!isFlying && !internal && !map.isEasing()) return prior;
+      if (progress >= 1) {
+        return { ...prior, ...endpoint(zoom, pitch, bearing), zoom, pitch, bearing };
+      }
+      const elevation = map.queryTerrainElevation(transform.center);
+      return Number.isFinite(elevation) ? { ...prior, elevation } : prior;
+    }
+    const easing = t => { progress = t; return t * t * (3 - 2 * t); };
+    map.transformCameraUpdate = cameraUpdate;
+
     function refine() {
       frame = 0;
       if (disposed || !arrived || map.isMoving()) return;
       const p = map.project(coords), desired = anchor(map, options.centered);
-      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 1) return;
+      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2) return;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
-      // Public camera commit updates markers and emits consistent camera events.
-      map.jumpTo({ ...solved, zoom, pitch, bearing, padding: zeroPadding });
+      progress = 0;
+      // Late DEM revisions use a cancellable native transition, never jumpTo.
+      map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
+        duration: reduced ? 0 : 250, easing, essential: false });
       internal = false;
     }
     const schedule = () => { if (!disposed && arrived && !frame) frame = requestAnimationFrame(refine); };
@@ -87,6 +109,7 @@
     listen('resize', schedule);
     listen('moveend', () => {
       if (disposed || arrived) return;
+      isFlying = false;
       // A new easeTo emits the interrupted flight's moveend before its movestart.
       // Defer completion until that replacement has had a chance to cancel us.
       queueMicrotask(() => {
@@ -102,7 +125,7 @@
     internal = true;
     // Short hops interpolate monotonically; distant flights retain the native arc.
     const method = nearby ? 'easeTo' : 'flyTo';
-    map[method]({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding, duration, curve: 1.0, essential: false });
+    map[method]({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
     internal = false;
     // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);

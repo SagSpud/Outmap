@@ -4,6 +4,9 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
+const APP_VERSION = '1.4.5';
+window.OUTMAP_APP_VERSION = APP_VERSION;
+
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
 // 1. 全国 34 省级行政区中心、地理外包围盒 (按首字母拼音 A-Z 严格排序，含港澳台)
 const PROVINCES_DATA = {
@@ -673,6 +676,14 @@ async function initApplication() {
       titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
       titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
 
+      if (window.electronAPI && window.electronAPI.onOfflineScanProgress) {
+        window.electronAPI.onOfflineScanProgress(data => {
+          if (data && data.count) {
+            titleStat.innerText = `离线: 扫描中 (${formatTileCount(data.count)})`;
+          }
+        });
+      }
+
       titleStat.addEventListener('click', async () => {
         titleStat.innerText = '离线: 扫描中...';
         try {
@@ -700,7 +711,7 @@ async function initApplication() {
   let chinaBoundaryUrl = `http://127.0.0.1:${port}/china-boundary.json`;
 
   if (isWebMode) {
-    chinaBoundaryUrl = './china-boundary.json?v=1.3.0';
+    chinaBoundaryUrl = './china-boundary.json?v=' + APP_VERSION;
 
     // 默认高可用全球免 Key 在线 CDN (OpenFreeMap + Mapterhorn Terrarium DEM)
     // 零服务器依赖，全球 300+ 边缘节点毫秒级直连，任何设备浏览器开箱即用
@@ -767,7 +778,7 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
-    maxZoom: 20, // 限制最大缩放层级为 20 级（已达建筑物与店铺级高精度细节，杜绝 22 级无意义拉伸与显存浪费）
+    maxZoom: 18, // 限制最大缩放层级为 18 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
     fadeDuration: 180, // 标签跨瓦片层级交接时短暂渐变，避免整数层级硬切闪烁
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
@@ -2366,16 +2377,16 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    // 智能层级适配：省份 7.2，地级市 12.0，地标/建筑/小区/选点 14.8
-    let targetZoom = 14.8;
+    // 智能层级适配：省份 7.2，地级市 11.5，地标/建筑/小区/选点 13.5 (黄金适中视野，地貌路网通透清晰)
+    let targetZoom = 13.5;
     if (isProv) {
       targetZoom = item.zoom || 7.2;
     } else if (item.type === 'city') {
-      targetZoom = item.zoom || 12.0;
+      targetZoom = item.zoom || 11.5;
     } else if (item.type === 'waypoint') {
-      targetZoom = item.zoom || 14.8;
+      targetZoom = item.zoom || 13.5;
     } else if (typeof item.zoom === 'number') {
-      targetZoom = item.zoom;
+      targetZoom = Math.min(18, item.zoom);
     }
 
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
@@ -2632,9 +2643,20 @@ function getOfflineProvState() {
 function saveOfflineProvState(key, maxZ, details = {}) {
   const state = getOfflineProvState();
   const prev = state[key] || {};
+  const mergedLayers = {
+    ...(prev.layers || {}),
+    ...(details.layers || {})
+  };
+  if (details.dem !== undefined) {
+    mergedLayers.dem = { ...(mergedLayers.dem || {}), maxZ: Math.max(mergedLayers.dem?.maxZ || 0, maxZ) };
+  }
+  if (details.vec !== undefined) {
+    mergedLayers.vector = { ...(mergedLayers.vector || {}), maxZ: Math.max(mergedLayers.vector?.maxZ || 0, maxZ) };
+  }
   state[key] = {
     ...prev,
     ...details,
+    layers: Object.keys(mergedLayers).length > 0 ? mergedLayers : (prev.layers || undefined),
     maxZ: Math.max(prev.maxZ || 0, maxZ),
     updatedAt: Date.now()
   };
@@ -3075,12 +3097,27 @@ function setupPyramidModal(map) {
         return (pa.pinyin || pa.name).localeCompare(pb.pinyin || pb.name, 'zh-Hans-CN');
       });
 
+    const isLevelComplete = (s, z) => {
+      if (!s) return false;
+      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
+        return Boolean(s.layers.vector.levels[z].complete);
+      }
+      return (s.maxZ || 0) >= z;
+    };
+    const isLevelPartial = (s, z) => {
+      if (!s) return false;
+      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
+        return (s.layers.vector.levels[z].present || 0) > 0;
+      }
+      return (s.partialZ || s.maxZ || 0) >= z;
+    };
+
     sortedKeys.forEach(k => {
       const p = PROVINCES_DATA[k];
       const saved = offlineState[k];
       const maxZ = saved ? (saved.maxZ || 0) : 0;
-      const isFull = maxZ >= 14;
-      const isPartial = maxZ >= 10 && maxZ < 14;
+      const isFull = (maxZ >= 14) || [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z));
+      const isPartial = !isFull && ((saved?.partialZ >= 10) || (maxZ >= 10) || [10, 11, 12, 13, 14].some(z => isLevelPartial(saved, z)));
       const isDefaultChecked = (k === defaultKey);
 
       const label = document.createElement('label');
@@ -3113,8 +3150,9 @@ function setupPyramidModal(map) {
         badge.title = `${p.name}已完整下载全部层级 (L1-L14 全路网与POI)`;
       } else if (isPartial) {
         badge.className = 'prov-chip-badge partial';
-        badge.innerText = `L${maxZ}`;
-        badge.title = `${p.name}已就绪至 L${maxZ}，可扩充至 L14`;
+        const displayZ = Math.max(maxZ, saved?.partialZ || 0);
+        badge.innerText = displayZ >= 10 ? `L${displayZ}` : '部分';
+        badge.title = `${p.name}已就绪至 L${displayZ}，可扩充至 L14`;
       } else {
         badge.className = 'prov-chip-badge empty';
         badge.innerText = '未下载';
@@ -3179,6 +3217,21 @@ function setupPyramidModal(map) {
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
     const offlineState = getOfflineProvState();
 
+    const isLevelComplete = (s, z) => {
+      if (!s) return false;
+      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
+        return Boolean(s.layers.vector.levels[z].complete);
+      }
+      return (s.maxZ || 0) >= z;
+    };
+    const isLevelPartial = (s, z) => {
+      if (!s) return false;
+      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
+        return (s.layers.vector.levels[z].present || 0) > 0;
+      }
+      return (s.partialZ || s.maxZ || 0) >= z;
+    };
+
     // 1. 刷新各个层级卡片中的微光圆点 ● (绿色100%全量 / 蓝色部分下载 / 灰色未下载)
     [10, 11, 12, 13, 14].forEach(z => {
       const dot = document.getElementById(`zoom-dot-${z}`);
@@ -3187,24 +3240,14 @@ function setupPyramidModal(map) {
         let isPartialForZ = false;
 
         if (selectedKeys.length > 0) {
-          // 全部所选省份均达到该层级 100% 完整下载 (>=96% 理论切片)
-          isReadyForZ = selectedKeys.every(k => {
-            const s = offlineState[k];
-            return s && (s.maxZ || 0) >= z;
-          });
-
-          // 若未全部 100% 就绪，检查是否有部分切片已就绪 (5% ~ 95%)
+          isReadyForZ = selectedKeys.every(k => isLevelComplete(offlineState[k], z));
           if (!isReadyForZ) {
-            isPartialForZ = selectedKeys.some(k => {
-              const s = offlineState[k];
-              if (!s) return false;
-              return (s.maxZ || 0) >= z || (s.partialZ || 0) >= z;
-            });
+            isPartialForZ = selectedKeys.some(k => isLevelPartial(offlineState[k], z));
           }
         }
 
         dot.classList.toggle('ready', isReadyForZ);
-        dot.classList.toggle('partial', isPartialForZ);
+        dot.classList.toggle('partial', isPartialForZ && !isReadyForZ);
         dot.title = isReadyForZ
           ? `所选省份在 L${z} 已 100% 完整下载`
           : (isPartialForZ ? `所选省份在 L${z} 已部分下载 (可补齐)` : `所选省份在 L${z} 尚未下载`);
@@ -3440,17 +3483,17 @@ function setupPyramidModal(map) {
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)}`;
 
-      const provPrefix = data.currentProvince ? `[${data.currentProvince}] ` : '';
-      const targetZStr = data.currentZ ? ` (L${data.currentZ})` : ` (L${maxZ})`;
+      const provPrefix = data.currentProvince ? `[当前任务: ${data.currentProvince}${data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`}] ` : '';
+      const skippedPart = data.skippedCount ? ` · 已跳过: ${formatTileCount(data.skippedCount)}` : (data.existingCount ? ` · 已存在: ${formatTileCount(data.existingCount)}` : '');
       if (data.isIncrementalUpdate) {
         const unchanged = data.unchangedCount || 0;
         const updated = data.updatedCount || 0;
         const newlyAdded = data.newlyAddedCount || 0;
-        progressNum.innerText = `${provPrefix}增量更新${targetZStr}: ${countPart} (最新: ${formatTileCount(unchanged)} · 变动: ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐: ${formatTileCount(newlyAdded)}` : ''})`;
+        progressNum.innerText = `${provPrefix}增量更新: ${countPart} (最新: ${formatTileCount(unchanged)} · 变动: ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐: ${formatTileCount(newlyAdded)}` : ''})`;
       } else if (data.isVerify) {
-        progressNum.innerText = `${provPrefix}校验中${targetZStr}: ${countPart}`;
+        progressNum.innerText = `${provPrefix}校验中: ${countPart}${skippedPart}`;
       } else {
-        progressNum.innerText = `${provPrefix}正在下载${targetZStr}: ${countPart} (总进度 ${data.percent}%)`;
+        progressNum.innerText = `${provPrefix}正在下载: ${countPart} (总进度 ${data.percent}%)${skippedPart}`;
       }
       progressSpeed.innerText = `速度: ${data.speed} 片/秒`;
       progressPct.innerText = `${data.percent}%`;
@@ -3573,7 +3616,7 @@ function setupAppUpdate() {
     brandBtn?.removeAttribute('title');
     if (brandProgressBar) brandProgressBar.style.width = '0%';
 
-    let currentVer = '1.3.0';
+    let currentVer = APP_VERSION;
     if (window.electronAPI && window.electronAPI.getAppVersion) {
       try {
         currentVer = await window.electronAPI.getAppVersion();
@@ -3706,7 +3749,7 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       const payload = {
         syncKey: syncKey || 'default',
         data: {
-          version: '1.3.0',
+          version: APP_VERSION,
           syncedAt: new Date().toISOString(),
           favorites: JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]'),
           folders: JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]'),
@@ -3829,7 +3872,7 @@ function setupCloudSync(map) {
       const payload = {
         syncKey: key,
         data: {
-          version: '1.3.0',
+          version: APP_VERSION,
           syncedAt: new Date().toISOString(),
           favorites: mergedFavs,
           folders: mergedFolders,
@@ -4813,16 +4856,16 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const map = getMap();
     if (!map) return;
 
-    // 智能层级适配：省份 7.2，地级市 12.0，地标/收藏点/选点 14.8
-    let targetZoom = 14.8;
+    // 智能层级适配：省份 7.2，地级市 11.5，地标/收藏点/选点 13.5
+    let targetZoom = 13.5;
     if (Number.isFinite(item.zoom)) {
-      targetZoom = item.zoom;
+      targetZoom = Math.min(18, item.zoom);
     } else if (item.type === 'province') {
       targetZoom = 7.2;
     } else if (item.type === 'city') {
-      targetZoom = 12.0;
+      targetZoom = 11.5;
     } else if (item.type === 'waypoint') {
-      targetZoom = 14.8;
+      targetZoom = 13.5;
     }
 
     if (pointType === 'start') {
@@ -5089,7 +5132,6 @@ function renderViaList(mapInstance) {
   routeViaPoints.forEach((via, idx) => {
     const row = document.createElement('div');
     row.className = 'route-via-item';
-    row.setAttribute('draggable', 'true');
     row.dataset.index = idx;
 
     const isThisViaActingAsEnd = isLastViaActingAsEnd && idx === routeViaPoints.length - 1;
@@ -5104,7 +5146,7 @@ function renderViaList(mapInstance) {
         <div class="route-search-dropdown" style="display: none;"></div>
       </div>
       <button class="btn-via-del" title="删除该途径点">✕</button>
-      <div class="btn-drag-handle via-drag-handle" title="按住上下拖动调整顺序" draggable="true">⠿</div>
+      <div class="btn-drag-handle via-drag-handle" title="按住上下拖动调整顺序">⠿</div>
     `;
 
     const inputEl = row.querySelector('.via-name-input');
@@ -5356,6 +5398,21 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
 // 核心自动化多途径点规划与海拔剖面解算引擎
 let currentRouteRequestId = 0;
 
+// 寻找第一个文本/图标标注图层 (symbol 类型)，将路线置于标注文字之下，保证路名与地名清爽可见
+function findFirstRoadLabelLayerId(map) {
+  try {
+    const layers = map.getStyle()?.layers;
+    if (!layers) return undefined;
+    for (const layer of layers) {
+      if (layer.id.startsWith('outdoor-route-') || layer.id.startsWith('imported-track-')) continue;
+      if (layer.type === 'symbol') {
+        return layer.id;
+      }
+    }
+  } catch (e) {}
+  return undefined;
+}
+
 function renderRouteGeometry(map, pathCoords) {
   const routeGeojson = {
     type: 'Feature',
@@ -5365,8 +5422,16 @@ function renderRouteGeometry(map, pathCoords) {
     }
   };
 
+  const beforeLabelId = findFirstRoadLabelLayerId(map);
+
   if (map.getSource('outdoor-route-source')) {
     map.getSource('outdoor-route-source').setData(routeGeojson);
+    if (beforeLabelId) {
+      try {
+        if (map.getLayer('outdoor-route-casing')) map.moveLayer('outdoor-route-casing', beforeLabelId);
+        if (map.getLayer('outdoor-route-line')) map.moveLayer('outdoor-route-line', beforeLabelId);
+      } catch (e) {}
+    }
   } else {
     map.addSource('outdoor-route-source', {
       type: 'geojson',
@@ -5391,7 +5456,7 @@ function renderRouteGeometry(map, pathCoords) {
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.2, 10, 8.8, 14, 12.2],
         'line-opacity': 1.0
       }
-    });
+    }, beforeLabelId);
 
     // 2. Apple Maps 标志性原生高饱和纯实心翠绿路线丝带 (零透明度、零半透明外晕、零内嵌白条)
     map.addLayer({
@@ -5407,7 +5472,7 @@ function renderRouteGeometry(map, pathCoords) {
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.2, 10, 6.2, 14, 9.0],
         'line-opacity': 1.0
       }
-    });
+    }, beforeLabelId);
   }
 }
 
@@ -5613,7 +5678,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         const distKm = calculateDistanceKm(pA, pB);
         const steps = Math.max(5, Math.min(30, Math.round(distKm / 0.5)));
         const seg = [];
-        for (let k = 0; k < steps; k++) {
+        for (let k = 0; k <= steps; k++) {
           const t = k / steps;
           seg.push([pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t]);
         }
@@ -5660,7 +5725,11 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         let fallbackDist = 0;
         for (let i = 0; i < subPoints.length - 1; i++) {
           const g = getGeodesicSegment(subPoints[i].coords, subPoints[i + 1].coords);
-          fallbackCoords.push(...g.coords);
+          if (i === 0) {
+            fallbackCoords.push(...g.coords);
+          } else {
+            fallbackCoords.push(...g.coords.slice(1));
+          }
           fallbackDist += g.distKm;
         }
         return {
@@ -5687,14 +5756,23 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       let hasAnyRoad = false;
 
       subResults.forEach((res, rIdx) => {
-        mergedDistKm += res.distKm;
-        mergedDurationSec += res.durationSec;
+        if (!res || !res.coords || res.coords.length === 0) return;
+        mergedDistKm += res.distKm || 0;
+        mergedDurationSec += res.durationSec || 0;
         if (res.isRoad) hasAnyRoad = true;
 
-        if (rIdx === 0) {
+        if (rIdx === 0 || mergedCoords.length === 0) {
           mergedCoords.push(...res.coords);
         } else {
-          mergedCoords.push(...res.coords.slice(1));
+          const lastPt = mergedCoords[mergedCoords.length - 1];
+          const firstPt = res.coords[0];
+          const dLng = Math.abs(lastPt[0] - firstPt[0]);
+          const dLat = Math.abs(lastPt[1] - firstPt[1]);
+          if (dLng < 1e-5 && dLat < 1e-5) {
+            mergedCoords.push(...res.coords.slice(1));
+          } else {
+            mergedCoords.push(...res.coords);
+          }
         }
       });
 
@@ -5986,7 +6064,9 @@ function setupOutdoorRouteSystem(map) {
           exitRoutePickingMode();
         } else {
           addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
-          exitRoutePickingMode();
+          if (btnPickViaInline) {
+            btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${routeViaPoints.length})</span>`;
+          }
         }
       }
     }

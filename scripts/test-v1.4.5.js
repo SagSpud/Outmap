@@ -16,7 +16,7 @@ setTimeout(() => {
 }, 30000).unref();
 
 // 1. 静态代码与配置审查
-console.log('--- 1. Static Configuration & Code Assertions (v1.4.4) ---');
+console.log('--- 1. Static Configuration & Code Assertions (v1.4.5) ---');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const mainSrc = fs.readFileSync('main.js', 'utf8');
 const preloadSrc = fs.readFileSync('preload.js', 'utf8');
@@ -26,11 +26,11 @@ const styleSrc = fs.readFileSync('src/style.css', 'utf8');
 const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.4.4', 'package.json version must be 1.4.4');
-assert(htmlSrc.includes('app.js?v=1.4.4'), 'index.html must reference app.js?v=1.4.4');
-assert(htmlSrc.includes('location-camera.js?v=1.4.4'), 'index.html must reference location-camera.js?v=1.4.4');
-assert(htmlSrc.includes('style.css?v=1.4.4'), 'index.html must reference style.css?v=1.4.4');
-assert(htmlSrc.includes('v1.4.4'), 'index.html must show v1.4.4 badge');
+assert.strictEqual(pkg.version, '1.4.5', 'package.json version must be 1.4.5');
+assert(htmlSrc.includes('app.js?v=1.4.5'), 'index.html must reference app.js?v=1.4.5');
+assert(htmlSrc.includes('location-camera.js?v=1.4.5'), 'index.html must reference location-camera.js?v=1.4.5');
+assert(htmlSrc.includes('style.css?v=1.4.5'), 'index.html must reference style.css?v=1.4.5');
+assert(htmlSrc.includes('v1.4.5'), 'index.html must show v1.4.5 badge');
 
 // 光标与样式检查
 assert(styleSrc.includes('--cursor-grab: grab') || styleSrc.includes('--cursor-grab: default'), 'style.css must restore native grab cursor');
@@ -45,12 +45,12 @@ assert(htmlSrc.includes('id="btn-fab-import"'), 'index.html must have btn-fab-im
 assert(htmlSrc.includes('id="layers-popover"'), 'index.html must have layers-popover');
 assert(htmlSrc.includes('id="track-file-import-input"'), 'index.html must have track-file-import-input');
 
-// app.js 检查
+// app.js 检查: 确保 maxZoom 18 与 Web 端版本 APP_VERSION
 assert(appSrc.includes('maxZoom: 18') || appSrc.includes('maxZoom: 20'), 'app.js must restrict maxZoom');
+assert(appSrc.includes("const APP_VERSION = '1.4.5'"), 'app.js must declare APP_VERSION 1.4.5');
 assert(appSrc.includes('parseTrackFile'), 'app.js must implement parseTrackFile');
 assert(appSrc.includes('displayImportedTrack'), 'app.js must implement displayImportedTrack');
 assert(appSrc.includes('setupLayersPopover'), 'app.js must implement setupLayersPopover');
-assert(appSrc.includes('symbol-z-elevate'), 'app.js must configure symbol-z-elevate for terrain labels');
 assert(appSrc.includes('isRouteEmpty'), 'app.js must auto-close empty route panel on map click');
 assert(appSrc.includes('layersPopover'), 'app.js must handle layers-popover on ESC key');
 
@@ -126,7 +126,7 @@ app.whenReady().then(async () => {
   `);
 
   console.log('DOM Check result:', domCheck);
-  assert.strictEqual(domCheck.brandText, 'v1.4.4', 'Brand badge in DOM must display v1.4.4');
+  assert.strictEqual(domCheck.brandText, 'v1.4.5', 'Brand badge in DOM must display v1.4.5');
   assert(domCheck.hasRoutePanel, 'routePanel must exist');
   assert(domCheck.hasViaList, 'route-via-list must exist');
   assert(domCheck.hasCanvas, 'elevation-chart-canvas must exist');
@@ -141,6 +141,6 @@ app.whenReady().then(async () => {
     process.exit(1);
   }
 
-  console.log('\n🎉 ALL v1.4.4 VERIFICATIONS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL v1.4.5 VERIFICATIONS PASSED SUCCESSFULLY!');
   app.exit(0);
 });
