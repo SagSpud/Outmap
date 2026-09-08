@@ -462,7 +462,7 @@ html, body {
   transform: translateX(0);
 }
 
-/* 蓝色圆点标志 (后台下载中静态蓝点指示，无需呼吸闪动) */
+/* 离线下载状态圆点指示：正在下载显示静默蓝点，下载完成显示绿点，未下载不显示 */
 .dl-live-blue-dot {
   position: absolute;
   top: -2px;
@@ -475,6 +475,13 @@ html, body {
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.5);
   pointer-events: none;
   z-index: 10;
+  transition: background-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* 下载完成状态：绿色圆点 */
+.dl-live-blue-dot.completed {
+  background-color: #16a34a !important;
+  box-shadow: 0 1px 4px rgba(22, 163, 74, 0.6) !important;
 }
 
 /* 高程滑块胶囊 (加长滑块长度，细腻微调3D高程) */

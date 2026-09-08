@@ -2058,14 +2058,18 @@ function setupPyramidModal(map) {
   if (!modal || !btnOpen) return;
 
   const dlBlueDot = document.getElementById('dl-live-blue-dot');
-  let isOfflineDownloading = false;
+  let downloadDotState = 'idle'; // 'idle' (无标注) | 'downloading' (正在下载，蓝点) | 'completed' (下载完成，绿点)
 
   const updateBtnTooltip = () => {
     const isExpanded = btnOpen.classList.contains('expanded');
-    if (isOfflineDownloading) {
+    if (downloadDotState === 'downloading') {
       btnOpen.title = isExpanded
         ? '离线地图下载 (后台正在下载... 点击收起)'
         : '离线地图下载 (后台正在下载... 点击展开)';
+    } else if (downloadDotState === 'completed') {
+      btnOpen.title = isExpanded
+        ? '离线地图下载 (全部已就绪 · 点击收起)'
+        : '离线地图下载 (全部已就绪 · 点击展开查看)';
     } else {
       btnOpen.title = isExpanded
         ? '离线地图下载 (点击收起)'
@@ -2073,10 +2077,20 @@ function setupPyramidModal(map) {
     }
   };
 
-  const setDownloadLiveState = (active) => {
-    isOfflineDownloading = !!active;
-    if (dlBlueDot) {
-      dlBlueDot.style.display = active ? 'block' : 'none';
+  const setDownloadDotState = (state) => {
+    downloadDotState = state;
+    if (!dlBlueDot) return;
+    if (state === 'downloading') {
+      dlBlueDot.style.display = 'block';
+      dlBlueDot.classList.remove('completed');
+      dlBlueDot.title = '后台正在下载离线瓦片...';
+    } else if (state === 'completed') {
+      dlBlueDot.style.display = 'block';
+      dlBlueDot.classList.add('completed');
+      dlBlueDot.title = '离线瓦片已全部下载完成';
+    } else {
+      dlBlueDot.style.display = 'none';
+      dlBlueDot.classList.remove('completed');
     }
     updateBtnTooltip();
   };
@@ -2418,6 +2432,7 @@ function setupPyramidModal(map) {
   });
 
   btnDone?.addEventListener('click', () => {
+    setDownloadDotState('idle');
     closePyramidModal();
   });
 
@@ -2436,7 +2451,7 @@ function setupPyramidModal(map) {
 
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
 
-    setDownloadLiveState(true);
+    setDownloadDotState('downloading');
     btnStart.style.display = 'none';
     btnCancel.style.display = 'inline-block';
     if (btnRetry) btnRetry.style.display = 'none';
@@ -2456,7 +2471,7 @@ function setupPyramidModal(map) {
           isVerify
         });
       } catch (err) {
-        setDownloadLiveState(false);
+        setDownloadDotState('idle');
         progressNum.innerText = `下载遇到异常: ${err.message}`;
       }
     }
@@ -2467,7 +2482,7 @@ function setupPyramidModal(map) {
 
   // 中止下载
   btnCancel.addEventListener('click', async () => {
-    setDownloadLiveState(false);
+    setDownloadDotState('idle');
     if (window.electronAPI && window.electronAPI.cancelPyramidDownload) {
       await window.electronAPI.cancelPyramidDownload();
     }
@@ -2494,8 +2509,8 @@ function setupPyramidModal(map) {
       progressSpeed.innerText = `速度: ${data.speed} 片/秒`;
       progressPct.innerText = `${data.percent}%`;
 
-      if (!data.done && !isOfflineDownloading) {
-        setDownloadLiveState(true);
+      if (!data.done && downloadDotState !== 'downloading') {
+        setDownloadDotState('downloading');
       }
 
       // 关键：下载过程中实时联动刷新顶栏切片数与磁盘体积！
@@ -2506,7 +2521,7 @@ function setupPyramidModal(map) {
       }
 
       if (data.done) {
-        setDownloadLiveState(false);
+        setDownloadDotState('completed');
         const selectedKeys = getSelectedKeys();
         selectedKeys.forEach(k => {
           saveOfflineProvState(k, maxZ, { dem: chkDem.checked, vec: chkVec.checked });
