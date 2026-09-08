@@ -2891,6 +2891,7 @@ function setupPyramidModal(map) {
   const btnDone = document.getElementById('btn-done-dl');
   const progressBox = document.getElementById('dl-progress-box');
   const progressFill = document.getElementById('dl-progress-fill');
+  const progressTask = document.getElementById('dl-progress-task');
   const progressNum = document.getElementById('dl-progress-num');
   const progressSpeed = document.getElementById('dl-progress-speed');
   const progressPct = document.getElementById('dl-progress-pct');
@@ -3490,7 +3491,9 @@ function setupPyramidModal(map) {
     btnCancel.style.display = 'none';
     if (btnRetry) btnRetry.style.display = 'none';
     if (btnUpdate) btnUpdate.style.display = 'none';
-    progressNum.innerText = '已中止下载';
+    if (progressTask) progressTask.innerText = '已中止下载';
+    progressNum.innerText = '下载已停止';
+    progressSpeed.innerText = '';
   });
 
   // 监听后台批量下载进度广播与完成落盘
@@ -3498,21 +3501,34 @@ function setupPyramidModal(map) {
     window.electronAPI.onDownloadProgress(data => {
       progressFill.style.width = `${data.percent}%`;
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
-      const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)}`;
+      const provName = data.currentProvince || '目标省份';
+      const zStr = data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`;
 
-      const provPrefix = data.currentProvince ? `[当前任务: ${data.currentProvince}${data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`}] ` : '';
-      const skippedPart = data.skippedCount ? ` · 已跳过: ${formatTileCount(data.skippedCount)}` : (data.existingCount ? ` · 已存在: ${formatTileCount(data.existingCount)}` : '');
+      if (progressTask) {
+        if (data.isIncrementalUpdate) {
+          progressTask.innerText = `⚡ 增量更新: ${provName}${zStr}`;
+        } else if (data.isVerify) {
+          progressTask.innerText = `🔍 正在校验: ${provName}${zStr}`;
+        } else {
+          progressTask.innerText = `📥 正在下载: ${provName}${zStr}`;
+        }
+      }
+
+      const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)} 瓦片`;
+      let detail = countPart;
       if (data.isIncrementalUpdate) {
         const unchanged = data.unchangedCount || 0;
         const updated = data.updatedCount || 0;
         const newlyAdded = data.newlyAddedCount || 0;
-        progressNum.innerText = `${provPrefix}增量更新: ${countPart} (最新: ${formatTileCount(unchanged)} · 变动: ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐: ${formatTileCount(newlyAdded)}` : ''})`;
-      } else if (data.isVerify) {
-        progressNum.innerText = `${provPrefix}校验中: ${countPart}${skippedPart}`;
-      } else {
-        progressNum.innerText = `${provPrefix}正在下载: ${countPart} (总进度 ${data.percent}%)${skippedPart}`;
+        detail = `${countPart} (最新 ${formatTileCount(unchanged)} · 更新 ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐 ${formatTileCount(newlyAdded)}` : ''})`;
+      } else if (data.existingCount) {
+        detail = `${countPart} (已就绪 ${formatTileCount(data.existingCount)})`;
+      } else if (data.skippedCount) {
+        detail = `${countPart} (已跳过 ${formatTileCount(data.skippedCount)})`;
       }
-      progressSpeed.innerText = `速度: ${data.speed} 片/秒`;
+
+      progressNum.innerText = detail;
+      progressSpeed.innerText = data.speed > 0 ? `${data.speed.toLocaleString()} 片/秒` : '';
       progressPct.innerText = `${data.percent}%`;
 
       if (!data.done && downloadDotState !== 'downloading') {
@@ -3528,6 +3544,10 @@ function setupPyramidModal(map) {
 
       if (data.done) {
         setDownloadDotState('completed');
+        if (progressTask) {
+          progressTask.innerText = data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪';
+        }
+        progressSpeed.innerText = '';
         const selectedKeys = getSelectedKeys();
         selectedKeys.forEach(k => {
           saveOfflineProvState(k, maxZ, { dem: chkDem.checked, vec: chkVec.checked });

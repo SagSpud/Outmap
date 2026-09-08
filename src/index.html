@@ -564,15 +564,18 @@
               </div>
             </div>
 
-            <!-- 实时下载进度条与状态 -->
+            <!-- 实时下载进度条与状态 (清晰三段式：任务与百分比/进度条/瓦片明细与速率) -->
             <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
+              <div class="dl-progress-header">
+                <span class="dl-progress-task" id="dl-progress-task">准备中...</span>
+                <span class="dl-progress-pct" id="dl-progress-pct">0%</span>
+              </div>
               <div class="progress-bar-wrap">
                 <div class="progress-bar-fill" id="dl-progress-fill" style="width: 0%;"></div>
               </div>
-              <div class="progress-text-row">
-                <span id="dl-progress-num">进度: 0 / 0</span>
-                <span id="dl-progress-speed">0 片/秒</span>
-                <span id="dl-progress-pct">0%</span>
+              <div class="dl-progress-footer">
+                <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
+                <span class="dl-progress-speed" id="dl-progress-speed">0 片/秒</span>
               </div>
             </div>
           </div>
