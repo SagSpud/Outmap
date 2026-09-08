@@ -507,6 +507,7 @@ let updatePitchLockFn = null;
 
 let provinceMarkers = [];
 let cityMarkers = [];
+let currentLandingMarker = null;
 let localServerPort = 28795;
 
 // 离线瓦片计数格式化 (支持中文“万/亿”与体积清晰表达，彻底消除 200k 与 200KB 的误解)
@@ -1573,7 +1574,7 @@ async function queryLocationCandidates(keyword) {
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       icon: '🎯',
-      zoom: 15.0
+      zoom: 14.8
     }];
   }
 
@@ -1631,7 +1632,7 @@ async function queryLocationCandidates(keyword) {
           coords: [Number(wp.lng), Number(wp.lat)],
           icon: '⭐',
           type: 'waypoint',
-          zoom: 15.0,
+          zoom: 14.8,
           _score: 1
         });
       }
@@ -1641,25 +1642,50 @@ async function queryLocationCandidates(keyword) {
   // 按相关度评分排序
   localMatches.sort((a, b) => (a._score || 9) - (b._score || 9));
 
-  // 6. 【极速 0ms 直出】：若本地中国城市/山峰/省份/收藏已有精确匹配，直接秒级返回，绝不等待海外网络！
+  // 6. 【极速 0ms 直出】：若本地中国城市/省份/收藏已有精确匹配，直接秒级返回，绝不等待海外网络！
   if (localMatches.length > 0 && localMatches[0]._score <= 2) {
     return localMatches.slice(0, 16);
   }
 
   // 7. 仅在本地无精确匹配时，按需请求在线高精地理编码，且【严格限定仅搜索中国境内】
   try {
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 900); // 严格 900ms 快速超时，杜绝长时间假死
+    let geojson = null;
 
-    const onlineUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
-    const resp = await fetch(onlineUrl, {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'Outmap/1.0' }
-    });
+    // 优先使用 Electron 原生 IPC 直通检索 (免除渲染进程跨域限制与端口依赖，自带 8GB 堆内存切片缓存)
+    if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.searchLocation === 'function') {
+      try {
+        geojson = await window.electronAPI.searchLocation(raw);
+      } catch (ipcErr) {}
+    }
 
-    if (resp.ok) {
-      const geojson = await resp.json();
-      if (geojson && geojson.features) {
+    if (!geojson) {
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 6500);
+
+      const isDesktop = typeof window !== 'undefined' && Boolean(window.electronAPI);
+      const onlineUrl = isDesktop
+        ? `http://127.0.0.1:${localServerPort}/search?q=${encodeURIComponent(raw)}`
+        : `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+
+      let resp;
+      try {
+        resp = await fetch(onlineUrl, { signal: ctrl.signal });
+      } catch (netErr) {
+        if (isDesktop && !ctrl.signal.aborted) {
+          // 本地代理不可达时平滑回退直接连接
+          resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`, { signal: ctrl.signal });
+        } else {
+          throw netErr;
+        }
+      }
+
+      if (resp && resp.ok) {
+        geojson = await resp.json();
+      }
+    }
+
+    if (geojson && geojson.features) {
+
         geojson.features.forEach(f => {
           const p = f.properties;
           const coords = f.geometry.coordinates;
@@ -1712,17 +1738,16 @@ async function queryLocationCandidates(keyword) {
               coords: [lng, lat],
               icon,
               type,
-              zoom: 15.0
+              zoom: 14.8
             });
           }
         });
       }
+    } catch (e) {
+      // 离线或超时平滑回退本地结果
     }
 
-    clearTimeout(timeoutId);
-  } catch (e) {
-    // 离线或超时平滑回退本地结果
-  }
+
 
   return localMatches.slice(0, 16);
 }
@@ -1731,7 +1756,6 @@ if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
-// 自动触发地形高程重对齐与渲染微刷新
 // 自动触发地形高程重对齐与渲染微刷新 (纯 WebGL 硬件重绘，0ms 物理抖动，彻底杜绝屏幕跳动与微震)
 function triggerTerrainRealign(map) {
   if (!map) return;
@@ -1743,30 +1767,41 @@ window.triggerTerrainRealign = triggerTerrainRealign;
 
 // 全局路网标记与图钉高程重对齐系统：杜绝高原/山地异步 DEM 加载后标记点被埋入地底
 function refreshAllRouteMarkersElevation(map) {
-  const m = map || currentOutdoorMap;
-  if (!m) return;
-  const markers = [];
-  if (routeStartMarker) markers.push(routeStartMarker);
-  if (routeEndMarker) markers.push(routeEndMarker);
-  if (Array.isArray(routeViaPoints)) {
-    routeViaPoints.forEach(v => {
-      if (v && v.marker) markers.push(v.marker);
+  try {
+    const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
+    if (!m) return;
+    const markers = [];
+    if (typeof routeStartMarker !== 'undefined' && routeStartMarker) markers.push(routeStartMarker);
+    if (typeof routeEndMarker !== 'undefined' && routeEndMarker) markers.push(routeEndMarker);
+    if (typeof routeViaPoints !== 'undefined' && Array.isArray(routeViaPoints)) {
+      routeViaPoints.forEach(v => {
+        if (v && v.marker) markers.push(v.marker);
+      });
+    }
+    if (typeof currentLandingMarker !== 'undefined' && currentLandingMarker) {
+      markers.push(currentLandingMarker);
+    }
+
+    markers.forEach(marker => {
+      try {
+        const pos = marker.getLngLat();
+        if (pos) {
+          marker.setLngLat(pos);
+          if (typeof marker._update === 'function') {
+            marker._update();
+          }
+        }
+      } catch (e) {}
     });
-  }
-  if (currentLandingMarker) markers.push(currentLandingMarker);
 
-  markers.forEach(marker => {
-    try {
-      const pos = marker.getLngLat();
-      if (pos) {
-        marker.setLngLat(pos);
-      }
-    } catch (e) {}
-  });
+    if (typeof syncRouteMarkersVisualState === 'function') {
+      syncRouteMarkersVisualState(m);
+    }
 
-  if (typeof m.triggerRepaint === 'function') {
-    m.triggerRepaint();
-  }
+    if (typeof m.triggerRepaint === 'function') {
+      try { m.triggerRepaint(); } catch (e) {}
+    }
+  } catch (err) {}
 }
 window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
 
@@ -1778,7 +1813,7 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const lat = Number(targetCoords[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-  const zoom = Number.isFinite(options.zoom) ? options.zoom : 15.0;
+  const zoom = Number.isFinite(options.zoom) ? options.zoom : 14.8;
   const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
   const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() || 0);
   const centered = Boolean(options.centered);
@@ -1803,13 +1838,9 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
 
   // 视口安全内边距配置 (Padding 系统：让目标点在整个飞行过程中始终稳居黄金视觉中心，图层随之平滑旋转缩放，彻底消除中途漂移与落地跳动)
   const topPadding = 46;
-  let bottomPadding = 0;
+  let bottomPadding = 46;
   if (bottomCover > 0) {
-    bottomPadding = Math.min(Math.round(window.innerHeight * 0.7), Math.round(bottomCover) + 24);
-  } else if (!centered) {
-    // 留出上方信息卡片 (约 160px) 的视口舒适净空间
-    const screenH = typeof window !== 'undefined' ? window.innerHeight : 720;
-    bottomPadding = Math.max(120, Math.min(180, Math.round(screenH * 0.22)));
+    bottomPadding = Math.min(Math.round(window.innerHeight * 0.65), Math.round(bottomCover) + 20);
   }
 
   const cameraPadding = {
@@ -2106,11 +2137,11 @@ function setupOfficeHeaderInteractions(map) {
   let currentSearchQuery = '';
   let searchRequestSequence = 0;
   let searchDebounceTimer = null;
-  let currentLandingMarker = null;
+  currentLandingMarker = null;
 
   const clearLandingMarker = () => {
     if (currentLandingMarker) {
-      currentLandingMarker.remove();
+      try { currentLandingMarker.remove(); } catch (e) {}
       currentLandingMarker = null;
     }
   };
@@ -2208,28 +2239,8 @@ function setupOfficeHeaderInteractions(map) {
     const validCoords = [lng, lat];
 
     if (currentLandingMarker) {
-      currentLandingMarker.remove();
+      try { currentLandingMarker.remove(); } catch (e) {}
       currentLandingMarker = null;
-    }
-
-    // 关键：在 3D 地形下，若当前相机 elevation 与目标地面真实海拔脱节（例如刚从全国总览起飞，elevation 残留为西部 4167m），
-    // 强制同步 map.transform.elevation 为目标位置真实物理海拔，杜绝 472px 偏差导致的落点出界/卡片丢失！
-    if (map && map.transform) {
-      let targetEle = 0;
-      if (map.terrain && typeof map.terrain.getElevationForLngLatZoom === 'function') {
-        targetEle = map.terrain.getElevationForLngLatZoom(
-          new maplibregl.LngLat(validCoords[0], validCoords[1]),
-          map.transform._helper?._tileZoom || 12
-        ) || 0;
-      }
-      if (!targetEle && typeof getRealElevation === 'function') {
-        targetEle = getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0;
-      }
-      try {
-        map.transform.elevation = targetEle;
-        if (map.transform._helper) map.transform._helper._elevation = targetEle;
-        if (typeof map.transform._calcMatrices === 'function') map.transform._calcMatrices();
-      } catch (e) {}
     }
 
     const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
@@ -2320,13 +2331,13 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-    // 点击图钉重新飞到此处自适应居中 (zoom 14.5)
+    // 点击图钉重新飞到此处自适应居中 (zoom 14.8)
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() || 50;
-        flyToLocationPrecisely(map, validCoords, { zoom: 14.5, pitch: curPitch, duration: 600 });
+        flyToLocationPrecisely(map, validCoords, { zoom: 14.8, pitch: curPitch, duration: 600 });
       });
     }
 
@@ -2410,14 +2421,14 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    // 智能层级适配：省份 7.2，地级市 12.0，地标/建筑/小区/选点 15.0
-    let targetZoom = 15.0;
+    // 智能层级适配：省份 7.2，地级市 12.0，地标/建筑/小区/选点 14.8
+    let targetZoom = 14.8;
     if (isProv) {
       targetZoom = item.zoom || 7.2;
     } else if (item.type === 'city') {
       targetZoom = item.zoom || 12.0;
     } else if (item.type === 'waypoint') {
-      targetZoom = item.zoom || 15.0;
+      targetZoom = item.zoom || 14.8;
     } else if (typeof item.zoom === 'number') {
       targetZoom = item.zoom;
     }
@@ -4311,7 +4322,7 @@ function setupWaypointAndFavoritesSystem(map) {
     btnFabPoint.addEventListener('click', () => {
       isPickingPoint = !isPickingPoint;
       btnFabPoint.classList.toggle('active', isPickingPoint);
-      map.getCanvas().style.cursor = isPickingPoint ? 'crosshair' : '';
+      map.getCanvas().style.cursor = isPickingPoint ? 'var(--cursor-crosshair)' : '';
       if (isPickingPoint) {
         if (wpModal) wpModal.style.display = 'none';
       }
@@ -4763,7 +4774,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     } else {
       pickingRoutePt = pointType;
     }
-    if (map) map.getCanvas().style.cursor = 'crosshair';
+    if (map) map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
     document.body.classList.add('picking-mode');
   };
 
@@ -4775,8 +4786,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const map = getMap();
     if (!map) return;
 
-    // 智能层级适配：省份 7.2，地级市 12.0，地标/收藏点/选点 15.0
-    let targetZoom = 15.0;
+    // 智能层级适配：省份 7.2，地级市 12.0，地标/收藏点/选点 14.8
+    let targetZoom = 14.8;
     if (Number.isFinite(item.zoom)) {
       targetZoom = item.zoom;
     } else if (item.type === 'province') {
@@ -4784,7 +4795,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     } else if (item.type === 'city') {
       targetZoom = 12.0;
     } else if (item.type === 'waypoint') {
-      targetZoom = 15.0;
+      targetZoom = 14.8;
     }
 
     if (pointType === 'start') {
@@ -4799,12 +4810,14 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         via.zoom = targetZoom;
         if (via.marker) {
           via.marker.setLngLat(item.coords);
+          if (typeof via.marker._update === 'function') via.marker._update();
         } else {
           const el = document.createElement('div');
-          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+          el.className = 'route-via-marker-pin';
+          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            flyToLocationPrecisely(map, item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() || 50, duration: 600 });
+            flyToLocationPrecisely(map, via.coords || item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() || 50, duration: 600 });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
@@ -4812,6 +4825,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         }
         renderViaList(map);
         autoPlanMultiPointRoute(map);
+        syncRouteMarkersVisualState(map);
       }
     }
 
@@ -4902,6 +4916,33 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const seq = ++requestSequence;
     if (!val) {
       hideRouteFloatingDropdown();
+      const map = getMap();
+      if (pointType === 'start') {
+        routeStartCoord = null;
+        routeStartName = '';
+        if (routeStartMarker) { routeStartMarker.remove(); routeStartMarker = null; }
+        if (map) autoPlanMultiPointRoute(map);
+      } else if (pointType === 'end') {
+        routeEndCoord = null;
+        routeEndName = '';
+        if (routeEndMarker) { routeEndMarker.remove(); routeEndMarker = null; }
+        if (map) {
+          syncRouteMarkersVisualState(map);
+          renderViaList(map);
+          autoPlanMultiPointRoute(map);
+        }
+      } else if (pointType === 'via' && viaIndex !== null && routeViaPoints[viaIndex]) {
+        routeViaPoints[viaIndex].coords = null;
+        routeViaPoints[viaIndex].name = '';
+        if (routeViaPoints[viaIndex].marker) {
+          routeViaPoints[viaIndex].marker.remove();
+          routeViaPoints[viaIndex].marker = null;
+        }
+        if (map) {
+          syncRouteMarkersVisualState(map);
+          autoPlanMultiPointRoute(map);
+        }
+      }
       return;
     }
     searchTimer = setTimeout(async () => {
@@ -4982,6 +5023,28 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   });
 }
 
+// 同步更新地图上途径点与起终点的视觉表现 (若无终点，最后途径点自动显示红“终”)
+function syncRouteMarkersVisualState(mapInstance) {
+  const m = mapInstance || (typeof currentOutdoorMap !== 'undefined' ? currentOutdoorMap : null);
+  const isLastViaActingAsEnd = !routeEndCoord && routeViaPoints.length > 0;
+  routeViaPoints.forEach((v, idx) => {
+    if (!v.marker) return;
+    const el = v.marker.getElement();
+    if (!el) return;
+    const isEnd = isLastViaActingAsEnd && idx === routeViaPoints.length - 1;
+    if (isEnd) {
+      el.style.background = '#ef4444';
+      el.innerText = '终';
+      el.title = `路线终点（${v.name || '最后一个途径点'}）`;
+    } else {
+      el.style.background = '#0284c7';
+      el.innerText = idx + 1;
+      el.title = `途径点 ${idx + 1}`;
+    }
+  });
+}
+window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
+
 // 渲染途径点列表 (支持拼音/汉字回车搜索、地图定位、删除以及上下拖动手柄排序)
 function renderViaList(mapInstance) {
   const map = mapInstance || currentOutdoorMap;
@@ -4989,14 +5052,21 @@ function renderViaList(mapInstance) {
   if (!container) return;
   container.innerHTML = '';
 
+  const isLastViaActingAsEnd = !routeEndCoord && routeViaPoints.length > 0;
+
   routeViaPoints.forEach((via, idx) => {
     const row = document.createElement('div');
     row.className = 'route-via-item';
     row.setAttribute('draggable', 'true');
     row.dataset.index = idx;
 
+    const isThisViaActingAsEnd = isLastViaActingAsEnd && idx === routeViaPoints.length - 1;
+    const tagHtml = isThisViaActingAsEnd
+      ? `<span class="pt-tag end" style="background:#ef4444;" title="终点（当前路线终点，点击定位）">终</span>`
+      : `<span class="pt-tag via" title="途径点 ${idx + 1}（点击定位）">${idx + 1}</span>`;
+
     row.innerHTML = `
-      <span class="pt-tag via" title="途径点 ${idx + 1}">${idx + 1}</span>
+      ${tagHtml}
       <div class="route-input-wrap">
         <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
         <div class="route-search-dropdown" style="display: none;"></div>
@@ -5009,13 +5079,13 @@ function renderViaList(mapInstance) {
     const dropdownEl = row.querySelector('.route-search-dropdown');
     const delBtn = row.querySelector('.btn-via-del');
     const dragHandle = row.querySelector('.via-drag-handle');
-    const tagEl = row.querySelector('.pt-tag.via');
+    const tagEl = row.querySelector('.pt-tag');
 
     if (tagEl && via.coords) {
       tagEl.style.cursor = 'pointer';
       tagEl.addEventListener('click', () => {
         if (map && via.coords) {
-          flyToLocationPrecisely(map, via.coords, { zoom: via.zoom || 15.0, pitch: map.getPitch() || 50, duration: 600 });
+          flyToLocationPrecisely(map, via.coords, { zoom: via.zoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
         }
       });
     }
@@ -5063,12 +5133,7 @@ function renderViaList(mapInstance) {
       if (draggedViaIndex !== null && draggedViaIndex !== idx) {
         const [moved] = routeViaPoints.splice(draggedViaIndex, 1);
         routeViaPoints.splice(idx, 0, moved);
-        // 更新所有途径点 marker 上的数字
-        routeViaPoints.forEach((v, i) => {
-          if (v.marker && v.marker.getElement()) {
-            v.marker.getElement().innerText = i + 1;
-          }
-        });
+        syncRouteMarkersVisualState(map);
         renderViaList(map);
         autoPlanMultiPointRoute(map);
       }
@@ -5102,11 +5167,7 @@ function renderViaList(mapInstance) {
         if (!isNaN(toIndex) && toIndex !== idx) {
           const [moved] = routeViaPoints.splice(idx, 1);
           routeViaPoints.splice(toIndex, 0, moved);
-          routeViaPoints.forEach((v, i) => {
-            if (v.marker && v.marker.getElement()) {
-              v.marker.getElement().innerText = i + 1;
-            }
-          });
+          syncRouteMarkersVisualState(map);
           renderViaList(map);
           autoPlanMultiPointRoute(map);
         }
@@ -5116,6 +5177,8 @@ function renderViaList(mapInstance) {
 
     container.appendChild(row);
   });
+
+  syncRouteMarkersVisualState(map);
 }
 
 // 添加途径点并自动刷新规划
@@ -5123,11 +5186,12 @@ function addViaPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   const idx = routeViaPoints.length + 1;
-  const targetZoom = Number.isFinite(zoom) ? zoom : 15.0;
+  const targetZoom = Number.isFinite(zoom) ? zoom : 14.8;
   let marker = null;
   if (coords && m) {
     const el = document.createElement('div');
-    el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+    el.className = 'route-via-marker-pin';
+    el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
     el.innerText = idx;
     el.addEventListener('click', () => {
       const curPitch = m.getPitch() || 50;
@@ -5149,6 +5213,7 @@ function addViaPoint(map, coords, label, zoom = null) {
   });
 
   renderViaList(m);
+  syncRouteMarkersVisualState(m);
   closeConflictingBottomPanels('route-panel');
   const routePanel = document.getElementById('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
@@ -5167,14 +5232,8 @@ function removeViaPoint(map, index) {
     }
     routeViaPoints.splice(index, 1);
 
-    // 重新排序更新途径点标签序号
-    routeViaPoints.forEach((v, i) => {
-      if (v.marker && v.marker.getElement()) {
-        v.marker.getElement().innerText = i + 1;
-      }
-    });
-
     renderViaList(m);
+    syncRouteMarkersVisualState(m);
     if (m) autoPlanMultiPointRoute(m);
   }
 }
@@ -5193,12 +5252,12 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
   if (startInput) startInput.value = routeStartName;
   if (routeStartMarker) routeStartMarker.remove();
   const el = document.createElement('div');
-  el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+  el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
   el.innerText = '起';
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: routeStartZoom || 15.0, pitch: curPitch, duration: 600 });
+      flyToLocationPrecisely(m, coords, { zoom: routeStartZoom || 14.8, pitch: curPitch, duration: 600 });
     }
   });
   if (m) {
@@ -5223,17 +5282,19 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
   if (endInput) endInput.value = routeEndName;
   if (routeEndMarker) routeEndMarker.remove();
   const el = document.createElement('div');
-  el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+  el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
   el.innerText = '终';
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      flyToLocationPrecisely(m, coords, { zoom: routeEndZoom || 15.0, pitch: curPitch, duration: 600 });
+      flyToLocationPrecisely(m, coords, { zoom: routeEndZoom || 14.8, pitch: curPitch, duration: 600 });
     }
   });
   if (m) {
     routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
   }
+  renderViaList(m);
+  syncRouteMarkersVisualState(m);
   closeConflictingBottomPanels('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
   if (m) autoPlanMultiPointRoute(m);
@@ -5436,6 +5497,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     ordered.push({ coords: lastVia.coords, role: 'end', name: lastVia.name, index: validVias.length });
   }
 
+  syncRouteMarkersVisualState(map);
+
   const statsBox = document.getElementById('route-stats-box');
   const chartSection = document.getElementById('route-chart-section');
   const distEl = document.getElementById('stat-route-dist');
@@ -5586,6 +5649,34 @@ function setupOutdoorRouteSystem(map) {
 
   currentOutdoorMap = map;
 
+  // 起终点标签点击快速平滑定位 (14.8 黄金居中视级)
+  const staticStartTag = document.querySelector('.route-point-row .pt-tag.start');
+  if (staticStartTag) {
+    staticStartTag.style.cursor = 'pointer';
+    staticStartTag.title = '起点（点击定位）';
+    staticStartTag.addEventListener('click', () => {
+      if (routeStartCoord && map) {
+        flyToLocationPrecisely(map, routeStartCoord, { zoom: routeStartZoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+      }
+    });
+  }
+
+  const staticEndTag = document.querySelector('.route-point-row .pt-tag.end');
+  if (staticEndTag) {
+    staticEndTag.style.cursor = 'pointer';
+    staticEndTag.title = '终点（点击定位）';
+    staticEndTag.addEventListener('click', () => {
+      if (routeEndCoord && map) {
+        flyToLocationPrecisely(map, routeEndCoord, { zoom: routeEndZoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+      } else if (routeViaPoints.length > 0 && map) {
+        const lastVia = routeViaPoints[routeViaPoints.length - 1];
+        if (lastVia.coords) {
+          flyToLocationPrecisely(map, lastVia.coords, { zoom: lastVia.zoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+        }
+      }
+    });
+  }
+
   // 高德地图风格：途径点列表与终点之间的内联加号添加框与地图选点按钮
   const btnAddViaInline = document.getElementById('btn-add-via-inline');
   const btnPickViaInline = document.getElementById('btn-pick-via-inline');
@@ -5626,7 +5717,7 @@ function setupOutdoorRouteSystem(map) {
     pickingRoutePt = 'via';
     targetViaIndexForPick = null;
     document.body.classList.add('picking-mode');
-    map.getCanvas().style.cursor = 'crosshair';
+    map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
     btnPickViaInline?.classList.add('picking');
     btnAddViaInline?.classList.add('picking');
     if (btnPickViaInline) {
@@ -5719,13 +5810,15 @@ function setupOutdoorRouteSystem(map) {
         v.name = cleanLocation || `途径点 ${targetViaIndexForPick + 1}`;
         if (v.marker) {
           v.marker.setLngLat([lng, lat]);
+          if (typeof v.marker._update === 'function') v.marker._update();
         } else {
           const el = document.createElement('div');
-          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
+          el.className = 'route-via-marker-pin';
+          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
             const curPitch = map.getPitch() || 50;
-            flyToLocationPrecisely(map, [lng, lat], { zoom: 14.5, pitch: curPitch, duration: 700 });
+            flyToLocationPrecisely(map, [lng, lat], { zoom: 14.8, pitch: curPitch, duration: 700 });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
@@ -5735,7 +5828,7 @@ function setupOutdoorRouteSystem(map) {
       } else {
         // 连续新增途径点模式：添加新点并保持十字星选点态，允许连续在地图上连点
         addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
-        map.getCanvas().style.cursor = 'crosshair';
+        map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
         btnPickViaInline?.classList.add('picking');
         if (btnPickViaInline) {
           btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${routeViaPoints.length})</span>`;

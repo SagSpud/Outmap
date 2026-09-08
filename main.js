@@ -14,9 +14,7 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('high-dpi-support', '1'); // 启用 Windows 高分屏原生 DPI 硬件级抗锯齿与精准光标缩放
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
-app.commandLine.appendSwitch('enable-zero-copy'); // 启用零拷贝栅格化，解码后的 DEM 与瓦片直接映射进显存，杜绝内存中转抖动
-app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,UseSkiaRenderer');
-app.commandLine.appendSwitch('num-raster-threads', '8'); // 启用 8 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
+app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
 app.commandLine.appendSwitch('disk-cache-size', '8589934592'); // 8GB 磁盘缓存，确保大范围切片永久极速留存
 app.commandLine.appendSwitch('media-cache-size', '1073741824'); // 1GB 多媒体/纹理缓存
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192'); // 解锁 V8 8GB 超大堆内存，彻底消除 GC 停顿与性能惩罚
@@ -447,6 +445,54 @@ function startLocalTileServer() {
             res.end(buf);
             return;
           }
+        }
+
+        // 处理在线中国专属地理编码代理: /search?q={query}
+        if (type === 'search') {
+          const q = url.searchParams.get('q') || '';
+          if (!q.trim()) {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ type: 'FeatureCollection', features: [] }));
+            return;
+          }
+
+          const cacheKey = `search_${q.trim()}`;
+          const cached = getCachedTile(cacheKey);
+          if (cached) {
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Content-Length': cached.length,
+              'Cache-Control': 'public, max-age=86400',
+              'X-Search-Source': 'memory-cache'
+            });
+            res.end(cached);
+            return;
+          }
+
+          try {
+            const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+            const photonResp = await fetch(photonUrl, {
+              signal: AbortSignal.timeout(6500),
+              headers: { 'User-Agent': 'Outmap/1.3.9' }
+            });
+            if (photonResp.ok) {
+              const text = await photonResp.text();
+              const buf = Buffer.from(text, 'utf8');
+              setCachedTile(cacheKey, buf);
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Length': buf.length,
+                'Cache-Control': 'public, max-age=86400',
+                'X-Search-Source': 'photon-online'
+              });
+              res.end(buf);
+              return;
+            }
+          } catch (e) {}
+
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ type: 'FeatureCollection', features: [] }));
+          return;
         }
 
         // 处理离线/在线路由导航请求: /route/v1/{profile}/{coords}
@@ -934,6 +980,36 @@ app.whenReady().then(async () => {
     saveOfflineManifest(data, Boolean(data && data.replaceProvinces));
     return { success: true };
   });
+
+  // 在线中国专属高精地理编码检索 (IPC 直通，免除渲染进程网络限制与端口依赖)
+  ipcMain.handle('search-location', async (event, query) => {
+    const q = (query || '').trim();
+    if (!q) return { type: 'FeatureCollection', features: [] };
+
+    const cacheKey = `search_${q}`;
+    const cached = getCachedTile(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached.toString('utf8'));
+      } catch (e) {}
+    }
+
+    try {
+      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+      const resp = await fetch(photonUrl, {
+        signal: AbortSignal.timeout(6500),
+        headers: { 'User-Agent': 'Outmap/1.3.9' }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setCachedTile(cacheKey, Buffer.from(JSON.stringify(data), 'utf8'));
+        return data;
+      }
+    } catch (e) {}
+
+    return { type: 'FeatureCollection', features: [] };
+  });
+
 
   // 离线图层云端版本探针 (轻量 HEAD 请求，毫秒级比对 OpenFreeMap 最新切片时间戳)
   ipcMain.handle('check-tile-updates', async () => {

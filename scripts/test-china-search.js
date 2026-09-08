@@ -49,8 +49,15 @@ app.whenReady().then(async () => {
       const taishanCheck = await window.queryLocationCandidates('泰山');
       logs.hasMountainTypeInSearch = taishanCheck.some(r => r.type === 'mountain');
 
-      // 6. 验证所有结果坐标都在中国境内 (lng 73-136, lat 18-54)
-      const allResults = [...yinchuan, ...chengdu, ...sichuan, ...taishanCheck];
+      // 6. 验证在线 POI 搜索 "万象城"
+      const t3 = performance.now();
+      const wanxiangCheck = await window.queryLocationCandidates('万象城');
+      logs.wanxiangDuration = performance.now() - t3;
+      logs.wanxiangCount = wanxiangCheck.length;
+      logs.wanxiangFirst = wanxiangCheck[0] || null;
+
+      // 7. 验证所有结果坐标都在中国境内 (lng 73-136, lat 18-54)
+      const allResults = [...yinchuan, ...chengdu, ...sichuan, ...taishanCheck, ...wanxiangCheck];
       logs.allInChina = allResults.every(item => {
         const lng = item.coords[0];
         const lat = item.coords[1];
@@ -71,6 +78,7 @@ app.whenReady().then(async () => {
   assert.strictEqual(results.hasMountainPois, false, 'MOUNTAIN_POIS must be completely removed');
   assert.strictEqual(results.hasMountainTypeInSearch, false, 'No mountain type POIs should be returned');
   assert.strictEqual(results.hasPinyinFunction, false, 'pinyinToChineseWords must be removed');
+  assert(results.wanxiangCount > 0, `Online POI search for 万象城 must return results, got ${results.wanxiangCount}`);
   assert.strictEqual(results.allInChina, true, 'All search candidates must be strictly within China');
 
   console.log('🎉 ALL CHINA-ONLY PURE CHINESE SEARCH TESTS (NO MOUNTAINS) PASSED!');
