@@ -44,6 +44,16 @@ const PROVINCES_DATA = {
   zhejiang: { name: '浙江省', en: 'Zhejiang', pinyin: 'Zhejiang', pinyinGroup: 'Z', center: [120.2, 29.2], zoom: 7.5, pitch: 60, bbox: [118.0, 123.0, 27.0, 31.3] }
 };
 
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, m => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[m]));
+}
+
 // 2. 重点地标城市与著名乡镇
 const MAJOR_CITIES = [
   { name: '北京市', en: 'Beijing', coords: [116.4074, 39.9042] },
@@ -1570,28 +1580,120 @@ async function queryLocationCandidates(keyword) {
     resultsContainer.style.display = 'block';
   }
 
-  function showLandingMarker(coords, title) {
+  function showLandingMarker(coords, title, desc = '') {
     if (currentLandingMarker) {
       currentLandingMarker.remove();
       currentLandingMarker = null;
     }
+
+    const ele = Math.round(getRealElevation(map, { lng: coords[0], lat: coords[1] }) || 0);
+    const metaText = desc || `${coords[0].toFixed(4)}°E, ${coords[1].toFixed(4)}°N · ${ele}m`;
+
     const el = document.createElement('div');
     el.className = 'landing-pulse-marker';
     el.innerHTML = `
-      <div class="pulse-ring"></div>
-      <div class="pulse-core">📍</div>
-      <div class="pulse-label">${title}</div>
+      <div class="landing-card">
+        <div class="landing-card-header">
+          <div class="landing-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+          <button class="landing-card-close" title="关闭标记">✕</button>
+        </div>
+        <div class="landing-card-desc" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</div>
+        <div class="landing-card-actions">
+          <button class="landing-act-btn primary act-fav" title="添加到收藏夹">⭐ 收藏</button>
+          <button class="landing-act-btn act-start" title="设为路线起点">🚩 起点</button>
+          <button class="landing-act-btn act-via" title="添加为路线途径点">➕ 途径</button>
+          <button class="landing-act-btn act-end" title="设为路线终点">🏁 终点</button>
+        </div>
+      </div>
+      <div class="pulse-pin-wrap" title="右键可打开完整菜单，点击定位">
+        <div class="pulse-ring"></div>
+        <div class="pulse-core">📍</div>
+      </div>
     `;
+
+    // 关闭标记
+    const btnClose = el.querySelector('.landing-card-close');
+    if (btnClose) {
+      btnClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentLandingMarker) {
+          currentLandingMarker.remove();
+          currentLandingMarker = null;
+        }
+      });
+    }
+
+    // 快捷按钮：收藏
+    const btnFav = el.querySelector('.act-fav');
+    if (btnFav) {
+      btnFav.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof window.openWaypointModalForLocation === 'function') {
+          window.openWaypointModalForLocation(coords, title);
+        }
+      });
+    }
+
+    // 快捷按钮：起点
+    const btnStart = el.querySelector('.act-start');
+    if (btnStart) {
+      btnStart.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setRouteStartPoint(map, coords, title);
+      });
+    }
+
+    // 快捷按钮：途径点
+    const btnVia = el.querySelector('.act-via');
+    if (btnVia) {
+      btnVia.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addViaPoint(map, coords, title);
+      });
+    }
+
+    // 快捷按钮：终点
+    const btnEnd = el.querySelector('.act-end');
+    if (btnEnd) {
+      btnEnd.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setRouteEndPoint(map, coords, title);
+      });
+    }
+
+    // 点击图钉重新飞到此处居中
+    const pinWrap = el.querySelector('.pulse-pin-wrap');
+    if (pinWrap) {
+      pinWrap.addEventListener('click', (e) => {
+        e.stopPropagation();
+        map.flyTo({ center: coords, zoom: Math.max(map.getZoom(), 14), duration: 600 });
+      });
+    }
+
+    // 右键支持：在标记/卡片上右键唤起上下文菜单，地名严格采用搜索出的精准名称
+    const triggerContextMenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof window.showContextMenuForLocation === 'function') {
+        const wrap = document.getElementById('map-wrap') || map.getContainer();
+        const wrapRect = wrap.getBoundingClientRect();
+        const point = {
+          x: e.clientX - wrapRect.left,
+          y: e.clientY - wrapRect.top
+        };
+        window.showContextMenuForLocation({ lng: coords[0], lat: coords[1] }, point, title);
+      }
+    };
+
+    el.addEventListener('contextmenu', triggerContextMenu);
+
+    // 阻止拖拽地图穿透
+    el.addEventListener('mousedown', (e) => e.stopPropagation());
+    el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+
     currentLandingMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat(coords)
       .addTo(map);
-
-    setTimeout(() => {
-      if (currentLandingMarker) {
-        currentLandingMarker.remove();
-        currentLandingMarker = null;
-      }
-    }, 7000);
   }
 
   function renderSearchResults(items) {
@@ -1648,7 +1750,7 @@ async function queryLocationCandidates(keyword) {
       duration: 2200
     });
 
-    showLandingMarker(item.coords, item.name);
+    showLandingMarker(item.coords, item.name, item.desc);
   }
 
   // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史)
@@ -3385,6 +3487,20 @@ function setupWaypointAndFavoritesSystem(map) {
     tempPickedPoint = null;
   };
 
+  // 挂载全局调用：一键为指定坐标和地名打开收藏添加弹窗
+  window.openWaypointModalForLocation = (coords, name) => {
+    const [lng, lat] = coords;
+    const ele = Math.round(getRealElevation(map, { lng, lat }) || 0);
+    tempPickedPoint = { lng, lat, ele };
+    if (wpCoordsVal) wpCoordsVal.innerText = `${lng.toFixed(4)}°E, ${lat.toFixed(4)}°N`;
+    if (wpEleVal) wpEleVal.innerText = `${ele} m`;
+    if (wpNameInput) {
+      wpNameInput.value = name || `地标 · ${ele}m`;
+      wpNameInput.focus();
+    }
+    if (wpModal) wpModal.style.display = 'flex';
+  };
+
   btnCloseWp?.addEventListener('click', closeWpModal);
   btnCancelWp?.addEventListener('click', closeWpModal);
 
@@ -4812,12 +4928,12 @@ function setupMapContextMenu(map) {
   };
 
   // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 交互卡片)
-  const showContextMenuAtPoint = (lngLat, point) => {
+  const showContextMenuAtPoint = (lngLat, point, customName = null) => {
     const { lng, lat } = lngLat;
     const ele = Math.round(getRealElevation(map, lngLat) || 0);
 
-    // 智能提取所点位置的行政区划：仅显示市、县两级 (例如：延安市 · 延长县, 北京市 · 朝阳区)
-    const cleanLocation = resolveLocationInfo(map, lngLat, point, true);
+    // 智能提取所点位置的行政区划或使用传入的精准自定义地名
+    const cleanLocation = customName || resolveLocationInfo(map, lngLat, point, true);
 
     currentContextPoint = {
       lng,
@@ -4840,6 +4956,11 @@ function setupMapContextMenu(map) {
       ctxMenu.style.top = `${y}px`;
       ctxMenu.style.display = 'block';
     }
+  };
+
+  // 挂载到 window 供全局及标记点右键调用
+  window.showContextMenuForLocation = (lngLat, point, customName = null) => {
+    showContextMenuAtPoint(lngLat, point, customName);
   };
 
   map.on('contextmenu', e => {
