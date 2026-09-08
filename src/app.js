@@ -4817,6 +4817,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   });
 
   inputEl.addEventListener('focus', () => {
+    if (typeof window.exitRoutePickingMode === 'function') window.exitRoutePickingMode();
     if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
     const val = (inputEl.value || '').trim();
     if (val) {
@@ -5566,6 +5567,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 1. 规划按钮 (无⚡图标)
   btnCalcRoute?.addEventListener('click', () => {
+    exitRoutePickingMode();
     if (!routeStartCoord || !routeEndCoord) {
       if (!routeStartCoord && !routeEndCoord) {
         setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)');
@@ -5629,6 +5631,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 清空所有点与路线
   btnClearRoute?.addEventListener('click', () => {
+    exitRoutePickingMode();
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
