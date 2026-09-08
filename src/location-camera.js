@@ -20,7 +20,8 @@
       }
     }
     // All coordinates are CSS pixels, independent of devicePixelRatio.
-    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.585));
+    // 将普通搜索图钉微调至 0.585（63%高处），此时上方 160px 的落地点卡片恰好居于屏幕黄金正中 (48%~50%)，彻底解决“偏上”问题
+    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.63));
   }
 
   function cancel(map) { active.get(map)?.dispose(); }

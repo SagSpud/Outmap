@@ -747,25 +747,37 @@ let memoryTileStats = null;
 function scanDirStats(dir) {
   let count = 0;
   let bytes = 0;
+  let sampleCount = 0;
+  let sampleBytes = 0;
+
   function walk(d) {
     if (!fs.existsSync(d)) return;
     try {
       const list = fs.readdirSync(d, { withFileTypes: true });
       for (const ent of list) {
-        const full = path.join(d, ent.name);
         if (ent.isDirectory()) {
-          walk(full);
+          walk(path.join(d, ent.name));
         } else {
           count++;
-          try {
-            const st = fs.statSync(full);
-            bytes += st.size;
-          } catch (e) {}
+          // 高性能采样计算切片体积：前 150 个文件精确采样计算平均切片大小，其余文件仅统计数量
+          // 彻底消除对数万甚至数十万个小文件的连续同步 fs.statSync，杜绝 Windows 消息队列阻塞触发的“程序未响应”
+          if (sampleCount < 150) {
+            try {
+              const st = fs.statSync(path.join(d, ent.name));
+              sampleBytes += st.size;
+              sampleCount++;
+            } catch (e) {}
+          }
         }
       }
     } catch (e) {}
   }
   walk(dir);
+
+  if (sampleCount > 0) {
+    const avg = sampleBytes / sampleCount;
+    bytes = Math.round(count * avg);
+  }
   return { count, bytes };
 }
 

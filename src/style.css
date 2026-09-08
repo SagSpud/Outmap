@@ -961,13 +961,13 @@ body.web-mode #manage-modal {
   max-width: 240px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22), 0 2px 6px rgba(0, 0, 0, 0.08);
   z-index: 1000;
-  animation: fadeInLandingCard 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeInLandingCard 0.26s cubic-bezier(0.34, 1.45, 0.64, 1) forwards;
   pointer-events: auto;
 }
 
 @keyframes fadeInLandingCard {
-  from { opacity: 0; transform: translate(-50%, 6px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.94); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
 .landing-card::after {
@@ -1614,8 +1614,9 @@ body.web-mode #manage-modal {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(2.5px);
+  -webkit-backdrop-filter: blur(2.5px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1911,13 +1912,13 @@ body.web-mode #manage-modal {
   width: max-content;
   z-index: 3000;
   transform-origin: top left;
-  animation: ctxFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ctxFadeIn 0.24s cubic-bezier(0.34, 1.45, 0.64, 1) both;
   -webkit-app-region: no-drag;
 }
 
 @keyframes ctxFadeIn {
-  from { opacity: 0; transform: scale(0.92) translateY(-4px); }
-  to { opacity: 1; transform: scale(1.0) translateY(0); }
+  0% { opacity: 0; transform: scale(0.9) translateY(-6px); }
+  100% { opacity: 1; transform: scale(1.0) translateY(0); }
 }
 
 .ctx-header {
@@ -2426,10 +2427,22 @@ body.web-mode #manage-modal {
   gap: 6px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 3px 6px;
-  transition: all 0.12s ease;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
+  animation: iosViaSlideIn 0.28s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+@keyframes iosViaSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .route-via-item:hover {
@@ -4582,6 +4595,90 @@ body.web-mode .office-prov-group {
   }
 }
 
+/* =========================================================
+   iOS 级丝滑物理动效与触感微交互系统 (Smooth Micro-interactions)
+   ========================================================= */
+.fab-btn,
+.route-btn,
+.route-mode-btn,
+.office-fluent-dropdown-btn,
+.stat-card-clickable,
+.ctx-item,
+.btn-primary,
+.btn-secondary,
+.btn-confirm-save,
+.btn-export-gpx,
+.card-close {
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease !important;
+}
+
+.fab-btn:active,
+.route-btn:active,
+.route-mode-btn:active,
+.office-fluent-dropdown-btn:active,
+.stat-card-clickable:active,
+.ctx-item:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-confirm-save:active,
+.btn-export-gpx:active,
+.card-close:active {
+  transform: scale(0.94) !important;
+}
+
+/* 海拔剖面图容器与高清画布美化 */
+.elevation-chart-section {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 10px 12px 8px 12px;
+  margin-top: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: iosViaSlideIn 0.25s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+.chart-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.chart-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: -0.2px;
+}
+
+.chart-hover-val {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #ea580c;
+  background: #fff7ed;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #ffedd5;
+  font-variant-numeric: tabular-nums;
+  transition: all 0.12s ease;
+}
+
+.chart-canvas-wrap {
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+#elevation-chart-canvas {
+  display: block;
+  width: 100%;
+  height: 125px;
+  cursor: crosshair;
+}
+
 /* 尊重系统“减少动态效果”选项；默认状态仍完整保留现有丝滑动画。 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -4591,4 +4688,5 @@ body.web-mode .office-prov-group {
     transition-duration: 0.01ms !important;
   }
 }
+
 

@@ -5204,6 +5204,14 @@ function addViaPoint(map, coords, label, zoom = null) {
   const routePanel = document.getElementById('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
 
+  // 自动平滑滚动到底部最新添加的途径点处，彻底免除多途径点时手动滚动翻找
+  const viaListContainer = document.getElementById('route-via-list');
+  if (viaListContainer) {
+    requestAnimationFrame(() => {
+      viaListContainer.scrollTo({ top: viaListContainer.scrollHeight, behavior: 'smooth' });
+    });
+  }
+
   if (coords && m) {
     autoPlanMultiPointRoute(m);
   }
@@ -5401,22 +5409,26 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
   }
 
   let timeStr = '';
-  if (roadDurationSec && roadDurationSec > 0) {
-    const hrs = roadDurationSec / 3600;
-    if (hrs < 1) {
-      timeStr = `${Math.round(roadDurationSec / 60)}分钟`;
+  if (activeRouteMode === 'drive') {
+    if (roadDurationSec && roadDurationSec > 0) {
+      const hrs = roadDurationSec / 3600;
+      if (hrs < 1) {
+        timeStr = `${Math.max(1, Math.round(roadDurationSec / 60))}分钟`;
+      } else {
+        timeStr = `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+      }
     } else {
-      timeStr = `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+      const hrs = totalDistKm / 48;
+      timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
     }
-  } else if (activeRouteMode === 'drive') {
-    const hrs = totalDistKm / 48;
-    timeStr = `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
   } else if (activeRouteMode === 'cycle') {
-    const hrs = (totalDistKm / 16) + (totalAscent / 700);
-    timeStr = `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+    // 真实户外骑行规律：平地基准 ~18 km/h，叠加海拔爬升 (每 600m 爬升增加 1 小时)
+    const hrs = (totalDistKm / 18) + (totalAscent / 600);
+    timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
   } else {
-    const hrs = (totalDistKm / 4.2) + (totalAscent / 450);
-    timeStr = `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+    // 国际标准 Naismith 户外徒步法则：平地基准 ~4.5 km/h，每 450m 爬升增加 1 小时
+    const hrs = (totalDistKm / 4.5) + (totalAscent / 450);
+    timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
   }
 
   if (distEl) distEl.innerText = `${totalDistKm.toFixed(1)} km${isRealRoad ? '' : ' (导引)'}`;
@@ -5990,6 +6002,9 @@ function setupOutdoorRouteSystem(map) {
   // 确认保存路线到收藏夹
   btnConfirmSaveRoute?.addEventListener('click', () => {
     const routeName = (saveRouteNameInput?.value || '').trim() || '规划路线';
+    const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
+    const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
+    const effectiveViaPoints = routeEndCoord ? routeViaPoints : routeViaPoints.slice(0, -1);
     const newRoute = {
       id: 'route_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
       name: routeName,
@@ -5997,8 +6012,8 @@ function setupOutdoorRouteSystem(map) {
       createdAt: new Date().toLocaleDateString('zh-CN'),
       timestamp: Date.now(),
       start: { coords: routeStartCoord, name: routeStartName || '起点' },
-      end: { coords: routeEndCoord, name: routeEndName || '终点' },
-      viaPoints: routeViaPoints.map(v => ({ coords: v.coords, name: v.name })),
+      end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
+      viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
       pathCoords: currentPlannedRouteCoords,
       metrics: {
         distKm: currentRouteMetrics ? currentRouteMetrics.totalDistKm : 0,
@@ -6025,20 +6040,23 @@ function setupOutdoorRouteSystem(map) {
     alert(`✅ 路线“${routeName}”已成功保存到收藏夹！\n可在右下角“⭐ 收藏”中随时调出或导出 GPX。`);
   });
 
-  // 点击【📥 导出GPX】(当前规划路线)
+  // 点击【📥 导出GPX】(当前规划路线，支持无显式终点时自动以最后一个途径点作为终点导出)
   btnExportGpx?.addEventListener('click', () => {
     if (routeExportMenu) routeExportMenu.style.display = 'none';
-    if (!routeStartCoord || !routeEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
-      alert('请先设定起点和终点并生成路线后再导出 GPX！');
+    const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
+    const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
+    if (!routeStartCoord || !effectiveEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
+      alert('请先设定起点和终点（或途径点）并生成路线后再导出 GPX！');
       return;
     }
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
+    const effectiveViaPoints = routeEndCoord ? routeViaPoints : routeViaPoints.slice(0, -1);
     const currentRouteObj = {
-      name: `${routeStartName || '起点'}_至_${routeEndName || '终点'}_${modeNames[activeRouteMode] || '路线'}`,
+      name: `${routeStartName || '起点'}_至_${effectiveEndName || '终点'}_${modeNames[activeRouteMode] || '路线'}`,
       mode: activeRouteMode,
       start: { coords: routeStartCoord, name: routeStartName },
-      end: { coords: routeEndCoord, name: routeEndName },
-      viaPoints: routeViaPoints.map(v => ({ coords: v.coords, name: v.name })),
+      end: { coords: effectiveEndCoord, name: effectiveEndName },
+      viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
       pathCoords: currentPlannedRouteCoords
     };
     exportRouteToGpx(currentRouteObj, map);
@@ -6050,7 +6068,10 @@ function setupOutdoorRouteSystem(map) {
       if (currentProfileData.length === 0) return;
       const rect = canvas.getBoundingClientRect();
       const x = clientX - rect.left;
-      const ratio = Math.max(0, Math.min(1, x / rect.width));
+      const paddingLeft = 38;
+      const paddingRight = 14;
+      const chartW = Math.max(1, rect.width - paddingLeft - paddingRight);
+      const ratio = Math.max(0, Math.min(1, (x - paddingLeft) / chartW));
       const idx = Math.round(ratio * (currentProfileData.length - 1));
       const pt = currentProfileData[idx];
       if (!pt) return;
@@ -6059,10 +6080,13 @@ function setupOutdoorRouteSystem(map) {
         chartHoverInfo.innerText = `${pt.distKm.toFixed(1)}km · 海拔 ${pt.ele}m`;
       }
 
+      // 重绘图表并在 Canvas 上显示平滑高亮竖线与圆点
+      drawElevationChart(canvas, currentProfileData, pt);
+
       // 联动 3D 地图光标
       if (!profileCursorMarker) {
         const el = document.createElement('div');
-        el.style.cssText = 'background:#f97316; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 10px #ea580c;';
+        el.style.cssText = 'background:#f97316; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 12px #ea580c; transition:transform 0.08s ease;';
         profileCursorMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(pt.coord).addTo(map);
       } else {
         profileCursorMarker.setLngLat(pt.coord);
@@ -6073,6 +6097,7 @@ function setupOutdoorRouteSystem(map) {
       if (chartHoverInfo) chartHoverInfo.innerText = '滑过图表联动3D地图';
       if (profileCursorMarker) profileCursorMarker.remove();
       profileCursorMarker = null;
+      drawElevationChart(canvas, currentProfileData, null);
     };
 
     canvas.addEventListener('mousemove', e => handleProfileHover(e.clientX));
@@ -6235,26 +6260,34 @@ function loadSavedRoute(routeId, map) {
   if (routePanel) routePanel.style.display = 'flex';
 }
 
-// 绘制精美流畅的 Canvas 海拔剖面图
-function drawElevationChart(canvas, data) {
+// 绘制精美流畅的高清 Canvas 海拔剖面图 (完美适配 Retina 高分屏，iOS 级细腻质感)
+function drawElevationChart(canvas, data, hoverPt = null) {
   if (!canvas || !data || data.length === 0) return;
-  // 响应式自适应容器宽度 (手机/桌面端皆完美铺满)
+
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
   const containerW = canvas.parentElement ? canvas.parentElement.clientWidth : 370;
-  if (containerW > 50 && Math.abs(canvas.width - containerW) > 2) {
-    canvas.width = containerW;
+  const displayW = Math.max(240, Math.round(containerW));
+  const displayH = 125;
+
+  if (canvas.width !== Math.round(displayW * dpr) || canvas.height !== Math.round(displayH * dpr)) {
+    canvas.width = Math.round(displayW * dpr);
+    canvas.height = Math.round(displayH * dpr);
+    canvas.style.width = displayW + 'px';
+    canvas.style.height = displayH + 'px';
   }
+
   const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displayW, displayH);
 
-  const paddingLeft = 32;
-  const paddingRight = 12;
-  const paddingTop = 12;
-  const paddingBottom = 20;
+  const paddingLeft = 38;
+  const paddingRight = 14;
+  const paddingTop = 14;
+  const paddingBottom = 22;
 
-  const chartW = w - paddingLeft - paddingRight;
-  const chartH = h - paddingTop - paddingBottom;
+  const chartW = displayW - paddingLeft - paddingRight;
+  const chartH = displayH - paddingTop - paddingBottom;
 
   let minEle = Infinity;
   let maxEle = -Infinity;
@@ -6263,35 +6296,43 @@ function drawElevationChart(canvas, data) {
     if (d.ele > maxEle) maxEle = d.ele;
   });
 
-  const totalDist = data[data.length - 1].distKm;
-  const eleSpan = Math.max(100, maxEle - minEle);
+  const totalDist = Math.max(0.1, data[data.length - 1].distKm);
+  const rawSpan = Math.max(20, maxEle - minEle);
+  // 留出 8% 缓冲空间，且如果数据全部大于等于 0，网格下限绝不出现负值 (彻底修复 -15m 异常)
+  let displayMinEle = minEle >= 0 ? Math.max(0, Math.floor((minEle - rawSpan * 0.08) / 10) * 10) : Math.floor((minEle - rawSpan * 0.08) / 10) * 10;
+  let displayMaxEle = Math.ceil((maxEle + rawSpan * 0.08) / 10) * 10;
+  let eleSpan = Math.max(20, displayMaxEle - displayMinEle);
 
-  // 绘制网格线与 Y 轴刻度
-  ctx.strokeStyle = '#e2e8f0';
+  // 绘制细腻网格线与 Y 轴刻度
+  ctx.strokeStyle = '#f1f5f9';
   ctx.lineWidth = 1;
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = '9px monospace';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '500 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
-  for (let i = 0; i <= 3; i++) {
-    const y = paddingTop + (chartH / 3) * i;
+  const gridRows = 3;
+  for (let i = 0; i <= gridRows; i++) {
+    const y = Math.round(paddingTop + (chartH / gridRows) * i) + 0.5;
     ctx.beginPath();
     ctx.moveTo(paddingLeft, y);
-    ctx.lineTo(w - paddingRight, y);
+    ctx.lineTo(displayW - paddingRight, y);
     ctx.stroke();
 
-    const val = Math.round(maxEle - (eleSpan / 3) * i);
-    ctx.fillText(`${val}m`, 4, y + 3);
+    const val = Math.round(displayMaxEle - (eleSpan / gridRows) * i);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${val}m`, paddingLeft - 6, y + 3);
   }
 
   // 绘制 X 轴距离刻度
-  ctx.fillText('0km', paddingLeft, h - 6);
-  ctx.fillText(`${totalDist.toFixed(1)}km`, w - paddingRight - 32, h - 6);
+  ctx.textAlign = 'left';
+  ctx.fillText('0km', paddingLeft, displayH - 6);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${totalDist.toFixed(1)}km`, displayW - paddingRight, displayH - 6);
 
   // 绘制渐变填充曲线
   ctx.beginPath();
   data.forEach((d, i) => {
     const x = paddingLeft + (d.distKm / totalDist) * chartW;
-    const y = paddingTop + chartH - ((d.ele - minEle) / eleSpan) * chartH;
+    const y = paddingTop + chartH - ((d.ele - displayMinEle) / eleSpan) * chartH;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
@@ -6302,22 +6343,51 @@ function drawElevationChart(canvas, data) {
   ctx.closePath();
 
   const gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartH);
-  gradient.addColorStop(0, 'rgba(52, 199, 89, 0.34)');
-  gradient.addColorStop(1, 'rgba(52, 199, 89, 0.03)');
+  gradient.addColorStop(0, 'rgba(16, 185, 129, 0.32)');
+  gradient.addColorStop(1, 'rgba(16, 185, 129, 0.02)');
   ctx.fillStyle = gradient;
   ctx.fill();
 
-  // 绘制曲线勾边 (Apple Maps 翡翠绿风格)
+  // 绘制曲线勾边 (翡翠绿户外活力风格)
   ctx.beginPath();
   data.forEach((d, i) => {
     const x = paddingLeft + (d.distKm / totalDist) * chartW;
-    const y = paddingTop + chartH - ((d.ele - minEle) / eleSpan) * chartH;
+    const y = paddingTop + chartH - ((d.ele - displayMinEle) / eleSpan) * chartH;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = '#34c759';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.stroke();
+
+  // 悬停交互高亮竖线与指示圆点
+  if (hoverPt) {
+    const hx = paddingLeft + (hoverPt.distKm / totalDist) * chartW;
+    const hy = paddingTop + chartH - ((hoverPt.ele - displayMinEle) / eleSpan) * chartH;
+
+    // 垂直指示虚线
+    ctx.beginPath();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#ea580c';
+    ctx.lineWidth = 1.2;
+    ctx.moveTo(hx, paddingTop);
+    ctx.lineTo(hx, paddingTop + chartH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 焦点圆环
+    ctx.beginPath();
+    ctx.arc(hx, hy, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ea580c';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 // 右键地图上下文菜单系统 (右键添加地点到收藏夹、设为起点、添加途径点、设为终点)

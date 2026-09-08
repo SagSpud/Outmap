@@ -1,11 +1,11 @@
 {
   "name": "outmap",
   "productName": "Outmap",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Outmap - High Performance 3D Outdoor Terrain GIS",
   "main": "main.js",
   "scripts": {
-    "test": "electron scripts/test-v1.4.1.js && electron scripts/test-camera.js && electron scripts/test-camera.js --mobile",
+    "test": "electron scripts/test-v1.4.3.js && electron scripts/test-camera.js && electron scripts/test-camera.js --mobile",
     "start": "electron .",
     "package:x64": "electron-packager . Outmap --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=dist",
     "dist:x64": "electron-builder --win dir zip --x64",
