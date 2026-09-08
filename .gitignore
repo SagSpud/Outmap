@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build and distribution outputs
+dist/
+dist.zip
+build/
+*.log
+
+# Environment & credentials
+.r2_config.json
+.env
+.env.*
+
+# Temporary / test files
+scratch_test.json
+build_icon_test.png

@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Outmap</title>
+  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="stylesheet" href="vendor/maplibre-gl.css" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="vendor/maplibre-gl.js"></script>
+  <script src="vendor/maplibre-contour.js"></script>
+</head>
+<body>
+  <div id="app-container">
+    <!-- Office 365 / Windows 11 Fluent 风格一体化紧凑顶栏 (单行结构，高 44px) -->
+    <header id="unified-header">
+      <!-- 左侧：品牌Logo与全国总览、离线下载、离线数量 -->
+      <div class="header-left">
+        <div class="brand-wrapper" id="brand-wrapper">
+          <div class="header-brand-container" id="header-brand-logo-btn">
+            <img src="icon.png" class="header-brand-logo" alt="Outmap Logo" />
+            <div class="brand-flip-card" id="brand-flip-card">
+              <div class="brand-flip-inner" id="brand-flip-inner">
+                <div class="brand-flip-face brand-flip-front">Outmap</div>
+                <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
+                  <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.2.0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 风格统一的高质感省份选择器 (Fluent 极简暗色触发胶囊 + 展开式拼音首字母分类选择面板) -->
+        <div class="office-prov-group">
+          <div class="fluent-dropdown-wrapper" id="prov-dropdown-wrapper">
+            <button class="office-fluent-dropdown-btn" id="btn-prov-dropdown-trigger" title="选择省份或全国总览并飞跃定位">
+              <span id="current-prov-label">全国总览</span>
+              <svg class="fluent-caret-svg" viewBox="0 0 20 20" width="12" height="12" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+            <!-- 拼音首字母分组的省份展开面板 -->
+            <div class="prov-popover-menu" id="prov-popover-menu" style="display: none;">
+              <div class="prov-menu-header">
+                <span class="prov-menu-title">🇨🇳 全国行政区划</span>
+                <span class="prov-menu-hint">按拼音首字母检索</span>
+              </div>
+              <div class="prov-menu-quick-index" id="prov-quick-index">
+                <!-- A-Z 快捷索引 -->
+              </div>
+              <div class="prov-menu-list" id="prov-menu-list">
+                <!-- 由 app.js 动态渲染全国总览及拼音 A-Z 分组省份 -->
+              </div>
+            </div>
+          </div>
+          <button class="office-btn-icon-capsule" id="btn-open-pyramid-dl" title="离线地图下载 (点击展开)" aria-label="离线下载">
+            <span class="dl-btn-icon-wrap">
+              <svg class="dl-btn-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </span>
+            <span class="dl-btn-label">离线下载</span>
+            <span class="dl-live-blue-dot" id="dl-live-blue-dot" style="display: none;" title="后台正在下载离线瓦片..."></span>
+          </button>
+        </div>
+
+        <span class="cache-badge" id="titlebar-cache-stat" title="本地离线切片数">离线: 854</span>
+      </div>
+
+      <!-- 中间：现代极简搜索胶囊与 Spotlight 沉浸式搜索面板 -->
+      <div class="header-center">
+        <button class="office-search-trigger-btn" id="btn-search-trigger" title="搜索全国地点、小区、名山、区县 (Ctrl+K)">
+          <div class="search-trigger-left">
+            <svg class="search-trigger-svg" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="8.5" cy="8.5" r="5.5"/>
+              <line x1="12.5" y1="12.5" x2="17" y2="17"/>
+            </svg>
+            <span class="search-trigger-placeholder">搜索地点...</span>
+          </div>
+          <span class="search-kbd-hint">Ctrl K</span>
+        </button>
+
+        <!-- 展开式搜索悬浮面板 (Spotlight 风格) -->
+        <div class="search-popover-box" id="search-popover" style="display: none;">
+          <div class="spotlight-search-header">
+            <svg class="spotlight-ico" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="#0284c7" stroke-width="2">
+              <circle cx="8.5" cy="8.5" r="5.5"/>
+              <line x1="12.5" y1="12.5" x2="17" y2="17"/>
+            </svg>
+            <input type="text" id="global-search-input" placeholder="输入城市、小区、地点等..." autocomplete="off" />
+            <button id="btn-close-search" class="search-close-btn" title="关闭 (Esc)">✕</button>
+          </div>
+          <!-- 实时候选搜索匹配结果与搜索历史列表 -->
+          <div id="search-results-list" class="search-results-list" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- 右侧：高程夸大比例滑块 (调至右侧，滑块控件加长) -->
+      <div class="header-right">
+        <div class="office-slider-group" title="高程夸大比例调整 (拖动细腻增减3D地形立体起伏)">
+          <span class="slider-lbl">高程: <b id="exaggeration-val">2.0x</b></span>
+          <input type="range" id="exaggeration-slider" min="1.0" max="3.0" step="0.1" value="2.0" />
+        </div>
+      </div>
+    </header>
+
+    <!-- 中间主体：纯净沉浸式 3D 地图视口 -->
+    <main id="map-wrap">
+      <div id="map"></div>
+
+      <!-- 地图图层右上角视口核心控制浮动坞 (极简纯图标无文字，锁定视角置顶) -->
+      <div id="map-view-dock" class="map-view-dock">
+        <button class="map-dock-btn" id="btn-lock-pitch-toggle" title="锁定/解锁视角倾角高度 (锁定后右键仅水平旋转)">
+          <svg id="svg-lock-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </button>
+        <button class="map-dock-btn active" id="btn-3d-toggle" title="切换 3D 立体 / 2D 平面视角">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"></path>
+            <path d="M12 12l9-4.5"></path>
+            <path d="M12 12v9"></path>
+            <path d="M12 12L3 7.5"></path>
+          </svg>
+        </button>
+        <button class="map-dock-btn" id="btn-reset-north" title="校准正北方向 (恢复正北朝上)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 19 21 12 17 5 21 12 2" fill="currentColor" opacity="0.25"></polygon>
+            <polygon points="12 2 12 17 5 21 12 2" fill="#ef4444"></polygon>
+            <polygon points="12 2 19 21 12 17 12 2" fill="#94a3b8"></polygon>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 户外核心工具坞 (简约无汉字标注，右下角停靠) -->
+      <div id="fab-dock">
+        <button class="fab-btn" id="btn-fab-point" title="在3D地表点击选点并加入收藏夹">
+          <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 21s-6-5.6-6-10a6 6 0 1 1 12 0c0 4.4-6 10-6 10z"></path>
+            <circle cx="12" cy="11" r="2.5"></circle>
+          </svg>
+        </button>
+        <button class="fab-btn" id="btn-fab-route" title="户外自驾、骑行、徒步路线规划与海拔高程剖面图">
+          <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="19" r="3"></circle>
+            <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
+            <circle cx="18" cy="5" r="3"></circle>
+          </svg>
+        </button>
+        <button class="fab-btn" id="btn-fab-fav" title="查看我的收藏夹地点与规划路线">
+          <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 右键地图交互快捷菜单 -->
+      <div id="map-context-menu" class="fluent-context-menu" style="display: none;">
+        <div class="ctx-header">
+          <div class="ctx-title" id="ctx-place-name">地点</div>
+          <div class="ctx-sub" id="ctx-place-meta">--</div>
+        </div>
+        <div class="ctx-divider"></div>
+        <button class="ctx-item primary" id="ctx-btn-add-fav">
+          <span class="ctx-icon">📍</span>
+          <span class="ctx-text">添加收藏夹</span>
+        </button>
+        <button class="ctx-item" id="ctx-btn-route-via">
+          <span class="ctx-icon">➕</span>
+          <span class="ctx-text">设为途径点</span>
+        </button>
+        <button class="ctx-item" id="ctx-btn-route-start">
+          <span class="ctx-icon">🚩</span>
+          <span class="ctx-text">设为路线起点</span>
+        </button>
+        <button class="ctx-item" id="ctx-btn-route-end">
+          <span class="ctx-icon">🏁</span>
+          <span class="ctx-text">设为路线终点</span>
+        </button>
+      </div>
+
+      <!-- 选点收藏录入弹窗 (4类单行，已去除险段；支持内联新增收藏夹) -->
+      <div id="waypoint-modal" class="floating-card" style="display: none;">
+        <div class="card-header">
+          <div class="card-title"><span>📍</span><span>添加地标收藏</span></div>
+          <button class="card-close" id="btn-close-waypoint-modal">✕</button>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label class="form-lbl">地标名称:</label>
+            <input type="text" id="wp-name" class="form-control" placeholder="如 绝美露营地、四姑娘山大本营..." />
+          </div>
+          <div class="form-row">
+            <label class="form-lbl">地标类型:</label>
+            <div class="type-pill-group" id="wp-type-group">
+              <button class="type-pill active" data-type="camp">🏕️ 露营</button>
+              <button class="type-pill" data-type="view">🏔️ 观景</button>
+              <button class="type-pill" data-type="water">💧 水源</button>
+              <button class="type-pill" data-type="supply">⛽ 补给</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="form-lbl">保存至收藏夹:</label>
+            <div class="folder-select-row">
+              <select id="wp-folder-select" class="form-control">
+                <option value="default">⭐ 默认收藏夹</option>
+                <option value="camp">⛺ 我的露营地</option>
+                <option value="hiking">🥾 徒步穿越点</option>
+              </select>
+              <button class="office-btn-sm" id="btn-add-folder" type="button" title="新建收藏夹">+</button>
+            </div>
+            <!-- 内联新建收藏夹输入框 (替代被 Electron 拦截的 window.prompt) -->
+            <div id="new-folder-inline" class="new-folder-inline-box" style="display: none;">
+              <input type="text" id="new-folder-input" class="form-control" placeholder="输入收藏夹名称 (如: 川西自驾)..." />
+              <button class="office-btn-primary sm" id="btn-confirm-new-folder" type="button">确定</button>
+              <button class="office-btn-subtle sm" id="btn-cancel-new-folder" type="button">取消</button>
+            </div>
+          </div>
+          <div class="point-meta-box">
+            <div class="meta-item">坐标: <span id="wp-coords-val">--</span></div>
+            <div class="meta-item">高程: <b id="wp-ele-val">-- m</b></div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <button class="modal-btn secondary" id="btn-cancel-waypoint">取消</button>
+          <button class="modal-btn primary" id="btn-save-waypoint">💾 保存到收藏</button>
+        </div>
+      </div>
+
+      <!-- 路线规划 (支持起点、终点与数十个途径点自动规划) -->
+      <div id="route-panel" class="floating-panel" style="display: none;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🛣️</span>
+            <span>路线规划</span>
+          </div>
+          <button class="card-close" id="btn-close-route-panel">✕</button>
+        </div>
+
+        <div class="panel-body">
+          <!-- 出行方式切换 -->
+          <div class="route-mode-pills">
+            <button class="route-mode-btn active" data-mode="drive" title="越野自驾路线 (偏好国道、省道、主要山道)">🚗 自驾</button>
+            <button class="route-mode-btn" data-mode="cycle" title="山地骑行路线 (偏好公路与硬化乡村机耕道)">🚴 骑行</button>
+            <button class="route-mode-btn" data-mode="hike" title="户外徒步/穿越路线 (允许山脊小径、古道与山谷步道)">🥾 徒步</button>
+          </div>
+
+          <!-- 起点终点及多途径点录入 -->
+          <div class="route-points-box">
+            <div class="route-point-row">
+              <span class="pt-tag start">起</span>
+              <input type="text" id="route-start-input" class="route-pt-input" placeholder="在地图上点选起点 (或输入地名)..." />
+              <button class="btn-pick-pt" id="btn-pick-start" title="在地图上点选起点">📍 点选</button>
+            </div>
+
+            <!-- 中间动态途径点列表 (支持几十个点平滑衔接) -->
+            <div class="route-via-list" id="route-via-list"></div>
+
+            <div class="route-point-row">
+              <span class="pt-tag end">终</span>
+              <input type="text" id="route-end-input" class="route-pt-input" placeholder="在地图上点选终点 (或输入地名)..." />
+              <button class="btn-pick-pt" id="btn-pick-end" title="在地图上点选终点">📍 点选</button>
+            </div>
+          </div>
+
+          <!-- 途径点管理与连续点选工具栏 -->
+          <div class="route-tools-row">
+            <button class="route-tool-btn" id="btn-add-via-point" title="添加一个中间途径点">
+              <span>➕ 添加途径点</span>
+            </button>
+            <button class="route-tool-btn continuous-pick-btn" id="btn-continuous-pick" title="开启连续点选模式：直接在3D地表点击，自动追加途径点并实时刷新高程剖面">
+              <span class="pick-pulse-dot"></span>
+              <span>⚡ 地图连续拾点</span>
+            </button>
+          </div>
+
+          <div class="route-actions-row">
+            <button class="modal-btn primary" id="btn-calc-route">⚡ 智能规划</button>
+            <button class="modal-btn secondary-sm" id="btn-save-route" title="将当前规划路线保存到我的收藏夹">💾 存路线</button>
+            <button class="modal-btn secondary-sm" id="btn-export-gpx" title="将当前路线导出为标准 GPX 轨迹文件">📥 导出GPX</button>
+            <button class="modal-btn secondary-sm" id="btn-clear-route" title="清空所有点与路线">清空</button>
+          </div>
+
+          <!-- 路线统计指标 (距离、耗时、爬升、下降、最高海拔) -->
+          <div class="route-stats-grid" id="route-stats-box" style="display: none;">
+            <div class="stat-card">
+              <div class="stat-lbl">总距离</div>
+              <div class="stat-num" id="stat-route-dist">-- km</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-lbl">预估耗时</div>
+              <div class="stat-num" id="stat-route-time">--</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-lbl">累计爬升</div>
+              <div class="stat-num green" id="stat-route-ascent">+-- m</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-lbl">累计下降</div>
+              <div class="stat-num red" id="stat-route-descent">--- m</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-lbl">最高海拔</div>
+              <div class="stat-num blue" id="stat-route-maxele">-- m</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-lbl">最低海拔</div>
+              <div class="stat-num gray" id="stat-route-minele">-- m</div>
+            </div>
+          </div>
+
+          <!-- 3D 路线海拔高程剖面图 (Canvas 绘制，鼠标悬停与地图联动) -->
+          <div class="elevation-chart-section" id="route-chart-section" style="display: none;">
+            <div class="chart-header-row">
+              <span class="chart-lbl">📈 海拔剖面分析 (沿线地势起伏)</span>
+              <span class="chart-hover-val" id="chart-hover-info">滑过图表联动3D地图</span>
+            </div>
+            <div class="chart-canvas-wrap">
+              <canvas id="elevation-chart-canvas" width="370" height="115"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 保存路线对话框 -->
+      <div id="save-route-modal" class="floating-card" style="display: none; z-index: 105;">
+        <div class="card-header">
+          <div class="card-title"><span>💾</span><span>保存路线到收藏夹</span></div>
+          <button class="card-close" id="btn-close-save-route-modal">✕</button>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label class="form-lbl">路线名称:</label>
+            <input type="text" id="save-route-name-input" class="form-control" placeholder="输入路线名称 (如 泰山徒步后石坞线)..." />
+          </div>
+          <div class="point-meta-box" id="save-route-summary-box">
+            <div class="meta-item">里程: <span id="save-route-dist-text">-- km</span></div>
+            <div class="meta-item">爬升: <b id="save-route-ascent-text">+-- m</b></div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <button class="modal-btn secondary" id="btn-cancel-save-route">取消</button>
+          <button class="modal-btn primary" id="btn-confirm-save-route">确认保存</button>
+        </div>
+      </div>
+
+      <!-- 收藏夹管理侧滑抽屉 -->
+      <div id="favorites-drawer" class="floating-panel" style="display: none;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>⭐</span>
+            <span>我的收藏</span>
+          </div>
+          <button class="card-close" id="btn-close-favorites-drawer">✕</button>
+        </div>
+        <div class="panel-body">
+          <!-- 收藏夹顶级分类切换：地点 vs 路线 -->
+          <div class="fav-main-type-tabs" id="fav-main-type-tabs">
+            <button class="fav-main-tab active" data-tab="points">📍 收藏地点 (<span id="fav-pts-count">0</span>)</button>
+            <button class="fav-main-tab" data-tab="routes">🛣️ 规划路线 (<span id="fav-routes-count">0</span>)</button>
+          </div>
+
+          <!-- 1. 地点分类容器 -->
+          <div id="fav-points-container">
+            <div class="fav-folder-tabs" id="fav-folder-tabs">
+              <!-- 动态生成收藏夹标签 -->
+            </div>
+            <div class="fav-items-list" id="fav-items-list">
+              <!-- 动态渲染收藏点 -->
+            </div>
+          </div>
+
+          <!-- 2. 路线列表容器 -->
+          <div id="fav-routes-container" style="display: none;">
+            <div class="fav-routes-list" id="fav-routes-list">
+              <!-- 动态渲染收藏路线 -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 离线地图下载对话框 -->
+      <div id="pyramid-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+          <div class="modal-header">
+            <div class="modal-title">
+              <span class="m-icon">📦</span>
+              <span>离线地图下载</span>
+            </div>
+            <button class="modal-close-btn" id="btn-close-pyramid-modal">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <div class="form-row prov-selection-row">
+              <div class="prov-selection-header">
+                <label class="form-lbl">目标省份:</label>
+                <div class="prov-quick-actions">
+                  <button type="button" class="prov-act-btn" id="btn-prov-select-all">全选</button>
+                  <button type="button" class="prov-act-btn" id="btn-prov-select-invert">反选</button>
+                  <button type="button" class="prov-act-btn" id="btn-prov-select-none">清空</button>
+                  <span class="prov-selected-badge" id="prov-selected-counter">已选 0 省</span>
+                </div>
+              </div>
+              <div class="prov-dropdown-wrapper" id="pyramid-prov-dropdown-wrapper">
+                <div class="prov-dropdown-trigger" id="pyramid-prov-dropdown-trigger" tabindex="0">
+                  <div class="prov-dropdown-summary" id="pyramid-prov-dropdown-summary">
+                    <span class="prov-summary-text" id="prov-selected-names-summary">正在加载省份...</span>
+                  </div>
+                  <svg class="prov-dropdown-caret" viewBox="0 0 20 20" width="13" height="13" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                  </svg>
+                </div>
+                <div class="prov-dropdown-panel" id="pyramid-prov-dropdown-panel" style="display: none;">
+                  <div class="prov-dropdown-panel-tip">
+                    <span>勾选目标省份 (支持多选，已就绪带发光绿点)：</span>
+                  </div>
+                  <div class="prov-multi-grid" id="pyramid-prov-multi-grid">
+                    <!-- 由 app.js 动态生成全部 34 省份多选复选框，去除字母前缀，就绪带绿点 -->
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-row form-row-inline">
+              <label class="form-lbl">离线层级:</label>
+              <div class="zoom-pill-group inline-pills" id="pyramid-zoom-pills">
+                <div class="zoom-pill active" data-value="10" title="L1-L10 基础地势">
+                  <span class="zoom-pill-title">L10</span>
+                  <span class="zoom-pill-dot" id="zoom-dot-10">●</span>
+                </div>
+                <div class="zoom-pill" data-value="11" title="L1-L11 清晰山脊">
+                  <span class="zoom-pill-title">L11</span>
+                  <span class="zoom-pill-dot" id="zoom-dot-11">●</span>
+                </div>
+                <div class="zoom-pill" data-value="12" title="L1-L12 户外自驾">
+                  <span class="zoom-pill-title">L12</span>
+                  <span class="zoom-pill-dot" id="zoom-dot-12">●</span>
+                </div>
+                <div class="zoom-pill" data-value="13" title="L1-L13 精细等高线">
+                  <span class="zoom-pill-title">L13</span>
+                  <span class="zoom-pill-dot" id="zoom-dot-13">●</span>
+                </div>
+                <div class="zoom-pill" data-value="14" title="L1-L14 全路网与POI">
+                  <span class="zoom-pill-title">L14</span>
+                  <span class="zoom-pill-dot" id="zoom-dot-14">●</span>
+                </div>
+              </div>
+              <input type="hidden" id="pyramid-zoom-select" value="10" />
+            </div>
+
+            <div class="form-row form-row-inline">
+              <label class="form-lbl">下载图层:</label>
+              <div class="check-group inline-checks">
+                <label><input type="checkbox" id="chk-dl-dem" checked /> DEM高程图</label>
+                <label><input type="checkbox" id="chk-dl-vec" checked /> OSM矢量图</label>
+              </div>
+            </div>
+
+            <div class="stat-summary-box">
+              <div class="stat-info-col">
+                <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
+                <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
+              </div>
+              <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
+            </div>
+
+            <!-- 实时下载进度条与状态 -->
+            <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
+              <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="dl-progress-fill" style="width: 0%;"></div>
+              </div>
+              <div class="progress-text-row">
+                <span id="dl-progress-num">进度: 0 / 0</span>
+                <span id="dl-progress-speed">0 片/秒</span>
+                <span id="dl-progress-pct">0%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
+            <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">校验</button>
+            <button class="modal-btn primary" id="btn-start-dl">开始下载</button>
+            <button class="modal-btn success" id="btn-done-dl" style="display: none;">完成</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右键呼出云端数据多设备同步设置面板 -->
+      <div id="sync-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card sync-modal-card">
+          <div class="modal-header">
+            <div class="modal-title">
+              <span class="m-icon">☁️</span>
+              <span>云端同步</span>
+            </div>
+            <button class="modal-close-btn" id="btn-close-sync-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="sync-auto-switch-row">
+              <div class="sync-auto-switch-info">
+                <span class="sync-switch-title">自动实时同步</span>
+                <span class="sync-switch-sub">地标、路线与视角变动自动与云端双向同步</span>
+              </div>
+              <label class="fluent-switch">
+                <input type="checkbox" id="chk-auto-sync-toggle" checked />
+                <span class="fluent-slider"></span>
+              </label>
+            </div>
+
+            <div class="form-row">
+              <label class="form-lbl">同步内容项:</label>
+              <div class="sync-check-grid">
+                <label><input type="checkbox" id="chk-sync-favorites" checked /> 收藏夹与地点标记</label>
+                <label><input type="checkbox" id="chk-sync-routes" checked /> 规划路线与历史轨迹</label>
+                <label><input type="checkbox" id="chk-sync-views" checked /> 默认中心点、仰角与视图设置</label>
+              </div>
+            </div>
+
+            <details class="sync-advanced-details">
+              <summary class="sync-advanced-summary">⚙️ 高级选项: 同步标识 (默认无需修改)</summary>
+              <div class="sync-advanced-content">
+                <input type="text" id="sync-account-key" class="form-control" value="default" placeholder="default" />
+              </div>
+            </details>
+
+            <div class="sync-status-row" id="sync-status-indicator">
+              <span class="sync-dot-live">●</span>
+              <span id="sync-status-text">就绪</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn secondary" id="btn-close-sync-btn">关闭</button>
+            <button class="modal-btn primary" id="btn-do-sync-now">⚡ 立即同步</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 软件版本更新检测与升级弹窗 -->
+      <div id="update-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card update-modal-card">
+          <div class="modal-header">
+            <div class="modal-title">
+              <span class="m-icon" id="update-modal-icon">🚀</span>
+              <span id="update-modal-title-text">软件版本与在线更新</span>
+            </div>
+            <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <!-- 1. 正在检查中状态 -->
+            <div id="update-checking-box" class="update-info-state-box" style="display: none;">
+              <div class="update-spinner"></div>
+              <div class="update-checking-text">正在连接云端检查最新版本...</div>
+              <div class="update-checking-ver" id="update-checking-ver">当前安装版本: v1.1.0</div>
+            </div>
+
+            <!-- 2. 已是最新版本状态 -->
+            <div id="update-uptodate-box" class="update-info-state-box" style="display: none;">
+              <div class="update-state-icon uptodate">✓</div>
+              <div class="update-state-title">当前已是最新版本</div>
+              <div class="update-state-badge" id="update-uptodate-ver">v1.1.0</div>
+              <div class="update-state-desc">DEM高程图、OSM矢量图与三维地形数据引擎均处于最佳状态。</div>
+            </div>
+
+            <!-- 3. 检查失败/离线状态 -->
+            <div id="update-offline-box" class="update-info-state-box" style="display: none;">
+              <div class="update-state-icon offline">🌐</div>
+              <div class="update-state-title">当前版本就绪 (离线模式)</div>
+              <div class="update-state-badge" id="update-offline-ver">v1.1.0</div>
+              <div class="update-state-desc">网络连接超时或当前处于无网络离线环境。Outmap 内置完整离线渲染引擎，可完全离线顺畅运行。</div>
+            </div>
+
+            <!-- 4. 发现新版本状态 -->
+            <div id="update-available-box" style="display: none;">
+              <div class="update-version-row">
+                <div class="version-badge-group">
+                  <span class="version-label">当前版本:</span>
+                  <span class="version-val current" id="update-curr-version">v1.1.0</span>
+                  <span class="version-arrow">➔</span>
+                  <span class="version-label">最新版本:</span>
+                  <span class="version-val latest" id="update-new-version">v1.1.0</span>
+                </div>
+                <div class="update-meta-info" id="update-size-info">更新体积: 约 3.8 MB</div>
+              </div>
+
+              <div class="update-notes-wrapper" style="margin-top: 14px;">
+                <div class="update-notes-title">更新日志 & 优化内容:</div>
+                <div class="update-notes-content" id="update-notes-text">
+                  <!-- 动态填充 -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 流式下载与自动安装覆盖进度条 -->
+            <div class="dl-progress-section" id="update-progress-box" style="display: none;">
+              <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="update-progress-fill" style="width: 0%;"></div>
+              </div>
+              <div class="progress-text-row">
+                <span id="update-progress-status">正在连接云端存储...</span>
+                <span id="update-progress-speed">0 KB/s</span>
+                <span id="update-progress-pct">0%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer" id="update-modal-footer">
+            <button class="modal-btn secondary" id="btn-cancel-update" style="display: none;">稍后再说</button>
+            <button class="modal-btn primary update-btn-pulse" id="btn-start-update" style="display: none;">⚡ 立即更新并重启</button>
+            <button class="modal-btn primary" id="btn-done-update" style="display: none;">我知道了</button>
+            <button class="modal-btn secondary" id="btn-retry-update" style="display: none;">🔄 重新检查</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 底部状态栏 -->
+    <footer id="status-bar">
+      <div class="sb-col-left">
+        <span id="status-region">区域: 中国</span>
+      </div>
+
+      <div class="sb-col-center">
+        <span class="sb-item" id="status-coords">坐标: 104.5000°E, 34.0000°N</span>
+        <span class="sb-div">|</span>
+        <span class="sb-item highlight" id="status-elevation">地表高程: 1520 m</span>
+      </div>
+
+      <div class="sb-col-right">
+        <span class="sb-item" id="status-pitch">俯仰: 42°</span>
+        <span class="sb-item lock-indicator" id="status-pitch-lock"></span>
+        <span class="sb-div">|</span>
+        <span class="sb-item" id="status-bearing">航向: 0°</span>
+        <span class="sb-div">|</span>
+        <span class="sb-item" id="status-zoom">层级: 4.3</span>
+        <span class="sb-div">|</span>
+        <span class="sb-item fps" id="status-fps">60 FPS</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
