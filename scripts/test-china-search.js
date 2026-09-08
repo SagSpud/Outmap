@@ -21,12 +21,12 @@ app.whenReady().then(async () => {
     new Promise(async (resolve) => {
       const logs = {};
 
-      // 1. 搜名山 "泰山" (测试 0ms 纯本地直出，不走海外网络)
+      // 1. 搜城市 "银川市" (测试 0ms 纯本地直出，不走海外网络)
       const t0 = performance.now();
-      const taishan = await window.queryLocationCandidates('泰山');
-      logs.taishanDuration = performance.now() - t0;
-      logs.taishanCount = taishan.length;
-      logs.taishanFirst = taishan[0];
+      const yinchuan = await window.queryLocationCandidates('银川市');
+      logs.yinchuanDuration = performance.now() - t0;
+      logs.yinchuanCount = yinchuan.length;
+      logs.yinchuanFirst = yinchuan[0];
 
       // 2. 搜城市 "成都市"
       const t1 = performance.now();
@@ -41,11 +41,16 @@ app.whenReady().then(async () => {
       logs.sichuanDuration = performance.now() - t2;
       logs.sichuanFirst = sichuan[0];
 
-      // 4. 验证不存在 window.pinyinToChineseWords
+      // 4. 验证已彻底移除名山列表与拼音搜索函数
+      logs.hasMountainPois = typeof window.MOUNTAIN_POIS !== 'undefined';
       logs.hasPinyinFunction = typeof window.pinyinToChineseWords === 'function';
 
-      // 5. 验证所有结果坐标都在中国境内 (lng 73-136, lat 18-54)
-      const allResults = [...taishan, ...chengdu, ...sichuan];
+      // 5. 验证搜索 "泰山" 不再返回任何 type === 'mountain' 的内置山峰
+      const taishanCheck = await window.queryLocationCandidates('泰山');
+      logs.hasMountainTypeInSearch = taishanCheck.some(r => r.type === 'mountain');
+
+      // 6. 验证所有结果坐标都在中国境内 (lng 73-136, lat 18-54)
+      const allResults = [...yinchuan, ...chengdu, ...sichuan, ...taishanCheck];
       logs.allInChina = allResults.every(item => {
         const lng = item.coords[0];
         const lat = item.coords[1];
@@ -58,14 +63,16 @@ app.whenReady().then(async () => {
 
   console.log('CHINA SEARCH TEST RESULTS:\n' + JSON.stringify(results, null, 2));
 
-  assert(results.taishanDuration < 50, `Taishan search should be instantaneous (<50ms), took ${results.taishanDuration}ms`);
+  assert(results.yinchuanDuration < 50, `Yinchuan search should be instantaneous (<50ms), took ${results.yinchuanDuration}ms`);
   assert(results.chengduDuration < 50, `Chengdu search should be instantaneous (<50ms), took ${results.chengduDuration}ms`);
-  assert.strictEqual(results.taishanFirst.name, '泰山 · 玉皇顶');
+  assert.strictEqual(results.yinchuanFirst.name, '银川市');
   assert.strictEqual(results.chengduFirst.name, '成都市');
   assert.strictEqual(results.sichuanFirst.name, '四川省');
+  assert.strictEqual(results.hasMountainPois, false, 'MOUNTAIN_POIS must be completely removed');
+  assert.strictEqual(results.hasMountainTypeInSearch, false, 'No mountain type POIs should be returned');
   assert.strictEqual(results.hasPinyinFunction, false, 'pinyinToChineseWords must be removed');
   assert.strictEqual(results.allInChina, true, 'All search candidates must be strictly within China');
 
-  console.log('🎉 ALL CHINA-ONLY PURE CHINESE SEARCH TESTS PASSED!');
+  console.log('🎉 ALL CHINA-ONLY PURE CHINESE SEARCH TESTS (NO MOUNTAINS) PASSED!');
   app.quit();
 });

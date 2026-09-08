@@ -498,25 +498,6 @@ const MAJOR_CITIES = [
   { name: "台中市", pinyin: "taizhong", py: "tz", coords: [120.6736, 24.1477], province: "台湾省" }
 ];
 
-// 3. 著名山峰 POI (全国著名山脉高峰)
-const MOUNTAIN_POIS = [
-  { name: '泰山 · 玉皇顶', pinyin: 'taishan', py: 'ts', ele: 1545, coords: [117.1042, 36.2519] },
-  { name: '华山 · 南峰落雁', pinyin: 'huashan', py: 'hs', ele: 2154, coords: [110.0820, 34.4780] },
-  { name: '四姑娘山 · 幺妹峰', pinyin: 'siguniangshan', py: 'sgns', ele: 6250, coords: [102.9020, 31.1060] },
-  { name: '贡嘎山 · 蜀山之王', pinyin: 'gonggashan', py: 'ggs', ele: 7556, coords: [101.8780, 29.5960] },
-  { name: '珠穆朗玛峰 · 世界之巅', pinyin: 'zhumulangma', py: 'zmlm', ele: 8848, coords: [86.9250, 27.9880] },
-  { name: '冈仁波齐 · 万山之祖', pinyin: 'gangrenboqi', py: 'grbq', ele: 6638, coords: [81.3120, 31.0670] },
-  { name: '玉龙雪山 · 扇子陡', pinyin: 'yulongxueshan', py: 'ylxs', ele: 5596, coords: [100.1780, 27.0980] },
-  { name: '梅里雪山 · 卡瓦格博', pinyin: 'meilixueshan', py: 'mlxs', ele: 6740, coords: [98.6920, 28.4420] },
-  { name: '黄山 · 莲花峰', pinyin: 'huangshan', py: 'hs', ele: 1864, coords: [118.1750, 30.1330] },
-  { name: '峨眉山 · 万佛顶', pinyin: 'emeishan', py: 'ems', ele: 3099, coords: [103.3320, 29.5210] },
-  { name: '长白山 · 白云峰', pinyin: 'changbaishan', py: 'cbs', ele: 2691, coords: [128.0580, 41.9930] },
-  { name: '祁连山 · 团结峰', pinyin: 'qilianshan', py: 'qls', ele: 5808, coords: [97.5830, 38.5000] },
-  { name: '神农架 · 神农顶', pinyin: 'shennongjia', py: 'snj', ele: 3106, coords: [110.3000, 31.4500] },
-  { name: '五台山 · 北台叶斗峰', pinyin: 'wutaishan', py: 'wts', ele: 3061, coords: [113.5900, 39.0600] },
-  { name: '崂山 · 巨峰', pinyin: 'laoshan', py: 'ls', ele: 1132, coords: [120.6120, 36.1750] }
-];
-
 let mapInstance = null;
 let currentExaggeration = 2.0;
 let currentStyle = 'outmap';
@@ -526,7 +507,6 @@ let updatePitchLockFn = null;
 
 let provinceMarkers = [];
 let cityMarkers = [];
-let mountainMarkers = [];
 let localServerPort = 28795;
 
 // 离线瓦片计数格式化 (支持中文“万/亿”与体积清晰表达，彻底消除 200k 与 200KB 的误解)
@@ -1544,16 +1524,16 @@ async function initApplication() {
 }
 
 function renderAllMapLabels(map) {
-  // 遵循自然标准地图渲染规范：所有省份行政区划、名山地貌与城镇注记均由底层矢量切片按缩放层级原生展现
-  // 彻底移除覆盖在最上层的自定义人工省份与名山 DOM 浮动遮挡物，还原纯净地图界面
-  [provinceMarkers, cityMarkers, mountainMarkers].forEach(arr => {
+  // 遵循自然标准地图渲染规范：所有省份行政区划与城镇注记均由底层矢量切片按缩放层级原生展现
+  // 彻底移除覆盖在最上层的自定义人工 DOM 浮动遮挡物，还原纯净地图界面
+  [provinceMarkers, cityMarkers].forEach(arr => {
     arr.forEach(m => m.remove());
     arr.length = 0;
   });
 }
 
 // =========================================================
-// 智能地理编码与地点候选中枢 (中国境内坐标/城市/名山/小区全域检索)
+// 智能地理编码与地点候选中枢 (中国境内坐标/城市/小区/地标全域检索)
 // =========================================================
 let activeSearchAbort = null;
 
@@ -1620,27 +1600,7 @@ async function queryLocationCandidates(keyword) {
     });
   }
 
-  // 3. 名山峰峦匹配 (中国名山)
-  if (typeof MOUNTAIN_POIS !== 'undefined') {
-    MOUNTAIN_POIS.forEach(m => {
-      if (m.name.includes(raw) || raw.includes(m.name)) {
-        let score = 3;
-        if (m.name === raw) score = 1;
-        else if (m.name.startsWith(raw)) score = 2;
-        localMatches.push({
-          name: m.name,
-          desc: `著名山峰 · 海拔 ${m.ele}米`,
-          coords: [Number(m.coords[0]), Number(m.coords[1])],
-          icon: '🏔️',
-          type: 'mountain',
-          zoom: 13.8,
-          _score: score
-        });
-      }
-    });
-  }
-
-  // 4. 全国地级市与重点城镇匹配 (中国 360+ 城市，中文汉字匹配)
+  // 3. 全国地级市与重点城镇匹配 (中国 360+ 城市，中文汉字匹配)
   if (typeof MAJOR_CITIES !== 'undefined') {
     MAJOR_CITIES.forEach(c => {
       if (c.name.includes(raw) || raw.includes(c.name)) {
@@ -1724,13 +1684,14 @@ async function queryLocationCandidates(keyword) {
           let icon = '📍';
           let type = 'poi';
           const osmValue = (p.osm_value || '').toLowerCase();
+          // 过滤名山与山峰 POI (遵循用户偏好，不展示名山高峰)
+          if (osmValue.includes('mountain') || osmValue.includes('peak')) {
+            return;
+          }
 
           if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑') || name.includes('公馆')) {
             icon = '🏘️';
             type = 'community';
-          } else if (osmValue.includes('mountain') || osmValue.includes('peak')) {
-            icon = '🏔️';
-            type = 'mountain';
           } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
             icon = '🏫';
           } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
@@ -2134,7 +2095,7 @@ function setupOfficeHeaderInteractions(map) {
     if (provTriggerBtn) provTriggerBtn.classList.remove('active');
   });
 
-  // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/名山/城市全量POI检索与回车直达)
+  // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/城市/地标全量POI检索与回车直达)
   const searchTrigger = document.getElementById('btn-search-trigger');
   const searchPopover = document.getElementById('search-popover');
   const searchClose = document.getElementById('btn-close-search');
@@ -2449,14 +2410,12 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    // 智能层级适配：省份 7.2，地级市 12.0，名山 13.8，地标/建筑/小区/选点 15.0
+    // 智能层级适配：省份 7.2，地级市 12.0，地标/建筑/小区/选点 15.0
     let targetZoom = 15.0;
     if (isProv) {
       targetZoom = item.zoom || 7.2;
     } else if (item.type === 'city') {
       targetZoom = item.zoom || 12.0;
-    } else if (item.type === 'mountain') {
-      targetZoom = item.zoom || 13.8;
     } else if (item.type === 'waypoint') {
       targetZoom = item.zoom || 15.0;
     } else if (typeof item.zoom === 'number') {
@@ -4053,13 +4012,13 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
     return onlyCityCounty ? '地点' : '区域: 全国';
   }
 
-  // 3. 从矢量图层探查光标所在微观县/区/镇/著名山峰
+  // 3. 从矢量图层探查光标所在微观县/区/镇/地标
   let microFeature = '';
   if (point) {
     try {
       const bbox = [[point.x - 35, point.y - 35], [point.x + 35, point.y + 35]];
       const feats = map.queryRenderedFeatures(bbox, {
-        layers: ['osm-places-towns', 'osm-places-villages', 'osm-places-cities', 'osm-mountain-peaks', 'osm-outdoor-scenic-pois']
+        layers: ['osm-places-towns', 'osm-places-villages', 'osm-places-cities', 'osm-outdoor-scenic-pois']
       });
       if (feats && feats.length > 0) {
         for (let i = 0; i < feats.length; i++) {
@@ -4816,7 +4775,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const map = getMap();
     if (!map) return;
 
-    // 智能层级适配：省份 7.2，地级市 12.0，名山 13.8，地标/收藏点/选点 15.0
+    // 智能层级适配：省份 7.2，地级市 12.0，地标/收藏点/选点 15.0
     let targetZoom = 15.0;
     if (Number.isFinite(item.zoom)) {
       targetZoom = item.zoom;
@@ -4824,8 +4783,6 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       targetZoom = 7.2;
     } else if (item.type === 'city') {
       targetZoom = 12.0;
-    } else if (item.type === 'mountain') {
-      targetZoom = 13.8;
     } else if (item.type === 'waypoint') {
       targetZoom = 15.0;
     }
