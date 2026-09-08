@@ -3654,6 +3654,11 @@ body.web-mode #manage-modal {
   align-items: center;
   gap: 16px;
   margin-top: 0;
+  width: 100%;
+}
+
+.check-group.inline-checks .btn-check-tile-update {
+  margin-left: auto;
 }
 
 /* 云端同步弹窗样式 */

@@ -1887,6 +1887,7 @@ function triggerTerrainRealign(map) {
 window.triggerTerrainRealign = triggerTerrainRealign;
 
 // 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
+// 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
 // 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (!map || !targetCoords || targetCoords.length < 2) return;
@@ -1904,6 +1905,25 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const duration = reducedMotion ? 0 : (options.duration ?? 900);
 
+  // 1. 同步目标真实物理高程至相机投影矩阵 (彻底根除首次搜索从全国总览起飞时由于残留西部高海拔导致图钉偏下 472px 出界的致命 Bug)
+  if (map && map.transform) {
+    let targetEle = 0;
+    if (map.terrain && typeof map.terrain.getElevationForLngLatZoom === 'function') {
+      targetEle = map.terrain.getElevationForLngLatZoom(
+        new maplibregl.LngLat(lng, lat),
+        map.transform._helper?._tileZoom || 12
+      ) || 0;
+    }
+    if (!targetEle && typeof getRealElevation === 'function') {
+      targetEle = getRealElevation(map, { lng, lat }) || 0;
+    }
+    try {
+      map.transform.elevation = targetEle;
+      if (map.transform._helper) map.transform._helper._elevation = targetEle;
+      if (typeof map.transform._calcMatrices === 'function') map.transform._calcMatrices();
+    } catch (e) {}
+  }
+
   let cameraCenter = [lng, lat];
 
   if (!centered) {
@@ -1913,9 +1933,9 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
     const fovRad = 36.87 * Math.PI / 180;
     const d0 = 0.5 / Math.tan(fovRad / 2) * screenHeight;
 
-    // 黄金视口定位：2D 下 ratioY 设为 0.56，3D (50°) 下设为 0.59
-    // 经三维针孔透视光线反求交，使图钉平稳停靠在视口中偏下黄金锚点，上方操作卡片恰好居于屏幕垂直正中黄金视区
-    const ratioY = pitchRad === 0 ? 0.56 : (0.56 + (pitchRad / (Math.PI / 2)) * 0.045);
+    // 黄金视口定位：2D 下 ratioY 设为 0.58，3D (50°) 下设为 0.63
+    // 图钉稳居屏幕中偏下，上方操作卡片与信息标签居于垂直黄金正中，彻底消除偏上感与出界
+    const ratioY = pitchRad === 0 ? 0.58 : (0.58 + (pitchRad / (Math.PI / 2)) * 0.08);
     const dy = screenHeight * (ratioY - 0.5);
 
     const denom = d0 * Math.cos(pitchRad) - dy * Math.sin(pitchRad);
@@ -1958,6 +1978,23 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const handleArrival = () => {
     if (arrivalTriggered) return;
     arrivalTriggered = true;
+    if (map && map.transform) {
+      let targetEle = 0;
+      if (map.terrain && typeof map.terrain.getElevationForLngLatZoom === 'function') {
+        targetEle = map.terrain.getElevationForLngLatZoom(
+          new maplibregl.LngLat(lng, lat),
+          map.transform._helper?._tileZoom || 12
+        ) || 0;
+      }
+      if (!targetEle && typeof getRealElevation === 'function') {
+        targetEle = getRealElevation(map, { lng, lat }) || 0;
+      }
+      try {
+        map.transform.elevation = targetEle;
+        if (map.transform._helper) map.transform._helper._elevation = targetEle;
+        if (typeof map.transform._calcMatrices === 'function') map.transform._calcMatrices();
+      } catch (e) {}
+    }
     triggerTerrainRealign(map);
     if (typeof options.onArrival === 'function') {
       options.onArrival();
@@ -2305,6 +2342,26 @@ function setupOfficeHeaderInteractions(map) {
       currentLandingMarker = null;
     }
 
+    // 关键：在 3D 地形下，若当前相机 elevation 与目标地面真实海拔脱节（例如刚从全国总览起飞，elevation 残留为西部 4167m），
+    // 强制同步 map.transform.elevation 为目标位置真实物理海拔，杜绝 472px 偏差导致的落点出界/卡片丢失！
+    if (map && map.transform) {
+      let targetEle = 0;
+      if (map.terrain && typeof map.terrain.getElevationForLngLatZoom === 'function') {
+        targetEle = map.terrain.getElevationForLngLatZoom(
+          new maplibregl.LngLat(validCoords[0], validCoords[1]),
+          map.transform._helper?._tileZoom || 12
+        ) || 0;
+      }
+      if (!targetEle && typeof getRealElevation === 'function') {
+        targetEle = getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0;
+      }
+      try {
+        map.transform.elevation = targetEle;
+        if (map.transform._helper) map.transform._helper._elevation = targetEle;
+        if (typeof map.transform._calcMatrices === 'function') map.transform._calcMatrices();
+      } catch (e) {}
+    }
+
     const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
     const cleanDesc = stripChinaPrefix(desc || '');
     const metaText = cleanDesc || `${validCoords[0].toFixed(4)}°E, ${validCoords[1].toFixed(4)}°N · ${ele}m`;
@@ -2506,16 +2563,8 @@ function setupOfficeHeaderInteractions(map) {
     const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
     const flightDuration = isLongFlight ? 1600 : 750;
 
-    if (isLongFlight) {
-      // 远距起飞时立即清除旧卡片，避免在大地图底部生成突兀半截卡片并横穿屏幕
-      if (currentLandingMarker) {
-        currentLandingMarker.remove();
-        currentLandingMarker = null;
-      }
-    } else {
-      // 近距瞬时切换
-      showLandingMarker(validCoords, item.name, item.desc);
-    }
+    // 始终立即创建落地 Marker 挂载在目标坐标上，随三维摄像机平稳巡航到位；落地后回调再刷新一次精确海拔，100% 杜绝首次搜索无标签！
+    showLandingMarker(validCoords, item.name, item.desc);
 
     flyToLocationPrecisely(map, validCoords, {
       zoom: targetZoom,

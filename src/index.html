@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.3.6" />
+  <link rel="stylesheet" href="style.css?v=1.3.7" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -507,6 +507,7 @@
               <div class="check-group inline-checks">
                 <label><input type="checkbox" id="chk-dl-dem" checked /> DEM高程图</label>
                 <label><input type="checkbox" id="chk-dl-vec" checked /> OSM矢量图</label>
+                <button type="button" class="btn-check-tile-update" id="btn-check-tile-update" title="检测云端最新路网版本与本地差异">🔍 检查图层更新</button>
               </div>
             </div>
 
@@ -517,7 +518,6 @@
               </div>
               <div class="stat-status-col">
                 <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
-                <button type="button" class="btn-check-tile-update" id="btn-check-tile-update" title="检测云端最新路网版本与本地差异">🔍 检查图层更新</button>
               </div>
             </div>
 
@@ -720,6 +720,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.3.6"></script>
+  <script src="app.js?v=1.3.7"></script>
 </body>
 </html>
