@@ -768,7 +768,7 @@ async function initApplication() {
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxPitch: 85,
-    fadeDuration: 0, // 彻底消除跨层级缩放时的 300ms 标签淡入淡出闪烁
+    fadeDuration: 180, // 标签跨瓦片层级交接时短暂渐变，避免整数层级硬切闪烁
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
     renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
@@ -1808,105 +1808,15 @@ function refreshAllRouteMarkersElevation(map) {
 }
 window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
 
-// 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
-// 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
-function flyToLocationPrecisely(map, targetCoords, options = {}) {
-  if (!map || !targetCoords || targetCoords.length < 2) return;
-  const lng = Number(targetCoords[0]);
-  const lat = Number(targetCoords[1]);
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
-
-  const zoom = Number.isFinite(options.zoom) ? options.zoom : 14.8;
-  const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() || 50);
-  const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() || 0);
-  const centered = Boolean(options.centered);
-  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
-  // 检测移动端底部抽屉 (路线规划抽屉 / 收藏夹抽屉 / 高程起伏抽屉) 展开高度
-  let bottomCover = 0;
-  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-    const routePanel = document.getElementById('route-panel');
-    const favDrawer = document.getElementById('favorites-drawer');
-    const eleSheet = document.getElementById('mobile-ele-sheet');
-    if (routePanel && routePanel.style.display !== 'none') {
-      bottomCover = Math.max(bottomCover, routePanel.getBoundingClientRect().height);
+// Search, favourites and route points share one cancellable camera transaction.
+function flyToLocationPrecisely(map, coords, options = {}) {
+  window.OutmapLocationCamera.fly(map, coords, {
+    ...options,
+    onArrival: () => {
+      refreshAllRouteMarkersElevation(map);
+      options.onArrival?.();
     }
-    if (favDrawer && favDrawer.style.display !== 'none') {
-      bottomCover = Math.max(bottomCover, favDrawer.getBoundingClientRect().height);
-    }
-    if (eleSheet && eleSheet.style.display !== 'none') {
-      bottomCover = Math.max(bottomCover, eleSheet.getBoundingClientRect().height);
-    }
-  }
-
-  // 视口安全内边距配置 (Padding 系统：让目标点在整个飞行过程中始终稳居黄金视觉中心，图层随之平滑旋转缩放，彻底消除中途漂移与落地跳动)
-  const topPadding = 46;
-  let bottomPadding = 46;
-  if (bottomCover > 0) {
-    bottomPadding = Math.min(Math.round(window.innerHeight * 0.65), Math.round(bottomCover) + 20);
-  }
-
-  const cameraPadding = {
-    top: topPadding,
-    bottom: bottomPadding,
-    left: 20,
-    right: 20
-  };
-
-  // 智能航程判定与极速平滑动画调度
-  const curCenter = map.getCenter() || { lng, lat };
-  const curZoom = map.getZoom() || 10;
-  const distKm = calculateDistanceKm([curCenter.lng, curCenter.lat], [lng, lat]);
-  const zoomDiff = Math.abs(curZoom - zoom);
-
-  // 近距离或同城跳转 (25km 内且层级差 <= 3.5)：使用极速平滑 easeTo (450~550ms)，不产生多层级瓦片下发与GC抖动，极致 60fps
-  const isNearbyHop = distKm < 25 && zoomDiff <= 3.5;
-  const defaultDuration = reducedMotion ? 0 : (isNearbyHop ? 480 : (distKm > 500 ? 1100 : 850));
-  const duration = reducedMotion ? 0 : (options.duration !== undefined ? options.duration : defaultDuration);
-
-  map.stop();
-
-  if (isNearbyHop) {
-    map.easeTo({
-      center: [lng, lat],
-      zoom,
-      pitch: curPitch,
-      bearing: curBearing,
-      padding: cameraPadding,
-      duration,
-      essential: true
-    });
-  } else {
-    map.flyTo({
-      center: [lng, lat],
-      zoom,
-      pitch: curPitch,
-      bearing: curBearing,
-      padding: cameraPadding,
-      curve: 1.42,
-      speed: 1.2,
-      duration,
-      essential: true
-    });
-  }
-
-  let arrivalTriggered = false;
-  const handleArrival = () => {
-    if (arrivalTriggered) return;
-    arrivalTriggered = true;
-
-    // 落地后分批次通知所有标记点贴合最新 DEM 真实海拔
-    refreshAllRouteMarkersElevation(map);
-    setTimeout(() => refreshAllRouteMarkersElevation(map), 180);
-    setTimeout(() => refreshAllRouteMarkersElevation(map), 420);
-
-    if (typeof options.onArrival === 'function') {
-      options.onArrival();
-    }
-  };
-
-  map.once('moveend', handleArrival);
-  setTimeout(handleArrival, duration + 80);
+  });
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
 
@@ -1937,7 +1847,7 @@ function setupOfficeHeaderInteractions(map) {
     }
 
     if (locked) {
-      const currentPitch = targetPitch !== null ? targetPitch : Math.round(map.getPitch() || 50);
+      const currentPitch = targetPitch !== null ? targetPitch : Math.round(map.getPitch() ?? 50);
       try {
         localStorage.setItem('outmap_locked_pitch_val', String(currentPitch));
       } catch (e) {}
@@ -1973,9 +1883,12 @@ function setupOfficeHeaderInteractions(map) {
 
   // 2. 3D / 2D 切换 (切到 3D 时：视角 50 度锁定)
   const btn3D = document.getElementById('btn-3d-toggle');
+  let pitchLockTimer = null;
   if (btn3D) {
     btn3D.classList.add('active');
     btn3D.addEventListener('click', () => {
+      clearTimeout(pitchLockTimer);
+      window.OutmapLocationCamera.cancel(map);
       is3DView = !is3DView;
       btn3D.classList.toggle('active', is3DView);
       btn3D.title = is3DView ? '3D 立体模式（点击切换为 2D）' : '2D 平面模式（点击切换为 3D）';
@@ -1996,7 +1909,9 @@ function setupOfficeHeaderInteractions(map) {
         map.setMinPitch(0);
         map.setMaxPitch(85);
         map.easeTo({ pitch: 50, duration: 800 });
-        setTimeout(() => updatePitchLockState(true, 50), 820);
+        pitchLockTimer = setTimeout(() => {
+          if (is3DView) updatePitchLockState(true, map.getPitch());
+        }, 820);
       } else {
         // 切到 2D 视图：解除锁定并平俯至 0 度
         if (isPitchLocked) {
@@ -2339,7 +2254,7 @@ function setupOfficeHeaderInteractions(map) {
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
-        const curPitch = map.getPitch() || 50;
+        const curPitch = map.getPitch() ?? 50;
         flyToLocationPrecisely(map, validCoords, { zoom: 14.8, pitch: curPitch, duration: 600 });
       });
     }
@@ -2405,6 +2320,8 @@ function setupOfficeHeaderInteractions(map) {
 
   function executeJumpToResult(item) {
     if (!item || !item.coords || item.coords.length < 2) return;
+    ++searchRequestSequence;
+    clearTimeout(searchDebounceTimer);
     const lng = Number(item.coords[0]);
     const lat = Number(item.coords[1]);
     if (isNaN(lng) || isNaN(lat)) return;
@@ -2436,7 +2353,7 @@ function setupOfficeHeaderInteractions(map) {
       targetZoom = item.zoom;
     }
 
-    const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+    const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
 
     // 智能跨度感知：远距离平滑巡航，同城近距极速平滑直达
     const curZoom = map.getZoom();
@@ -2515,18 +2432,23 @@ function setupOfficeHeaderInteractions(map) {
     }
 
     // 2. 实时现场检索匹配并直达
+    clearTimeout(searchDebounceTimer);
+    const seq = ++searchRequestSequence;
     const results = await queryLocationCandidates(text);
+    if (seq !== searchRequestSequence || sInput.value.trim() !== text) return;
     if (results && results.length > 0) {
       executeJumpToResult(results[0]);
     } else {
       if (resultsContainer) {
-        resultsContainer.innerHTML = `<div class="search-empty-tip">未检索到“${text}”，请检查地名拼写或直接输入经纬度坐标</div>`;
+        resultsContainer.innerHTML = `<div class="search-empty-tip">未检索到“${escapeHtml(text)}”，请检查地名拼写或直接输入经纬度坐标</div>`;
         resultsContainer.style.display = 'block';
       }
     }
   };
 
   const closeSearchPopover = () => {
+    ++searchRequestSequence;
+    clearTimeout(searchDebounceTimer);
     if (searchPopover && searchPopover.style.display !== 'none') {
       smoothClosePopover(searchPopover, () => {
         if (sInput) sInput.blur();
@@ -2548,7 +2470,13 @@ function setupOfficeHeaderInteractions(map) {
           sInput.focus();
           sInput.select();
           if (sInput.value.trim()) {
-            queryLocationCandidates(sInput.value.trim()).then(renderSearchResults);
+            const query = sInput.value.trim();
+            const seq = ++searchRequestSequence;
+            currentSearchQuery = query;
+            currentSearchResults = [];
+            queryLocationCandidates(query).then(items => {
+              if (seq === searchRequestSequence && sInput.value.trim() === query) renderSearchResults(items);
+            });
           } else {
             renderSearchHistory();
           }
@@ -3844,7 +3772,7 @@ function setupCloudSync(map) {
         map.flyTo({
           center: cloudData.views.center,
           zoom: cloudData.views.zoom || 4.0,
-          pitch: cloudData.views.pitch || 50,
+          pitch: cloudData.views.pitch ?? 50,
           bearing: cloudData.views.bearing || 0
         });
       }
@@ -3958,16 +3886,13 @@ function flyToProvince(map, key) {
   const prov = PROVINCES_DATA[key];
   if (!prov) return;
   // 全国总览与各省视角严格遵从全局锁定状态：锁定了50就是50，锁定了60就是60，绝不强制重置锁定
-  const targetPitch = isPitchLocked ? map.getPitch() : (key === 'china' ? (map.getPitch() || 50) : prov.pitch);
-  map.flyTo({
-    center: prov.center,
+  const targetPitch = isPitchLocked ? map.getPitch() : (key === 'china' ? (map.getPitch() ?? 50) : prov.pitch);
+  flyToLocationPrecisely(map, prov.center, {
+    centered: true,
     zoom: prov.zoom,
     pitch: targetPitch,
     bearing: 0,
-    duration: 2200
-  });
-  map.once('moveend', () => {
-    triggerTerrainRealign(map);
+    duration: 1200
   });
   const regionEl = document.getElementById('status-region');
   if (regionEl) {
@@ -4351,7 +4276,7 @@ function setupWaypointAndFavoritesSystem(map) {
       el.addEventListener('mouseenter', () => el.style.transform = 'scale(1.25)');
       el.addEventListener('mouseleave', () => el.style.transform = 'scale(1.0)');
       el.addEventListener('click', () => {
-        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
         flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.5, pitch: curPitch, duration: 850 });
       });
 
@@ -4544,7 +4469,7 @@ function setupWaypointAndFavoritesSystem(map) {
       `;
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
-        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
         flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.2, pitch: curPitch, duration: 850 });
       });
 
@@ -4742,6 +4667,12 @@ let targetViaIndexForPick = null;
 let activeFloatingTarget = null; // { inputEl, pointType, viaIndex, mapInstance, triggerMapPick, selectCandidate }
 let floatingCandidates = [];
 let floatingActiveIndex = -1;
+// One document listener for the shared dropdown; re-rendered via inputs can be collected.
+document.addEventListener('click', e => {
+  const input = activeFloatingTarget?.inputEl;
+  const dropdown = getRouteFloatingDropdown();
+  if (input && !input.contains(e.target) && !dropdown?.contains(e.target)) hideRouteFloatingDropdown();
+});
 
 function getRouteFloatingDropdown() {
   return document.getElementById('route-floating-dropdown');
@@ -4828,6 +4759,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
 
   const selectCandidate = (item) => {
     if (!item) return;
+    ++requestSequence;
+    clearTimeout(searchTimer);
     inputEl.value = item.name;
     hideRouteFloatingDropdown();
     if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
@@ -4865,7 +4798,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
-            flyToLocationPrecisely(map, via.coords || item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() || 50, duration: 600 });
+            flyToLocationPrecisely(map, via.coords || item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() ?? 50, duration: 600 });
           });
           via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
             .setLngLat(item.coords)
@@ -4878,7 +4811,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     }
 
     if (item.coords) {
-      const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+      const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
       flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650 });
     }
   };
@@ -4962,6 +4895,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     clearTimeout(searchTimer);
     activeQuery = val;
     const seq = ++requestSequence;
+    if (activeFloatingTarget === currentTarget) hideRouteFloatingDropdown();
     if (!val) {
       hideRouteFloatingDropdown();
       const map = getMap();
@@ -4996,7 +4930,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     searchTimer = setTimeout(async () => {
       const results = await queryLocationCandidates(val);
       if (seq !== requestSequence || (inputEl.value || '').trim() !== val) return;
-      if (document.activeElement === inputEl || activeQuery === val) {
+      if (document.activeElement === inputEl && inputEl.isConnected) {
         renderCandidates(results, val);
       }
     }, 150);
@@ -5036,7 +4970,10 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       } else {
         const val = (inputEl.value || '').trim();
         if (val) {
+          clearTimeout(searchTimer);
+          const seq = ++requestSequence;
           queryLocationCandidates(val).then(res => {
+            if (seq !== requestSequence || !inputEl.isConnected || inputEl.value.trim() !== val) return;
             if (res && res.length > 0) {
               selectCandidate(res[0]);
             } else {
@@ -5046,6 +4983,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         }
       }
     } else if (e.key === 'Escape') {
+      ++requestSequence;
+      clearTimeout(searchTimer);
       hideRouteFloatingDropdown();
     }
   });
@@ -5055,19 +4994,18 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
     const val = (inputEl.value || '').trim();
     if (val) {
+      const seq = ++requestSequence;
       queryLocationCandidates(val).then(res => {
-        if (document.activeElement === inputEl || (inputEl.value || '').trim() === val) {
+        if (seq === requestSequence && document.activeElement === inputEl && inputEl.isConnected && inputEl.value.trim() === val) {
           renderCandidates(res, val);
         }
       });
     }
   });
 
-  document.addEventListener('click', (e) => {
-    const floatingEl = getRouteFloatingDropdown();
-    if (activeFloatingTarget === currentTarget && !inputEl.contains(e.target) && (!floatingEl || !floatingEl.contains(e.target))) {
-      hideRouteFloatingDropdown();
-    }
+  inputEl.addEventListener('blur', () => {
+    ++requestSequence;
+    clearTimeout(searchTimer);
   });
 }
 
@@ -5133,7 +5071,7 @@ function renderViaList(mapInstance) {
       tagEl.style.cursor = 'pointer';
       tagEl.addEventListener('click', () => {
         if (map && via.coords) {
-          flyToLocationPrecisely(map, via.coords, { zoom: via.zoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+          flyToLocationPrecisely(map, via.coords, { zoom: via.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
         }
       });
     }
@@ -5242,7 +5180,7 @@ function addViaPoint(map, coords, label, zoom = null) {
     el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
     el.innerText = idx;
     el.addEventListener('click', () => {
-      const curPitch = m.getPitch() || 50;
+      const curPitch = m.getPitch() ?? 50;
       flyToLocationPrecisely(m, coords, { zoom: targetZoom, pitch: curPitch, duration: 600 });
     });
 
@@ -5304,7 +5242,7 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
   el.innerText = '起';
   el.addEventListener('click', () => {
     if (m) {
-      const curPitch = m.getPitch() || 50;
+      const curPitch = m.getPitch() ?? 50;
       flyToLocationPrecisely(m, coords, { zoom: routeStartZoom || 14.8, pitch: curPitch, duration: 600 });
     }
   });
@@ -5334,7 +5272,7 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
   el.innerText = '终';
   el.addEventListener('click', () => {
     if (m) {
-      const curPitch = m.getPitch() || 50;
+      const curPitch = m.getPitch() ?? 50;
       flyToLocationPrecisely(m, coords, { zoom: routeEndZoom || 14.8, pitch: curPitch, duration: 600 });
     }
   });
@@ -5518,7 +5456,7 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
     }
     map.fitBounds(bounds, {
       padding: { top: tPadding, bottom: bPadding, left: 36, right: 36 },
-      pitch: Math.min(map.getPitch() || 50, 52),
+      pitch: Math.min(map.getPitch() ?? 50, 52),
       duration: 1400
     });
   }
@@ -5598,6 +5536,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       if (window.electronAPI) {
         try {
           resp = await fetch(localRouteUrl, { signal: AbortSignal.timeout(3200) });
+          if (!resp.ok) throw new Error('Local route unavailable');
         } catch (localErr) {
           resp = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(3200) });
         }
@@ -5620,6 +5559,11 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       }
     } catch (e) {
       // 离线或超时时，初始导引路线已在地图上完整呈现，移除加载标记即可
+      if (reqId === currentRouteRequestId && distEl) {
+        distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', ' (导引)');
+      }
+    } finally {
+      // HTTP errors and NoRoute responses also finish loading, not only rejected fetches.
       if (reqId === currentRouteRequestId && distEl) {
         distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', ' (导引)');
       }
@@ -5704,7 +5648,7 @@ function setupOutdoorRouteSystem(map) {
     staticStartTag.title = '起点（点击定位）';
     staticStartTag.addEventListener('click', () => {
       if (routeStartCoord && map) {
-        flyToLocationPrecisely(map, routeStartCoord, { zoom: routeStartZoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+        flyToLocationPrecisely(map, routeStartCoord, { zoom: routeStartZoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
       }
     });
   }
@@ -5715,11 +5659,11 @@ function setupOutdoorRouteSystem(map) {
     staticEndTag.title = '终点（点击定位）';
     staticEndTag.addEventListener('click', () => {
       if (routeEndCoord && map) {
-        flyToLocationPrecisely(map, routeEndCoord, { zoom: routeEndZoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+        flyToLocationPrecisely(map, routeEndCoord, { zoom: routeEndZoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
       } else if (routeViaPoints.length > 0 && map) {
         const lastVia = routeViaPoints[routeViaPoints.length - 1];
         if (lastVia.coords) {
-          flyToLocationPrecisely(map, lastVia.coords, { zoom: lastVia.zoom || 14.8, pitch: map.getPitch() || 50, duration: 600 });
+          flyToLocationPrecisely(map, lastVia.coords, { zoom: lastVia.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
         }
       }
     });
@@ -5865,7 +5809,7 @@ function setupOutdoorRouteSystem(map) {
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
-            const curPitch = map.getPitch() || 50;
+            const curPitch = map.getPitch() ?? 50;
             flyToLocationPrecisely(map, [lng, lat], { zoom: 14.8, pitch: curPitch, duration: 700 });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);

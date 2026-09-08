@@ -16,7 +16,7 @@ setTimeout(() => {
 }, 30000).unref();
 
 // 1. 静态代码与配置审查
-console.log('--- 1. Static Configuration & Code Assertions (v1.4.1) ---');
+console.log('--- 1. Static Configuration & Code Assertions (v1.4.2) ---');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const mainSrc = fs.readFileSync('main.js', 'utf8');
 const preloadSrc = fs.readFileSync('preload.js', 'utf8');
@@ -24,10 +24,10 @@ const appSrc = fs.readFileSync('src/app.js', 'utf8');
 const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.4.1', 'package.json version must be 1.4.1');
-assert(htmlSrc.includes('app.js?v=1.4.1'), 'index.html must reference app.js?v=1.4.1');
-assert(htmlSrc.includes('style.css?v=1.4.1'), 'index.html must reference style.css?v=1.4.1');
-assert(htmlSrc.includes('v1.4.1'), 'index.html must show v1.4.1 badge');
+assert.strictEqual(pkg.version, '1.4.2', 'package.json version must be 1.4.2');
+assert(htmlSrc.includes('app.js?v=1.4.2'), 'index.html must reference app.js?v=1.4.2');
+assert(htmlSrc.includes('style.css?v=1.4.2'), 'index.html must reference style.css?v=1.4.2');
+assert(htmlSrc.includes('v1.4.2'), 'index.html must show v1.4.2 badge');
 
 // main.js: 极速工作站性能模式 (8GB 磁盘缓存 + 8GB V8 堆内存 + 2GB 内存高速切片热缓存)
 assert(mainSrc.includes('--max-old-space-size=8192'), 'main.js must unlock 8GB V8 old space size');
@@ -78,7 +78,7 @@ ipcMain.handle('search-location', async (event, query) => {
     const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
     const resp = await fetch(photonUrl, {
       signal: AbortSignal.timeout(6500),
-      headers: { 'User-Agent': 'Outmap/1.4.1' }
+      headers: { 'User-Agent': 'Outmap/1.4.2' }
     });
     if (resp.ok) return await resp.json();
   } catch (e) {}
@@ -93,7 +93,8 @@ app.whenReady().then(async () => {
     webPreferences: {
       preload: path.join(__dirname, '../preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      partition: 'outmap-regression-tests'
     }
   });
 
@@ -196,6 +197,32 @@ app.whenReady().then(async () => {
       logs.firstYinchuanName = searchRes1 && searchRes1[0] ? searchRes1[0].name : '';
       logs.firstWanxiangName = searchRes2 && searchRes2[0] ? searchRes2[0].name : '';
 
+      // Actual input events with deliberately out-of-order search responses.
+      const originalQuery = window.queryLocationCandidates;
+      const originalFly = window.OutmapLocationCamera.fly;
+      const jumps = [];
+      window.OutmapLocationCamera.fly = (map, coords, opts) => jumps.push({coords, pitch: opts.pitch});
+      window.queryLocationCandidates = query => new Promise(r => setTimeout(() => r([{name:query,coords:query === 'slow' ? [118,35] : [91,29],type:'poi'}]), query === 'slow' ? 220 : 20));
+      const input = document.getElementById('global-search-input');
+      const enter = () => input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+      input.value='slow'; input.dispatchEvent(new Event('input',{bubbles:true})); enter();
+      await new Promise(r => setTimeout(r,25));
+      input.value='fast'; input.dispatchEvent(new Event('input',{bubbles:true})); enter();
+      await new Promise(r => setTimeout(r,300));
+      logs.onlyNewestSearch = jumps.length === 1 && jumps[0].coords[0] === 91;
+      input.value='slow'; input.dispatchEvent(new Event('input',{bubbles:true})); enter();
+      document.getElementById('btn-close-search').click();
+      await new Promise(r => setTimeout(r,280));
+      logs.closedSearchCancelled = jumps.length === 1;
+      const toggle = document.getElementById('btn-3d-toggle');
+      toggle.click(); toggle.click(); toggle.click();
+      await new Promise(r => setTimeout(r,1000));
+      logs.fastToggleStays2D = m.getPitch() === 0;
+      input.value='fast'; input.dispatchEvent(new Event('input',{bubbles:true})); enter();
+      await new Promise(r => setTimeout(r,80));
+      logs.searchPreserves2D = jumps[jumps.length-1].pitch === 0;
+      window.queryLocationCandidates = originalQuery;
+      window.OutmapLocationCamera.fly = originalFly;
       resolve(logs);
     });
   `);
@@ -203,6 +230,10 @@ app.whenReady().then(async () => {
   console.log('RUNTIME TEST RESULTS:\n' + JSON.stringify(result, null, 2));
 
   assert.strictEqual(result.cursorGrab, true, 'CSS --cursor-grab must contain valid SVG');
+  assert.strictEqual(result.onlyNewestSearch, true, 'Old Enter response must not jump after a newer search');
+  assert.strictEqual(result.closedSearchCancelled, true, 'Closing search must cancel pending Enter');
+  assert.strictEqual(result.fastToggleStays2D, true, 'Old 3D timer must not relock a later 2D selection');
+  assert.strictEqual(result.searchPreserves2D, true, 'Search must preserve zero pitch');
   assert.strictEqual(result.cursorGrabbing, true, 'CSS --cursor-grabbing must contain valid SVG');
   assert.strictEqual(result.cursorCrosshair, true, 'CSS --cursor-crosshair must contain valid SVG');
   assert.strictEqual(result.modalOpen, true, 'Pyramid modal must open on download button click');
@@ -218,6 +249,6 @@ app.whenReady().then(async () => {
   assert(result.searchYinchuanCount > 0, 'Search for 银川 must return results');
   assert(result.searchWanxiangchengCount > 0, 'Search for 万象城 must return results');
 
-  console.log('\n🎉 ALL v1.4.1 PERFORMANCE & STABILITY ASSERTIONS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL v1.4.2 PERFORMANCE & STABILITY ASSERTIONS PASSED SUCCESSFULLY!');
   app.quit();
 });
