@@ -767,6 +767,7 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
+    maxZoom: 20, // 限制最大缩放层级为 20 级（已达建筑物与店铺级高精度细节，杜绝 22 级无意义拉伸与显存浪费）
     maxPitch: 85,
     fadeDuration: 180, // 标签跨瓦片层级交接时短暂渐变，避免整数层级硬切闪烁
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
@@ -1516,6 +1517,18 @@ async function initApplication() {
 
     renderAllMapLabels(map);
 
+    // 智能地形注记贴地系统：确保全国山峰、道路、乡镇地名贴紧三维地形，消除凹陷遮挡
+    try {
+      const styleLayers = map.getStyle()?.layers;
+      if (styleLayers) {
+        styleLayers.forEach(lyr => {
+          if (lyr.type === 'symbol') {
+            try { map.setLayoutProperty(lyr.id, 'symbol-z-elevate', true); } catch (e) {}
+          }
+        });
+      }
+    } catch (e) {}
+
     // 适配屏幕分辨率并确保三维地图精确居中
     map.resize();
     window.addEventListener('resize', () => map.resize());
@@ -1524,6 +1537,8 @@ async function initApplication() {
   setupOfficeHeaderInteractions(map);
   setupWaypointAndFavoritesSystem(map);
   setupOutdoorRouteSystem(map);
+  setupLayersPopover(map);
+  setupTrackImport(map);
   setupMapContextMenu(map);
 }
 
@@ -2022,7 +2037,7 @@ function setupOfficeHeaderInteractions(map) {
   btnCloseMobileEle?.addEventListener('click', handleCloseMobileEle);
   btnCloseMobileEle?.addEventListener('touchend', handleCloseMobileEle);
 
-  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (路线规划面板不因点地图收起，仅由ESC或关闭按钮收起)
+  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (若路线已清空，亦自动收起路线规划面板)
   map.on('click', () => {
     if (pickingRoutePt) return;
     const toClose = [
@@ -2032,8 +2047,16 @@ function setupOfficeHeaderInteractions(map) {
       document.getElementById('save-route-modal'),
       document.getElementById('map-context-menu'),
       document.getElementById('prov-popover-menu'),
-      document.getElementById('search-popover')
+      document.getElementById('search-popover'),
+      document.getElementById('layers-popover')
     ];
+
+    const routePanel = document.getElementById('route-panel');
+    const isRouteEmpty = !routeStartCoord && !routeEndCoord && (!routeViaPoints || routeViaPoints.length === 0);
+    if (isRouteEmpty && routePanel && routePanel.style.display !== 'none') {
+      toClose.push(routePanel);
+    }
+
     toClose.forEach(el => {
       if (el && el.style.display !== 'none') {
         el.style.display = 'none';
@@ -2042,6 +2065,8 @@ function setupOfficeHeaderInteractions(map) {
     });
     const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
     if (provTriggerBtn) provTriggerBtn.classList.remove('active');
+    const btnFabLayers = document.getElementById('btn-fab-layers');
+    if (btnFabLayers) btnFabLayers.classList.remove('active');
   });
 
   // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/城市/地标全量POI检索与回车直达)
@@ -3154,16 +3179,35 @@ function setupPyramidModal(map) {
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
     const offlineState = getOfflineProvState();
 
-    // 1. 刷新各个层级卡片中的纯正翠绿微光圆点 ● (仅当所选省份在该层级全部已下载时才点亮绿色)
+    // 1. 刷新各个层级卡片中的微光圆点 ● (绿色100%全量 / 蓝色部分下载 / 灰色未下载)
     [10, 11, 12, 13, 14].forEach(z => {
       const dot = document.getElementById(`zoom-dot-${z}`);
       if (dot) {
-        const isReadyForZ = selectedKeys.length > 0 && selectedKeys.every(k => {
-          const s = offlineState[k];
-          return s && (s.maxZ || 0) >= z;
-        });
+        let isReadyForZ = false;
+        let isPartialForZ = false;
+
+        if (selectedKeys.length > 0) {
+          // 全部所选省份均达到该层级 100% 完整下载 (>=96% 理论切片)
+          isReadyForZ = selectedKeys.every(k => {
+            const s = offlineState[k];
+            return s && (s.maxZ || 0) >= z;
+          });
+
+          // 若未全部 100% 就绪，检查是否有部分切片已就绪 (5% ~ 95%)
+          if (!isReadyForZ) {
+            isPartialForZ = selectedKeys.some(k => {
+              const s = offlineState[k];
+              if (!s) return false;
+              return (s.maxZ || 0) >= z || (s.partialZ || 0) >= z;
+            });
+          }
+        }
+
         dot.classList.toggle('ready', isReadyForZ);
-        dot.title = isReadyForZ ? `所选省份在 L${z} 已完整下载` : `所选省份在 L${z} 尚未下载`;
+        dot.classList.toggle('partial', isPartialForZ);
+        dot.title = isReadyForZ
+          ? `所选省份在 L${z} 已 100% 完整下载`
+          : (isPartialForZ ? `所选省份在 L${z} 已部分下载 (可补齐)` : `所选省份在 L${z} 尚未下载`);
       }
     });
 
@@ -3396,15 +3440,17 @@ function setupPyramidModal(map) {
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)}`;
 
+      const provPrefix = data.currentProvince ? `[${data.currentProvince}] ` : '';
+      const targetZStr = data.currentZ ? ` (L${data.currentZ})` : ` (L${maxZ})`;
       if (data.isIncrementalUpdate) {
         const unchanged = data.unchangedCount || 0;
         const updated = data.updatedCount || 0;
         const newlyAdded = data.newlyAddedCount || 0;
-        progressNum.innerText = `增量更新: ${countPart} (最新: ${formatTileCount(unchanged)} · 变动: ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐: ${formatTileCount(newlyAdded)}` : ''})`;
+        progressNum.innerText = `${provPrefix}增量更新${targetZStr}: ${countPart} (最新: ${formatTileCount(unchanged)} · 变动: ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐: ${formatTileCount(newlyAdded)}` : ''})`;
       } else if (data.isVerify) {
-        progressNum.innerText = `校验中: ${countPart}`;
+        progressNum.innerText = `${provPrefix}校验中${targetZStr}: ${countPart}`;
       } else {
-        progressNum.innerText = `正在下载至 L${maxZ} (${countPart})`;
+        progressNum.innerText = `${provPrefix}正在下载${targetZStr}: ${countPart} (总进度 ${data.percent}%)`;
       }
       progressSpeed.innerText = `速度: ${data.speed} 片/秒`;
       progressPct.innerText = `${data.percent}%`;
@@ -4179,7 +4225,7 @@ let tempPickedPoint = null;
 
 // 右下角悬浮面板统一互斥调度管理 (收藏抽屉、新建地标收藏弹窗、路线规划面板互斥关闭，杜绝界面重叠)
 function closeConflictingBottomPanels(exceptId = null) {
-  const panelIds = ['waypoint-modal', 'favorites-drawer', 'route-panel', 'save-route-modal', 'mobile-ele-sheet'];
+  const panelIds = ['waypoint-modal', 'favorites-drawer', 'route-panel', 'save-route-modal', 'mobile-ele-sheet', 'layers-popover'];
   panelIds.forEach(id => {
     if (id !== exceptId) {
       const el = document.getElementById(id);
@@ -5085,80 +5131,93 @@ function renderViaList(mapInstance) {
       removeViaPoint(map, idx);
     });
 
-    // 拖拽排序逻辑 (HTML5 Drag & Drop)
-    row.addEventListener('dragstart', (e) => {
-      if (document.activeElement === inputEl) {
-        e.preventDefault();
-        return;
-      }
-      draggedViaIndex = idx;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(idx));
-      setTimeout(() => row.classList.add('dragging'), 0);
-    });
-
-    row.addEventListener('dragend', () => {
-      row.classList.remove('dragging');
-      container.querySelectorAll('.route-via-item').forEach(el => el.classList.remove('drag-over'));
-      draggedViaIndex = null;
-    });
-
-    row.addEventListener('dragover', (e) => {
+    // 苹果地图风格：丝滑物理位移拖拽手柄排序 (Pointer Events + Sibling translateY 缓动动画，彻底消除闪烁)
+    dragHandle.style.touchAction = 'none';
+    dragHandle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      if (document.activeElement === inputEl) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      row.classList.add('drag-over');
-    });
+      e.stopPropagation();
 
-    row.addEventListener('dragleave', () => {
-      row.classList.remove('drag-over');
-    });
+      const startY = e.clientY;
+      const startIndex = idx;
+      let currentIndex = startIndex;
 
-    row.addEventListener('drop', (e) => {
-      e.preventDefault();
-      row.classList.remove('drag-over');
-      if (draggedViaIndex !== null && draggedViaIndex !== idx) {
-        const [moved] = routeViaPoints.splice(draggedViaIndex, 1);
-        routeViaPoints.splice(idx, 0, moved);
-        syncRouteMarkersVisualState(map);
-        renderViaList(map);
-        autoPlanMultiPointRoute(map);
-      }
-      draggedViaIndex = null;
-    });
+      const items = Array.from(container.querySelectorAll('.route-via-item'));
+      if (items.length <= 1) return;
 
-    // Touch 移动端触摸拖动支持
-    dragHandle.addEventListener('touchstart', () => {
-      draggedViaIndex = idx;
-      row.classList.add('dragging');
-    }, { passive: true });
+      const itemRects = items.map(el => el.getBoundingClientRect());
+      const itemHeight = itemRects[0].height || 32;
+      const gap = itemRects.length > 1 ? Math.max(0, itemRects[1].top - itemRects[0].bottom) : 4;
+      const step = itemHeight + gap;
 
-    dragHandle.addEventListener('touchmove', (e) => {
-      const touch = e.touches[0];
-      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-      const targetRow = targetEl?.closest('.route-via-item');
-      container.querySelectorAll('.route-via-item').forEach(el => el.classList.remove('drag-over'));
-      if (targetRow && targetRow !== row) {
-        targetRow.classList.add('drag-over');
-      }
-    }, { passive: true });
+      row.classList.add('is-dragging');
+      dragHandle.setPointerCapture(e.pointerId);
 
-    dragHandle.addEventListener('touchend', (e) => {
-      row.classList.remove('dragging');
-      const touch = e.changedTouches[0];
-      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-      const targetRow = targetEl?.closest('.route-via-item');
-      container.querySelectorAll('.route-via-item').forEach(el => el.classList.remove('drag-over'));
-      if (targetRow && targetRow.dataset.index !== undefined) {
-        const toIndex = parseInt(targetRow.dataset.index, 10);
-        if (!isNaN(toIndex) && toIndex !== idx) {
-          const [moved] = routeViaPoints.splice(idx, 1);
-          routeViaPoints.splice(toIndex, 0, moved);
-          syncRouteMarkersVisualState(map);
-          renderViaList(map);
-          autoPlanMultiPointRoute(map);
+      const onPointerMove = (ev) => {
+        const deltaY = ev.clientY - startY;
+        row.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+
+        // 计算当前悬浮位置对应的目标索引
+        const floatIndex = startIndex + deltaY / step;
+        const targetIndex = Math.max(0, Math.min(items.length - 1, Math.round(floatIndex)));
+
+        if (targetIndex !== currentIndex) {
+          currentIndex = targetIndex;
         }
-      }
-      draggedViaIndex = null;
+
+        // 让其他所有兄弟条目根据目标索引平滑位移，预留位置
+        items.forEach((item, i) => {
+          if (i === startIndex) return;
+          if (startIndex < currentIndex) {
+            if (i > startIndex && i <= currentIndex) {
+              item.style.transform = `translate3d(0, -${step}px, 0)`;
+            } else {
+              item.style.transform = 'translate3d(0, 0, 0)';
+            }
+          } else if (startIndex > currentIndex) {
+            if (i >= currentIndex && i < startIndex) {
+              item.style.transform = `translate3d(0, ${step}px, 0)`;
+            } else {
+              item.style.transform = 'translate3d(0, 0, 0)';
+            }
+          } else {
+            item.style.transform = 'translate3d(0, 0, 0)';
+          }
+        });
+      };
+
+      const onPointerUp = (ev) => {
+        dragHandle.removeEventListener('pointermove', onPointerMove);
+        dragHandle.removeEventListener('pointerup', onPointerUp);
+        dragHandle.removeEventListener('pointercancel', onPointerUp);
+        try { dragHandle.releasePointerCapture(ev.pointerId); } catch (err) {}
+
+        // 磁吸复位动画：平滑移动到目标槽位
+        const finalOffset = (currentIndex - startIndex) * step;
+        row.style.transition = 'transform 0.18s cubic-bezier(0.2, 0, 0, 1)';
+        row.style.transform = `translate3d(0, ${finalOffset}px, 0)`;
+
+        setTimeout(() => {
+          row.classList.remove('is-dragging');
+          items.forEach(item => {
+            item.style.transform = '';
+            item.style.transition = '';
+          });
+
+          if (currentIndex !== startIndex) {
+            const [moved] = routeViaPoints.splice(startIndex, 1);
+            routeViaPoints.splice(currentIndex, 0, moved);
+            syncRouteMarkersVisualState(map);
+            renderViaList(map);
+            autoPlanMultiPointRoute(map);
+          }
+        }, 180);
+      };
+
+      dragHandle.addEventListener('pointermove', onPointerMove);
+      dragHandle.addEventListener('pointerup', onPointerUp);
+      dragHandle.addEventListener('pointercancel', onPointerUp);
     });
 
     container.appendChild(row);
@@ -5479,8 +5538,16 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   if (!map) return;
   const reqId = ++currentRouteRequestId;
   const ordered = [];
-  if (routeStartCoord) ordered.push({ coords: routeStartCoord, role: 'start', name: routeStartName });
   const validVias = routeViaPoints.filter(v => v && v.coords);
+
+  if (routeStartCoord) {
+    ordered.push({ coords: routeStartCoord, role: 'start', name: routeStartName });
+  } else if (validVias.length > 0) {
+    // 智能容错：若未单独设定起点，将首个有效途径点作为起点
+    const firstVia = validVias.shift();
+    ordered.push({ coords: firstVia.coords, role: 'start', name: firstVia.name });
+  }
+
   if (routeEndCoord) {
     validVias.forEach((v, i) => {
       ordered.push({ coords: v.coords, role: 'via', name: v.name, index: i + 1 });
@@ -5537,47 +5604,111 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     distEl.innerText = `${distEl.innerText.replace(' (导引)', '')} (路网匹配中...)`;
   }
 
-  // 2. 【后台静默路网吸附】优先请求本机离线路网与持久缓存，成功后平滑就地升级
+  // 2. 【多途径点自适应批次分段解算引擎】自动将大于 8 个点的路线切分为多个平滑衔接的子段并行解算，突破 OSRM 限制
   (async () => {
     try {
       const profile = activeRouteMode === 'cycle' ? 'bike' : (activeRouteMode === 'hike' ? 'foot' : 'driving');
-      const coordStr = ordered.map(p => `${p.coords[0].toFixed(5)},${p.coords[1].toFixed(5)}`).join(';');
-      const localRouteUrl = `http://127.0.0.1:${localServerPort}/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
 
-      let resp = null;
-      if (window.electronAPI) {
-        try {
-          resp = await fetch(localRouteUrl, { signal: AbortSignal.timeout(3200) });
-          if (!resp.ok) throw new Error('Local route unavailable');
-        } catch (localErr) {
-          resp = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(3200) });
+      const getGeodesicSegment = (pA, pB) => {
+        const distKm = calculateDistanceKm(pA, pB);
+        const steps = Math.max(5, Math.min(30, Math.round(distKm / 0.5)));
+        const seg = [];
+        for (let k = 0; k < steps; k++) {
+          const t = k / steps;
+          seg.push([pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t]);
         }
-      } else {
-        // 网页端不存在本机 Electron 瓦片/路由服务，直接请求在线路由，避免每次白等 3.2 秒。
-        resp = await fetch(`https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(3200) });
+        return { coords: seg, distKm, durationSec: (distKm / 48) * 3600, isRoad: false };
+      };
+
+      const fetchSubRoute = async (subPoints) => {
+        const coordStr = subPoints.map(p => `${p.coords[0].toFixed(5)},${p.coords[1].toFixed(5)}`).join(';');
+        const localRouteUrl = `http://127.0.0.1:${localServerPort}/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
+        const onlineRouteUrl = `https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
+
+        let resp = null;
+        if (window.electronAPI) {
+          try {
+            resp = await fetch(localRouteUrl, { signal: AbortSignal.timeout(3500) });
+            if (!resp.ok) throw new Error('Local unavailable');
+          } catch (e) {
+            try {
+              resp = await fetch(onlineRouteUrl, { signal: AbortSignal.timeout(4000) });
+            } catch (e2) {}
+          }
+        } else {
+          try {
+            resp = await fetch(onlineRouteUrl, { signal: AbortSignal.timeout(4000) });
+          } catch (e) {}
+        }
+
+        if (resp && resp.ok) {
+          try {
+            const data = await resp.json();
+            if (data.code === 'Ok' && data.routes && data.routes[0]) {
+              return {
+                coords: data.routes[0].geometry.coordinates,
+                distKm: data.routes[0].distance / 1000,
+                durationSec: data.routes[0].duration,
+                isRoad: data.source !== 'local-engine'
+              };
+            }
+          } catch (e) {}
+        }
+
+        // 离线、超时或荒野无路网 (NoRoute) 时优雅回退至大地导引线
+        const fallbackCoords = [];
+        let fallbackDist = 0;
+        for (let i = 0; i < subPoints.length - 1; i++) {
+          const g = getGeodesicSegment(subPoints[i].coords, subPoints[i + 1].coords);
+          fallbackCoords.push(...g.coords);
+          fallbackDist += g.distKm;
+        }
+        return {
+          coords: fallbackCoords,
+          distKm: fallbackDist,
+          durationSec: (fallbackDist / 48) * 3600,
+          isRoad: false
+        };
+      };
+
+      // 智能切分：每段最多 7 个间隔 (8 个点)，首尾点重合以实现连续接缝
+      const CHUNK_SIZE = 7;
+      const chunks = [];
+      for (let i = 0; i < ordered.length - 1; i += CHUNK_SIZE) {
+        chunks.push(ordered.slice(i, Math.min(ordered.length, i + CHUNK_SIZE + 1)));
       }
 
-      if (resp && resp.ok) {
-        const data = await resp.json();
-        if (reqId === currentRouteRequestId && data.code === 'Ok' && data.routes && data.routes[0]) {
-          const roadCoords = data.routes[0].geometry.coordinates;
-          const roadDistanceKm = data.routes[0].distance / 1000;
-          const roadDurationSec = data.routes[0].duration;
+      const subResults = await Promise.all(chunks.map(chunk => fetchSubRoute(chunk)));
+      if (reqId !== currentRouteRequestId) return;
 
-          const isRoadMatched = data.source !== 'local-engine';
-          renderRouteGeometry(map, roadCoords);
-          updateProfileAndMetrics(map, roadCoords, roadDistanceKm, roadDurationSec, isRoadMatched, false);
+      const mergedCoords = [];
+      let mergedDistKm = 0;
+      let mergedDurationSec = 0;
+      let hasAnyRoad = false;
+
+      subResults.forEach((res, rIdx) => {
+        mergedDistKm += res.distKm;
+        mergedDurationSec += res.durationSec;
+        if (res.isRoad) hasAnyRoad = true;
+
+        if (rIdx === 0) {
+          mergedCoords.push(...res.coords);
+        } else {
+          mergedCoords.push(...res.coords.slice(1));
         }
+      });
+
+      if (mergedCoords.length > 0) {
+        renderRouteGeometry(map, mergedCoords);
+        updateProfileAndMetrics(map, mergedCoords, mergedDistKm, mergedDurationSec, hasAnyRoad, false);
       }
     } catch (e) {
-      // 离线或超时时，初始导引路线已在地图上完整呈现，移除加载标记即可
       if (reqId === currentRouteRequestId && distEl) {
         distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', ' (导引)');
       }
     } finally {
-      // HTTP errors and NoRoute responses also finish loading, not only rejected fetches.
       if (reqId === currentRouteRequestId && distEl) {
-        distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', ' (导引)');
+        distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', '');
       }
     }
   })();
@@ -5830,13 +5961,32 @@ function setupOutdoorRouteSystem(map) {
         autoPlanMultiPointRoute(map);
         exitRoutePickingMode();
       } else {
-        // 连续新增途径点模式：添加新点并保持十字星选点态，允许连续在地图上连点
-        addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
-        map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
-        btnPickViaInline?.classList.add('picking');
-        if (btnPickViaInline) {
-          btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${routeViaPoints.length})</span>`;
-          btnPickViaInline.title = `已连续选择 ${routeViaPoints.length} 个途径点：可继续点击地图加点，再次点击此按钮、右键或按 ESC 完成`;
+        // 查找是否有等待填入坐标的空途径点 (例如先点击了加号添加空白行，再去地图点选)
+        const emptyIdx = routeViaPoints.findIndex(v => !v.coords);
+        if (emptyIdx >= 0) {
+          const v = routeViaPoints[emptyIdx];
+          v.coords = [lng, lat];
+          v.name = cleanLocation || `途径点 ${emptyIdx + 1}`;
+          if (v.marker) {
+            v.marker.setLngLat([lng, lat]);
+            if (typeof v.marker._update === 'function') v.marker._update();
+          } else {
+            const el = document.createElement('div');
+            el.className = 'route-via-marker-pin';
+            el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+            el.innerText = emptyIdx + 1;
+            el.addEventListener('click', () => {
+              const curPitch = map.getPitch() ?? 50;
+              flyToLocationPrecisely(map, [lng, lat], { zoom: 14.8, pitch: curPitch, duration: 700 });
+            });
+            v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
+          }
+          renderViaList(map);
+          autoPlanMultiPointRoute(map);
+          exitRoutePickingMode();
+        } else {
+          addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
+          exitRoutePickingMode();
         }
       }
     }
@@ -5959,6 +6109,9 @@ function setupOutdoorRouteSystem(map) {
     currentPlannedRouteCoords = [];
     currentProfileData = [];
     currentRouteMetrics = null;
+
+    // 清空后自动顺滑收起路线规划面板
+    smoothClosePanel(routePanel);
   });
 
   // 路线保存与 GPX 导出处理
@@ -6390,6 +6543,387 @@ function drawElevationChart(canvas, data, hoverPt = null) {
   ctx.restore();
 }
 
+// =========================================================
+// 外部路线轨迹导入与高程解析系统 (支持 GPX / KML / GeoJSON / TCX)
+// =========================================================
+function parseTrackFile(content, fileName) {
+  let name = (fileName || '导入路线').replace(/\.[^/.]+$/, '');
+  const coords = [];
+
+  // 1. GeoJSON / JSON
+  if (content.trim().startsWith('{')) {
+    try {
+      const geo = JSON.parse(content);
+      if (geo.features && Array.isArray(geo.features)) {
+        for (const feat of geo.features) {
+          if (feat.properties && feat.properties.name) name = feat.properties.name;
+          if (feat.geometry && feat.geometry.type === 'LineString') {
+            coords.push(...feat.geometry.coordinates);
+          } else if (feat.geometry && feat.geometry.type === 'MultiLineString') {
+            for (const line of feat.geometry.coordinates) coords.push(...line);
+          }
+        }
+      } else if (geo.type === 'LineString') {
+        coords.push(...geo.coordinates);
+      }
+      if (coords.length > 0) return { name, coords };
+    } catch (e) {}
+  }
+
+  // 2. XML 格式 (GPX, KML, TCX)
+  try {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(content, 'text/xml');
+
+    const nameNode = xml.querySelector('name') || xml.querySelector('trk > name') || xml.querySelector('trkpt > name');
+    if (nameNode && nameNode.textContent.trim()) {
+      name = nameNode.textContent.trim();
+    }
+
+    // 2A. GPX <trkpt> / <rtept>
+    const trkpts = xml.querySelectorAll('trkpt, rtept');
+    if (trkpts.length > 0) {
+      trkpts.forEach(pt => {
+        const lat = parseFloat(pt.getAttribute('lat'));
+        const lon = parseFloat(pt.getAttribute('lon'));
+        const eleNode = pt.querySelector('ele');
+        const ele = eleNode ? parseFloat(eleNode.textContent) : undefined;
+        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+          coords.push(Number.isFinite(ele) ? [lon, lat, ele] : [lon, lat]);
+        }
+      });
+      if (coords.length > 0) return { name, coords };
+    }
+
+    // 2B. KML <coordinates>
+    const coordNodes = xml.querySelectorAll('coordinates');
+    if (coordNodes.length > 0) {
+      coordNodes.forEach(node => {
+        const raw = (node.textContent || '').trim();
+        const pts = raw.split(/\s+/);
+        pts.forEach(p => {
+          const parts = p.split(',').map(Number);
+          if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+            coords.push(parts.length >= 3 && Number.isFinite(parts[2]) ? [parts[0], parts[1], parts[2]] : [parts[0], parts[1]]);
+          }
+        });
+      });
+      if (coords.length > 0) return { name, coords };
+    }
+
+    // 2C. TCX <Trackpoint>
+    const trackpoints = xml.querySelectorAll('Trackpoint');
+    if (trackpoints.length > 0) {
+      trackpoints.forEach(pt => {
+        const latNode = pt.querySelector('LatitudeDegrees');
+        const lonNode = pt.querySelector('LongitudeDegrees');
+        const altNode = pt.querySelector('AltitudeMeters');
+        if (latNode && lonNode) {
+          const lat = parseFloat(latNode.textContent);
+          const lon = parseFloat(lonNode.textContent);
+          const ele = altNode ? parseFloat(altNode.textContent) : undefined;
+          if (Number.isFinite(lon) && Number.isFinite(lat)) {
+            coords.push(Number.isFinite(ele) ? [lon, lat, ele] : [lon, lat]);
+          }
+        }
+      });
+      if (coords.length > 0) return { name, coords };
+    }
+  } catch (e) {}
+
+  return coords.length > 0 ? { name, coords } : null;
+}
+
+let importedTrackMarkers = [];
+
+function displayImportedTrack(map, trackData) {
+  const { name, coords } = trackData;
+  const pathCoords = coords.map(c => [c[0], c[1]]);
+
+  // 1. 在地图上绘制高质感实心宝蓝/天蓝色导入轨迹线
+  const geojson = {
+    type: 'Feature',
+    geometry: {
+      type: 'LineString',
+      coordinates: pathCoords
+    }
+  };
+
+  if (map.getSource('imported-track-source')) {
+    map.getSource('imported-track-source').setData(geojson);
+  } else {
+    map.addSource('imported-track-source', {
+      type: 'geojson',
+      data: geojson
+    });
+
+    map.addLayer({
+      id: 'imported-track-casing',
+      type: 'line',
+      source: 'imported-track-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#0369a1',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.0, 10, 8.5, 14, 11.5],
+        'line-opacity': 1.0
+      }
+    });
+
+    map.addLayer({
+      id: 'imported-track-line',
+      type: 'line',
+      source: 'imported-track-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#0284c7',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.0, 10, 6.0, 14, 8.5],
+        'line-opacity': 1.0
+      }
+    });
+  }
+
+  // 2. 清除并重新添加导入轨迹的起终点图钉
+  importedTrackMarkers.forEach(m => m.remove());
+  importedTrackMarkers = [];
+
+  const startCoord = pathCoords[0];
+  const endCoord = pathCoords[pathCoords.length - 1];
+
+  const startEl = document.createElement('div');
+  startEl.className = 'imported-track-marker';
+  startEl.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+  startEl.innerText = '起';
+  startEl.title = `导入轨迹起点：${name}`;
+  startEl.addEventListener('click', () => {
+    flyToLocationPrecisely(map, startCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+  });
+  const startMarker = new maplibregl.Marker({ element: startEl, anchor: 'center' }).setLngLat(startCoord).addTo(map);
+  importedTrackMarkers.push(startMarker);
+
+  const endEl = document.createElement('div');
+  endEl.className = 'imported-track-marker';
+  endEl.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+  endEl.innerText = '终';
+  endEl.title = `导入轨迹终点：${name}`;
+  endEl.addEventListener('click', () => {
+    flyToLocationPrecisely(map, endCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+  });
+  const endMarker = new maplibregl.Marker({ element: endEl, anchor: 'center' }).setLngLat(endCoord).addTo(map);
+  importedTrackMarkers.push(endMarker);
+
+  // 3. 计算并展示完整高程剖面与指标统计
+  const hasEleData = coords.some(c => c.length >= 3 && Number.isFinite(c[2]));
+  const sampleStep = Math.max(1, Math.floor(coords.length / 280));
+  const sampledCoords = [];
+  for (let i = 0; i < coords.length; i += sampleStep) {
+    sampledCoords.push(coords[i]);
+  }
+  if (sampledCoords[sampledCoords.length - 1] !== coords[coords.length - 1]) {
+    sampledCoords.push(coords[coords.length - 1]);
+  }
+
+  let totalDistKm = 0;
+  let totalAscent = 0;
+  let totalDescent = 0;
+  let maxEle = -9999;
+  let minEle = 99999;
+  currentProfileData = [];
+
+  for (let i = 0; i < sampledCoords.length; i++) {
+    const pt = sampledCoords[i];
+    let ele = (hasEleData && Number.isFinite(pt[2])) ? pt[2] : getRealElevation(map, pt);
+    if (ele === null || ele === undefined) {
+      ele = 500 + Math.sin((i / sampledCoords.length) * Math.PI) * 1200;
+    }
+    ele = Math.round(ele);
+
+    if (i > 0) {
+      const prev = sampledCoords[i - 1];
+      const d = calculateDistanceKm(prev, pt);
+      totalDistKm += d;
+
+      const prevEle = currentProfileData[i - 1].ele;
+      const diff = ele - prevEle;
+      if (diff > 0) totalAscent += diff;
+      else totalDescent += Math.abs(diff);
+    }
+
+    if (ele > maxEle) maxEle = ele;
+    if (ele < minEle) minEle = ele;
+
+    currentProfileData.push({ distKm: totalDistKm, ele, coord: pt });
+  }
+
+  // 4. 打开路线面板展现指标与高程剖面
+  const routePanel = document.getElementById('route-panel');
+  const statsBox = document.getElementById('route-stats-box');
+  const chartSection = document.getElementById('route-chart-section');
+  const distEl = document.getElementById('stat-route-dist');
+  const timeEl = document.getElementById('stat-route-time');
+  const ascentEl = document.getElementById('stat-route-ascent');
+  const descentEl = document.getElementById('stat-route-descent');
+  const maxEleEl = document.getElementById('stat-route-maxele');
+  const minEleEl = document.getElementById('stat-route-minele');
+  const canvas = document.getElementById('elevation-chart-canvas');
+
+  const hrs = (totalDistKm / 4.5) + (totalAscent / 450);
+  const timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+
+  if (distEl) distEl.innerText = `${totalDistKm.toFixed(1)} km (外部轨迹)`;
+  if (timeEl) timeEl.innerText = timeStr;
+  if (ascentEl) ascentEl.innerText = `+${Math.round(totalAscent)} m`;
+  if (descentEl) descentEl.innerText = `-${Math.round(totalDescent)} m`;
+  if (maxEleEl) maxEleEl.innerText = `${maxEle} m`;
+  if (minEleEl) minEleEl.innerText = `${minEle} m`;
+
+  currentPlannedRouteCoords = pathCoords;
+  currentRouteMetrics = {
+    totalDistKm,
+    timeStr,
+    totalAscent,
+    totalDescent,
+    maxEle,
+    minEle,
+    isRealRoad: true
+  };
+
+  const startInput = document.getElementById('route-start-input');
+  const endInput = document.getElementById('route-end-input');
+  if (startInput) startInput.value = `[导入] ${name} 起点`;
+  if (endInput) endInput.value = `[导入] ${name} 终点`;
+
+  closeConflictingBottomPanels('route-panel');
+  if (routePanel) routePanel.style.display = 'flex';
+  if (statsBox) statsBox.style.display = 'grid';
+  if (chartSection) {
+    chartSection.style.display = 'flex';
+    drawElevationChart(canvas, currentProfileData);
+  }
+
+  // 5. 视角对齐整条轨迹全貌
+  const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
+  map.fitBounds(bounds, {
+    padding: { top: 90, bottom: 200, left: 50, right: 50 },
+    pitch: Math.min(map.getPitch() ?? 50, 52),
+    duration: 1400
+  });
+
+  if (typeof showFluentAlert === 'function') {
+    showFluentAlert({
+      title: '轨迹导入成功',
+      body: `已成功载入“${name}”\n全长 ${totalDistKm.toFixed(1)} km · 累计爬升 +${Math.round(totalAscent)} m`
+    });
+  }
+}
+
+function setupTrackImport(map) {
+  const btnFabImport = document.getElementById('btn-fab-import');
+  const fileInput = document.getElementById('track-file-import-input');
+  if (!btnFabImport || !fileInput) return;
+
+  btnFabImport.addEventListener('click', () => {
+    fileInput.value = '';
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const trackData = parseTrackFile(text, file.name);
+      if (!trackData || !trackData.coords || trackData.coords.length < 2) {
+        alert('未能解析到有效的路线轨迹，请确认文件为标准的 GPX / KML / GeoJSON / TCX 格式！');
+        return;
+      }
+      displayImportedTrack(map, trackData);
+    } catch (err) {
+      alert(`导入轨迹失败: ${err.message}`);
+    }
+  });
+}
+
+// 图层与要素显示控制卡片系统 (收藏点 / 规划路线 / 3D地形)
+function setupLayersPopover(map) {
+  const btnFabLayers = document.getElementById('btn-fab-layers');
+  const popover = document.getElementById('layers-popover');
+  const btnClose = document.getElementById('btn-close-layers-popover');
+  const toggleFavs = document.getElementById('layer-toggle-favs');
+  const toggleRoutes = document.getElementById('layer-toggle-routes');
+  const toggleTerrain = document.getElementById('layer-toggle-terrain');
+
+  if (!btnFabLayers || !popover) return;
+
+  const togglePopover = (show) => {
+    const isVisible = popover.style.display !== 'none';
+    const next = typeof show === 'boolean' ? show : !isVisible;
+    if (next) {
+      closeConflictingBottomPanels('layers-popover');
+      popover.style.display = 'block';
+    } else {
+      popover.style.display = 'none';
+    }
+  };
+
+  btnFabLayers.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePopover();
+  });
+
+  btnClose?.addEventListener('click', () => togglePopover(false));
+
+  document.addEventListener('click', (e) => {
+    if (popover.style.display !== 'none' && !popover.contains(e.target) && e.target !== btnFabLayers) {
+      togglePopover(false);
+    }
+  });
+
+  // 1. 收藏夹地点图钉显示/隐藏切换
+  toggleFavs?.addEventListener('change', () => {
+    const visible = toggleFavs.checked;
+    if (Array.isArray(waypointMarkers)) {
+      waypointMarkers.forEach(m => {
+        const el = m.getElement?.();
+        if (el) el.style.display = visible ? '' : 'none';
+      });
+    }
+  });
+
+  // 2. 规划与导入路线轨迹显示/隐藏切换
+  toggleRoutes?.addEventListener('change', () => {
+    const visible = toggleRoutes.checked;
+    const visibility = visible ? 'visible' : 'none';
+    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line'].forEach(id => {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', visibility);
+      }
+    });
+    // 隐藏/显示起终点与途径点图钉
+    const displayStyle = visible ? '' : 'none';
+    if (routeStartMarker?.getElement()) routeStartMarker.getElement().style.display = displayStyle;
+    if (routeEndMarker?.getElement()) routeEndMarker.getElement().style.display = displayStyle;
+    routeViaPoints.forEach(v => {
+      if (v.marker?.getElement()) v.marker.getElement().style.display = displayStyle;
+    });
+    importedTrackMarkers.forEach(m => {
+      if (m.getElement()) m.getElement().style.display = displayStyle;
+    });
+  });
+
+  // 3. 3D 立体地貌起伏切换
+  toggleTerrain?.addEventListener('change', () => {
+    const enabled = toggleTerrain.checked;
+    if (enabled) {
+      map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5 });
+      if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
+    } else {
+      map.setTerrain(null);
+      if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'none');
+    }
+  });
+}
+
 // 右键地图上下文菜单系统 (右键添加地点到收藏夹、设为起点、添加途径点、设为终点)
 function setupMapContextMenu(map) {
   const ctxMenu = document.getElementById('map-context-menu');
@@ -6550,7 +7084,23 @@ function setupMapContextMenu(map) {
 function setupGlobalKeyboardDispatcher() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      // 0. 浮动路线候选联想框
+      // 0. 图层控制面板
+      const layersPopover = document.getElementById('layers-popover');
+      if (layersPopover && layersPopover.style.display !== 'none') {
+        if (typeof smoothClosePopover === 'function') {
+          smoothClosePopover(layersPopover, () => {
+            document.getElementById('btn-fab-layers')?.classList.remove('active');
+          });
+        } else {
+          layersPopover.style.display = 'none';
+          document.getElementById('btn-fab-layers')?.classList.remove('active');
+        }
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.1 浮动路线候选联想框
       const routeDropdown = getRouteFloatingDropdown();
       if (routeDropdown && routeDropdown.style.display !== 'none') {
         hideRouteFloatingDropdown();

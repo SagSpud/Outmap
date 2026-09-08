@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.4.3" />
+  <link rel="stylesheet" href="style.css?v=1.4.4" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.4.3</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.4.4</span>
                 </div>
               </div>
             </div>
@@ -143,12 +143,20 @@
         </button>
       </div>
 
-      <!-- 户外核心工具坞 (简约无汉字标注，右下角停靠) -->
+      <!-- 户外核心工具坞 (简约图标化，右下角停靠) -->
       <div id="fab-dock">
-        <button class="fab-btn" id="btn-fab-point" title="在3D地表点击选点并加入收藏夹">
+        <button class="fab-btn" id="btn-fab-layers" title="图层显示控制 (收藏点/规划路线/3D地形)">
           <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 21s-6-5.6-6-10a6 6 0 1 1 12 0c0 4.4-6 10-6 10z"></path>
-            <circle cx="12" cy="11" r="2.5"></circle>
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </button>
+        <button class="fab-btn" id="btn-fab-import" title="从外部导入路线轨迹 (支持 GPX / KML / GeoJSON / TCX)">
+          <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
         </button>
         <button class="fab-btn" id="btn-fab-route" title="户外自驾、骑行、徒步路线规划与海拔高程剖面图">
@@ -163,6 +171,41 @@
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
           </svg>
         </button>
+      </div>
+
+      <!-- 隐藏的轨迹文件选择器 (支持 GPX, KML, GeoJSON, TCX) -->
+      <input type="file" id="track-file-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
+
+      <!-- 图层显示控制二级悬浮卡片 (Fluent / iOS 毛玻璃风格) -->
+      <div id="layers-popover" class="floating-panel layers-popover-panel" style="display: none;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+            <span>图层与要素显示</span>
+          </div>
+          <button class="card-close" id="btn-close-layers-popover" title="关闭">✕</button>
+        </div>
+        <div class="panel-body layers-popover-body">
+          <label class="layer-toggle-row">
+            <span class="layer-toggle-label">⭐ 收藏夹地点图钉</span>
+            <input type="checkbox" id="layer-toggle-favs" checked />
+            <span class="layer-toggle-switch"></span>
+          </label>
+          <label class="layer-toggle-row">
+            <span class="layer-toggle-label">🛣️ 规划与导入路线轨迹</span>
+            <input type="checkbox" id="layer-toggle-routes" checked />
+            <span class="layer-toggle-switch"></span>
+          </label>
+          <label class="layer-toggle-row">
+            <span class="layer-toggle-label">🏔️ 3D 立体地貌起伏</span>
+            <input type="checkbox" id="layer-toggle-terrain" checked />
+            <span class="layer-toggle-switch"></span>
+          </label>
+        </div>
       </div>
 
       <!-- 右键地图交互快捷菜单 -->
@@ -721,8 +764,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.4.3"></script>
-  <script src="app.js?v=1.4.3"></script>
+  <script src="location-camera.js?v=1.4.4"></script>
+  <script src="app.js?v=1.4.4"></script>
 </body>
 </html>
 

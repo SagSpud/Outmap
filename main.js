@@ -823,39 +823,42 @@ function scanProvincesFromDisk() {
   scanLayer(OFFLINE_VEC_DIR, 'vector');
   scanLayer(OFFLINE_DEM_DIR, 'dem');
 
-  // 科学精准判定：省份在层级 z 下的瓦片数必须达到真实包围盒理论切片数的 55% 以上，且低层级连续完整
-  function getLayerMaxZ(zCounts, bbox) {
-    if (!zCounts) return 0;
+  // 科学精准判定：省份在层级 z 下必须达到真实包围盒理论切片数的 96% 以上才判定为完整绿标；5%~95% 判定为蓝标部分就绪
+  function getLayerStatus(zCounts, bbox) {
+    if (!zCounts) return { maxZ: 0, partialZ: 0 };
     let maxZ = 0;
+    let partialZ = 0;
     for (let z = 10; z <= 14; z++) {
       const count = zCounts[z] || 0;
       const expected = getBboxTileCount(bbox, z);
-      // 澳门/香港等特小区域保底 4 块，常规省份要求 >= 55% 理论切片数且至少 20 块
-      const minThreshold = Math.max(z <= 10 ? 4 : 20, Math.floor(expected * 0.55));
-      if (count >= minThreshold) {
+      const fullThreshold = Math.max(z <= 10 ? 4 : 20, Math.floor(expected * 0.96));
+      const partialThreshold = Math.max(2, Math.floor(expected * 0.05));
+      if (count >= fullThreshold) {
         maxZ = z;
-      } else {
-        // 金字塔必须向下连续：前序层级未就绪则高层级不能判定为完整离线包
-        break;
+      }
+      if (count >= partialThreshold) {
+        partialZ = Math.max(partialZ, z);
       }
     }
-    return maxZ;
+    return { maxZ, partialZ };
   }
 
   for (const [k, bbox] of CHINA_PROVINCE_BBOX_ENTRIES) {
     const layers = provTileCounts[k];
     if (!layers) continue;
-    const demMaxZ = getLayerMaxZ(layers.dem, bbox);
-    const vecMaxZ = getLayerMaxZ(layers.vector, bbox);
-    const maxReadyZ = Math.max(demMaxZ, vecMaxZ);
-    if (maxReadyZ >= 10) {
+    const demStatus = getLayerStatus(layers.dem, bbox);
+    const vecStatus = getLayerStatus(layers.vector, bbox);
+    const maxReadyZ = Math.max(demStatus.maxZ, vecStatus.maxZ);
+    const maxPartialZ = Math.max(demStatus.partialZ, vecStatus.partialZ);
+    if (maxReadyZ >= 10 || maxPartialZ >= 10) {
       detected[k] = {
         maxZ: maxReadyZ,
-        dem: demMaxZ > 0,
-        vec: vecMaxZ > 0,
+        partialZ: maxPartialZ,
+        dem: demStatus.maxZ > 0 || demStatus.partialZ > 0,
+        vec: vecStatus.maxZ > 0 || vecStatus.partialZ > 0,
         layers: {
-          ...(demMaxZ > 0 ? { dem: { maxZ: demMaxZ } } : {}),
-          ...(vecMaxZ > 0 ? { vector: { maxZ: vecMaxZ } } : {})
+          ...(layers.dem ? { dem: { maxZ: demStatus.maxZ, partialZ: demStatus.partialZ } } : {}),
+          ...(layers.vector ? { vector: { maxZ: vecStatus.maxZ, partialZ: vecStatus.partialZ } } : {})
         }
       };
     }
@@ -868,10 +871,9 @@ function getQuickTileCount(forceRefresh = false) {
   const manifest = loadOfflineManifest();
   const hasProvRecord = manifest.provinces && Object.keys(manifest.provinces).length > 0;
 
-  // 历史脏数据熔断检测：如果清单中记录了省份，但全机切片数极少 (< 3000) 却存在 >= 2 个省份，或者记录了 L14 却总切片不足 10000 块
+  // 历史脏数据熔断检测：如果清单中记录了省份，但全机切片数极少 (< 3000) 却存在 >= 2 个省份
   const isSuspicious = hasProvRecord && (
-    (manifest.stats && manifest.stats.totalTiles < 3000 && Object.keys(manifest.provinces).length > 1) ||
-    Object.values(manifest.provinces).some(p => p.maxZ >= 14 && (!manifest.stats || manifest.stats.totalTiles < 10000))
+    (manifest.stats && manifest.stats.totalTiles < 3000 && Object.keys(manifest.provinces).length > 1)
   );
 
   if (memoryTileStats && !forceRefresh && !isSuspicious) return memoryTileStats;
@@ -880,6 +882,7 @@ function getQuickTileCount(forceRefresh = false) {
     return memoryTileStats;
   }
 
+  // 毫秒级极速统计本地瓦片目录总数与体积 (采样计算，绝对不卡死主线程)
   const dem = scanDirStats(OFFLINE_DEM_DIR);
   const vec = scanDirStats(OFFLINE_VEC_DIR);
   memoryTileStats = {
@@ -892,7 +895,13 @@ function getQuickTileCount(forceRefresh = false) {
     lastScannedAt: Date.now()
   };
 
-  // 磁盘反向智能检索识别：仅保留磁盘真实拥有对应层级切片的省份，彻底清洗历史误标的虚假记录
+  // 关键优化：如果已有省份记录，只更新统计数据，绝不在主线程运行长达数秒的 scanProvincesFromDisk() 同步大循环
+  if (hasProvRecord && !isSuspicious) {
+    saveOfflineManifest({ stats: memoryTileStats, provinces: manifest.provinces }, false);
+    return memoryTileStats;
+  }
+
+  // 仅在首次启动无任何省份记录或数据异常时，反向检索磁盘
   const detectedProvs = scanProvincesFromDisk();
   const sanitizedProvinces = {};
   for (const [k, diskState] of Object.entries(detectedProvs)) {
@@ -1190,8 +1199,8 @@ app.whenReady().then(async () => {
         for (let x = x1; x <= x2; x++) {
           for (let y = y1; y <= y2; y++) {
             if (z >= 11 && !isTileInChina(z, x, y)) continue;
-            if (downloadDem) allTiles.push({ provKey: prov.key, type: 'dem', z, x, y, ext: 'webp' });
-            if (downloadVec) allTiles.push({ provKey: prov.key, type: 'vector', z, x, y, ext: 'pbf' });
+            if (downloadDem) allTiles.push({ provKey: prov.key, provName: prov.name, type: 'dem', z, x, y, ext: 'webp' });
+            if (downloadVec) allTiles.push({ provKey: prov.key, provName: prov.name, type: 'vector', z, x, y, ext: 'pbf' });
           }
         }
       }
@@ -1239,10 +1248,14 @@ app.whenReady().then(async () => {
     let index = 0;
     const createdDirs = new Set();
     let lastProgressTime = 0;
+    let activeProvName = '';
+    let activeZ = 10;
 
     async function worker() {
       while (index < tileList.length && !signal.aborted) {
         const task = tileList[index++];
+        if (task.provName) activeProvName = task.provName;
+        if (task.z) activeZ = task.z;
         const { type, z, x, y, ext } = task;
         const localDir = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
         const dirPath = path.join(localDir, `${z}`, `${x}`);
@@ -1423,7 +1436,9 @@ app.whenReady().then(async () => {
               isVerify,
               isIncrementalUpdate,
               totalTiles: curTiles,
-              totalBytes: curBytes
+              totalBytes: curBytes,
+              currentProvince: activeProvName,
+              currentZ: activeZ
             });
           }
         }
