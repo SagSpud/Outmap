@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uploadCloudSyncData: (payload) => ipcRenderer.invoke('upload-cloud-sync-data', payload),
   pullCloudSyncData: (payload) => ipcRenderer.invoke('pull-cloud-sync-data', payload),
   rescanOfflineTiles: () => ipcRenderer.invoke('rescan-offline-tiles'),
-  checkTileUpdates: () => ipcRenderer.invoke('check-tile-updates')
+  checkTileUpdates: () => ipcRenderer.invoke('check-tile-updates'),
+  onPowerStateChange: (callback) => ipcRenderer.on('power-state-change', (event, data) => callback(data))
 });

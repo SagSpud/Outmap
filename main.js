@@ -9,11 +9,13 @@ try {
   originalFs = require('original-fs');
 } catch (e) {}
 
-// 启用工业 GIS 工作站级极限硬件与多核加速架构 (解锁内存与磁盘限制，极致吞吐与零卡顿)
+// 启用工业 GIS 工作站级极限硬件与多核加速架构 (前台运行时满血 60FPS+ 硬件加速；最小化或后台时自适应节能)
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('high-dpi-support', '1'); // 启用 Windows 高分屏原生 DPI 硬件级抗锯齿与精准光标缩放
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('enable-zero-copy'); // 启用零拷贝栅格化，解码后的 DEM 与瓦片直接映射进显存，杜绝内存中转抖动
+app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization');
 app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
 app.commandLine.appendSwitch('disk-cache-size', '2147483648'); // 2GB 浏览器缓存；离线瓦片仍保存在独立 offline-tiles
 app.commandLine.appendSwitch('media-cache-size', '268435456');
@@ -821,7 +823,8 @@ function createWindow() {
         preload: path.join(__dirname, 'preload.js'),
         nodeIntegration: false,
         contextIsolation: true,
-        webgl: true
+        webgl: true,
+        backgroundThrottling: true // 最小化或退入后台时自动开启 Chromium 节能降温与限频策略
       },
       show: false
     };
@@ -836,6 +839,25 @@ function createWindow() {
     }
 
     mainWindow = new BrowserWindow(winOptions);
+
+    // 桌面端运行与节能策略智能联动：
+    // 1. 前台运行时：保持 60FPS+ 满血硬件加速与即时响应
+    // 2. 最小化或隐藏到后台时：Chromium 自动限频休眠，释放 CPU/GPU 资源节能降温
+    mainWindow.on('minimize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'minimized' });
+      }
+    });
+    mainWindow.on('restore', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'restored' });
+      }
+    });
+    mainWindow.on('focus', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'focused' });
+      }
+    });
 
     mainWindow.once('ready-to-show', () => {
       if (mainWindow && !mainWindow.isDestroyed()) {

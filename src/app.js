@@ -4313,8 +4313,32 @@ function setupStatusBar(map) {
       fc = 0;
       lt = performance.now();
       fpsFrame = requestAnimationFrame(loop);
+      if (mapInstance) mapInstance.triggerRepaint();
+    } else if (document.hidden && fpsFrame) {
+      cancelAnimationFrame(fpsFrame);
+      fpsFrame = 0;
     }
   });
+
+  if (window.electronAPI && window.electronAPI.onPowerStateChange) {
+    window.electronAPI.onPowerStateChange((info) => {
+      if (info.mode === 'performance') {
+        if (!fpsFrame) {
+          fc = 0;
+          lt = performance.now();
+          fpsFrame = requestAnimationFrame(loop);
+        }
+        if (mapInstance) {
+          mapInstance.triggerRepaint();
+        }
+      } else if (info.mode === 'saving') {
+        if (fpsFrame) {
+          cancelAnimationFrame(fpsFrame);
+          fpsFrame = 0;
+        }
+      }
+    });
+  }
 }
 
 // =========================================================
