@@ -1907,51 +1907,11 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() || 0);
   const centered = Boolean(options.centered);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const duration = reducedMotion ? 0 : (options.duration ?? 750);
-
-  let cameraCenter = [lng, lat];
-
-  if (!centered) {
-    const container = map.getContainer() || {};
-    const screenHeight = Math.max(320, container.clientHeight || window.innerHeight || 660);
-    const compact = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
-    // 黄金比例自适应：0° 时为 0.54，50° 时自适应为 0.58，兼顾上方卡片舒展与下方视野开阔留白
-    const effectivePitch = Math.min(65, Math.max(0, curPitch));
-    const ratioY = compact ? 0.56 : (0.54 + (effectivePitch / 60) * 0.048);
-
-    const fovRad = 36.87 * Math.PI / 180;
-    const d0 = 0.5 / Math.tan(fovRad / 2) * screenHeight;
-    const pitchRad = effectivePitch * Math.PI / 180;
-    const bearingRad = curBearing * Math.PI / 180;
-    const dy = screenHeight * (ratioY - 0.5);
-
-    const denom = d0 * Math.cos(pitchRad) - dy * Math.sin(pitchRad);
-    const groundY = denom > 1e-4 ? (d0 * dy) / denom : dy;
-
-    const scale = 512 * Math.pow(2, zoom);
-    const xWorld = ((lng + 180) / 360) * scale;
-    const sinLat = Math.sin(lat * Math.PI / 180);
-    const yWorld = (0.5 - 0.25 * Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI) * scale;
-
-    const dxWorld = groundY * Math.sin(bearingRad);
-    const dyWorld = -groundY * Math.cos(bearingRad);
-
-    const camX = xWorld + dxWorld;
-    const camY = yWorld + dyWorld;
-
-    const camLng = (camX / scale) * 360 - 180;
-    const normY = camY / scale;
-    const y2 = (180 - normY * 360) * Math.PI / 180;
-    const camLat = 360 * Math.atan(Math.exp(y2)) / Math.PI - 90;
-
-    if (Number.isFinite(camLng) && Number.isFinite(camLat)) {
-      cameraCenter = [camLng, camLat];
-    }
-  }
+  const duration = reducedMotion ? 0 : (options.duration ?? 800);
 
   map.stop();
   map.flyTo({
-    center: cameraCenter,
+    center: [lng, lat],
     zoom,
     pitch: curPitch,
     bearing: curBearing,
@@ -5465,15 +5425,36 @@ function setupOutdoorRouteSystem(map) {
     }
   };
 
+  const exitRoutePickingMode = () => {
+    pickingRoutePt = null;
+    targetViaIndexForPick = null;
+    map.getCanvas().style.cursor = '';
+    btnPickViaInline?.classList.remove('picking');
+    btnAddViaInline?.classList.remove('picking');
+    if (btnPickViaInline) {
+      btnPickViaInline.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+      btnPickViaInline.title = '直接在地图上连续选点添加途径点';
+    }
+    if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
+  };
+  window.exitRoutePickingMode = exitRoutePickingMode;
+
   const triggerInlineMapPick = () => {
     hideRouteFloatingDropdown();
+    // 如果已经在连续选点状态，再次点击按钮即“完成选点”
+    if (pickingRoutePt === 'via' && targetViaIndexForPick === null) {
+      exitRoutePickingMode();
+      return;
+    }
     pickingRoutePt = 'via';
     targetViaIndexForPick = null;
     map.getCanvas().style.cursor = 'crosshair';
     btnPickViaInline?.classList.add('picking');
     btnAddViaInline?.classList.add('picking');
     if (btnPickViaInline) {
-      btnPickViaInline.innerHTML = '<span class="pick-icon">🎯</span><span class="pick-text">点选地图...</span>';
+      const countText = routeViaPoints.length > 0 ? ` (${routeViaPoints.length})` : '';
+      btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点${countText}</span>`;
+      btnPickViaInline.title = '正在连续选点：点击地图添加途径点，再次点击此按钮、按 ESC 或右键完成';
     }
   };
 
@@ -5536,20 +5517,22 @@ function setupOutdoorRouteSystem(map) {
   document.getElementById('btn-swap-route-pts')?.addEventListener('click', swapStartAndEndRoutePoints);
   document.getElementById('btn-swap-route-pts-2')?.addEventListener('click', swapStartAndEndRoutePoints);
 
-  // 地图点击：响应路线单点拾取模式 (起/终/途径)
+  // 地图点击：响应路线点拾取模式 (起/终/连续途径)
   map.on('click', e => {
     const { lng, lat } = e.lngLat;
     const cleanLocation = resolveLocationInfo(map, e.lngLat, e.point, true);
 
     if (!pickingRoutePt) return;
-    map.getCanvas().style.cursor = '';
 
     if (pickingRoutePt === 'start') {
       setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
+      exitRoutePickingMode();
     } else if (pickingRoutePt === 'end') {
       setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
+      exitRoutePickingMode();
     } else if (pickingRoutePt === 'via') {
       if (targetViaIndexForPick !== null && routeViaPoints[targetViaIndexForPick]) {
+        // 单个已有途径点修改 -> 选完立即退出
         const v = routeViaPoints[targetViaIndexForPick];
         v.coords = [lng, lat];
         v.name = cleanLocation || `途径点 ${targetViaIndexForPick + 1}`;
@@ -5567,18 +5550,18 @@ function setupOutdoorRouteSystem(map) {
         }
         renderViaList(map);
         autoPlanMultiPointRoute(map);
+        exitRoutePickingMode();
       } else {
+        // 连续新增途径点模式：添加新点并保持十字星选点态，允许连续在地图上连点
         addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
+        map.getCanvas().style.cursor = 'crosshair';
+        btnPickViaInline?.classList.add('picking');
+        if (btnPickViaInline) {
+          btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${routeViaPoints.length})</span>`;
+          btnPickViaInline.title = `已连续选择 ${routeViaPoints.length} 个途径点：可继续点击地图加点，再次点击此按钮、右键或按 ESC 完成`;
+        }
       }
-      targetViaIndexForPick = null;
-      btnPickViaInline?.classList.remove('picking');
-      btnAddViaInline?.classList.remove('picking');
-      if (btnPickViaInline) {
-        btnPickViaInline.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
-      }
-      if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
     }
-    pickingRoutePt = null;
   });
 
   // 1. 规划按钮 (无⚡图标)
@@ -6112,6 +6095,12 @@ function setupMapContextMenu(map) {
   };
 
   map.on('contextmenu', e => {
+    if (pickingRoutePt) {
+      if (typeof window.exitRoutePickingMode === 'function') {
+        window.exitRoutePickingMode();
+      }
+      return;
+    }
     showContextMenuAtPoint(e.lngLat, e.point);
   });
 
@@ -6292,13 +6281,17 @@ function setupGlobalKeyboardDispatcher() {
       const routePanel = document.getElementById('route-panel');
       if (routePanel && routePanel.style.display !== 'none') {
         if (pickingRoutePt) {
-          pickingRoutePt = null;
-          if (currentOutdoorMap) currentOutdoorMap.getCanvas().style.cursor = '';
-          const btnPick = document.getElementById('btn-pick-via-inline');
-          const btnAdd = document.getElementById('btn-add-via-inline');
-          btnPick?.classList.remove('picking');
-          btnAdd?.classList.remove('picking');
-          if (btnPick) btnPick.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+          if (typeof window.exitRoutePickingMode === 'function') {
+            window.exitRoutePickingMode();
+          } else {
+            pickingRoutePt = null;
+            if (currentOutdoorMap) currentOutdoorMap.getCanvas().style.cursor = '';
+            const btnPick = document.getElementById('btn-pick-via-inline');
+            const btnAdd = document.getElementById('btn-add-via-inline');
+            btnPick?.classList.remove('picking');
+            btnAdd?.classList.remove('picking');
+            if (btnPick) btnPick.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+          }
           e.stopPropagation();
           e.stopImmediatePropagation();
           return;
