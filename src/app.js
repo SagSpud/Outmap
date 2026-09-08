@@ -7,7 +7,7 @@
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
 // 1. 全国 34 省级行政区中心、地理外包围盒 (按首字母拼音 A-Z 严格排序，含港澳台)
 const PROVINCES_DATA = {
-  china: { name: '全国总览', en: 'ALL CHINA 3D', pinyin: 'Quanguo', py: 'qg', pinyinGroup: 'Top', center: [104.5, 34.0], zoom: 4.0, pitch: 50, bbox: [73.5, 135.1, 3.4, 53.6] },
+  china: { name: '全国总览', en: 'ALL CHINA 3D', pinyin: 'Quanguo', py: 'qg', pinyinGroup: 'Top', center: [104.5, 36.0], zoom: 4.45, pitch: 50, bbox: [73.5, 135.1, 18.0, 53.6] },
   anhui: { name: '安徽省', en: 'Anhui', pinyin: 'Anhui', py: 'ah', pinyinGroup: 'A', center: [117.2, 31.8], zoom: 7.2, pitch: 60, bbox: [114.8, 119.6, 29.7, 34.6] },
   aomen: { name: '澳门特别行政区', en: 'Macao', pinyin: 'Aomen', py: 'am', pinyinGroup: 'A', center: [113.5439, 22.1987], zoom: 11.5, pitch: 55, bbox: [113.52, 113.60, 22.10, 22.22] },
   beijing: { name: '北京市', en: 'Beijing', pinyin: 'Beijing', py: 'bj', pinyinGroup: 'B', center: [116.4, 39.9], zoom: 9.2, pitch: 62, bbox: [115.4, 117.5, 39.4, 41.1] },
@@ -688,12 +688,12 @@ async function initApplication() {
   // 2. 初始化 MapLibre 地图实例 (工作站模式：扩大 GPU 显存纹理池至 4000 片，杜绝白块)
   mapInstance = new maplibregl.Map({
     container: 'map',
-    center: [104.5000, 34.0000],
-    zoom: 4.0,
+    center: [104.5000, 36.0000],
+    zoom: 4.45,
     pitch: 50,
     bearing: 0,
-    minZoom: 3.5, // 缩放最多只能看到中国全境，防止无意义过度缩放看到整颗地球
-    maxBounds: [[65.0, 0.0], [145.0, 58.0]], // 中国疆域地理范围边界约束，防止平移跑飞到境外与两极
+    minZoom: 4.1, // 缩放锁定在中国大陆框架黄金视野，防止无意义过度缩放看到南半球/澳大利亚
+    maxBounds: [[65.0, 14.0], [145.0, 56.0]], // 中国大陆框架地理边界约束（南限14°N，绝不漂移至赤道与澳洲）
     maxPitch: 85,
     fadeDuration: 0, // 彻底消除跨层级缩放时的 300ms 标签淡入淡出闪烁
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
@@ -2138,6 +2138,55 @@ function setupOfficeHeaderInteractions(map) {
     resultsContainer.style.display = 'block';
   }
 
+  /**
+   * 精确计算地标在特定视口比例（默认屏幕高度 67%，即居中偏下三分之一）时的摄像机中心经纬度
+   * 采用三维针孔摄像机透视投影与地面反向求交方程，彻底根除 MapLibre 原生 flyTo 传入 offset 时
+   * 在大跨层级缩放（如 4.5 到 15）及 3D 俯仰视角下所产生的非线性插值畸变、跑偏与甩出屏幕问题。
+   */
+  function calculateOffsetCameraCenter(mapInstance, targetCoords, targetZoom = 15.0, targetPitch = 50, screenRatioY = 0.67) {
+    if (!targetCoords || targetCoords.length < 2) return targetCoords;
+    const lng = Number(targetCoords[0]);
+    const lat = Number(targetCoords[1]);
+    if (isNaN(lng) || isNaN(lat)) return targetCoords;
+
+    const m = mapInstance || map;
+    const container = m ? (m.getContainer ? m.getContainer() : null) : null;
+    const height = container ? (container.clientHeight || window.innerHeight || 660) : (window.innerHeight || 660);
+
+    // 1. 水平方向严格绝对居中，经度保持一致
+    const centerLng = lng;
+
+    // 2. 垂直方向基于 MapLibre 3D 针孔相机几何解算地面 Mercator 像素偏移
+    const dy = height * (screenRatioY - 0.5);
+    const pitchRad = (targetPitch || 0) * Math.PI / 180;
+    const fovRad = 36.87 * Math.PI / 180; // MapLibre 默认固定垂直视野角
+    const d0 = 0.5 / Math.tan(fovRad / 2) * height;
+
+    const camY = -d0 * Math.sin(pitchRad);
+    const camZ = d0 * Math.cos(pitchRad);
+    const rayY = d0 * Math.sin(pitchRad) + dy * Math.cos(pitchRad);
+    const rayZ = -d0 * Math.cos(pitchRad) + dy * Math.sin(pitchRad);
+
+    if (Math.abs(rayZ) < 1e-6) {
+      return [centerLng, lat];
+    }
+
+    const t = -camZ / rayZ;
+    const groundY = camY + t * rayY; // 在目标 zoom 级别下的 Web Mercator 像素位移
+
+    const worldSize = 512 * Math.pow(2, targetZoom);
+    const latRad = lat * Math.PI / 180;
+    const mercY = (0.5 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / (2 * Math.PI)) * worldSize;
+    const camMercY = mercY - groundY;
+
+    const yNorm = 0.5 - camMercY / worldSize;
+    const safeYNorm = Math.max(0.001, Math.min(0.999, yNorm));
+    const centerLatRad = 2 * Math.atan(Math.exp(safeYNorm * 2 * Math.PI)) - Math.PI / 2;
+    const centerLat = centerLatRad * 180 / Math.PI;
+
+    return [centerLng, centerLat];
+  }
+
   function showLandingMarker(coords, title, desc = '') {
     if (!coords || coords.length < 2) return;
     const lng = Number(coords[0]);
@@ -2226,12 +2275,14 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-    // 点击图钉重新飞到此处完美正中居中 (zoom 15, offset: [0, 0])
+    // 点击图钉重新飞到此处完美偏下居中 (zoom 15, offset: [0, 0])
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
-        map.flyTo({ center: validCoords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
+        const curPitch = map.getPitch() || 50;
+        const cameraCenter = calculateOffsetCameraCenter(map, validCoords, 15.0, curPitch, 0.67);
+        map.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
       });
     }
 
@@ -2318,12 +2369,18 @@ function setupOfficeHeaderInteractions(map) {
     const targetZoom = isProv ? (item.zoom || 7.2) : 15.0;
     const currentZoom = map.getZoom();
     const minFlightZoom = Math.max(7.0, Math.min(currentZoom, targetZoom) - 2.0);
+    const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+
+    // 省份全境直接正中居中，具体地点/POI应用透视光线求交居中偏下 (比例 0.67)，完全杜绝跑偏与飞出屏幕
+    const cameraCenter = isProv
+      ? validCoords
+      : calculateOffsetCameraCenter(map, validCoords, targetZoom, targetPitch, 0.67);
 
     map.flyTo({
-      center: validCoords,
+      center: cameraCenter,
       zoom: targetZoom,
-      pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
-      offset: [0, 0], // 完美正中居中，彻底根除高分屏/笔记本将地点甩出屏幕外的问题
+      pitch: targetPitch,
+      offset: [0, 0], // 永远使用严格 [0, 0]，彻底避免 MapLibre 内部 offset 插值 bug 导致甩出屏幕
       curve: 1.1,
       minZoom: minFlightZoom,
       duration: 1200,
@@ -4018,7 +4075,9 @@ function setupWaypointAndFavoritesSystem(map) {
       el.addEventListener('mouseenter', () => el.style.transform = 'scale(1.25)');
       el.addEventListener('mouseleave', () => el.style.transform = 'scale(1.0)');
       el.addEventListener('click', () => {
-        map.flyTo({ center: [wp.lng, wp.lat], zoom: 14.5, pitch: 65, duration: 1500 });
+        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.5, curPitch, 0.67);
+        map.flyTo({ center: cameraCenter, zoom: 14.5, pitch: curPitch, offset: [0, 0], duration: 1200 });
       });
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -4209,7 +4268,9 @@ function setupWaypointAndFavoritesSystem(map) {
       `;
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
-        map.flyTo({ center: [wp.lng, wp.lat], zoom: 14.2, pitch: 65, duration: 1600 });
+        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.2, curPitch, 0.67);
+        map.flyTo({ center: cameraCenter, zoom: 14.2, pitch: curPitch, offset: [0, 0], duration: 1200 });
       });
 
       item.querySelector('.fav-item-del').addEventListener('click', (e) => {
@@ -4460,10 +4521,12 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     if (item.coords) {
       const currentZoom = map.getZoom();
       const minFlightZoom = Math.max(7.0, Math.min(currentZoom, 15.0) - 2.0);
+      const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
+      const cameraCenter = calculateOffsetCameraCenter(map, item.coords, 15.0, targetPitch, 0.67);
       map.flyTo({
-        center: item.coords,
+        center: cameraCenter,
         zoom: 15.0,
-        pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52),
+        pitch: targetPitch,
         offset: [0, 0],
         curve: 1.1,
         minZoom: minFlightZoom,
@@ -4727,7 +4790,9 @@ function addViaPoint(map, coords, label) {
     el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
     el.innerText = idx;
     el.addEventListener('click', () => {
-      m.flyTo({ center: coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
+      const curPitch = m.getPitch() || 50;
+      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch, 0.67);
+      m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
     });
 
     marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -4787,7 +4852,11 @@ function setRouteStartPoint(map, coords, label) {
   el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '起';
   el.addEventListener('click', () => {
-    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
+    if (m) {
+      const curPitch = m.getPitch() || 50;
+      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch, 0.67);
+      m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+    }
   });
   if (m) {
     routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
@@ -4810,7 +4879,11 @@ function setRouteEndPoint(map, coords, label) {
   el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
   el.innerText = '终';
   el.addEventListener('click', () => {
-    if (m) m.flyTo({ center: coords, zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
+    if (m) {
+      const curPitch = m.getPitch() || 50;
+      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch, 0.67);
+      m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
+    }
   });
   if (m) {
     routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
@@ -5269,7 +5342,9 @@ function setupOutdoorRouteSystem(map) {
           el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer;';
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
-            map.flyTo({ center: [lng, lat], zoom: 15.0, offset: [0, 0], duration: 800, essential: true });
+            const curPitch = map.getPitch() || 50;
+            const cameraCenter = calculateOffsetCameraCenter(map, [lng, lat], 15.0, curPitch, 0.67);
+            map.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
