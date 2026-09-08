@@ -1211,17 +1211,83 @@ function setupOfficeHeaderInteractions(map) {
     });
   }
 
-  // 高程夸大滑块
+  // 高程夸大滑块与移动端大尺寸底部滑块抽屉联动
   const exSlider = document.getElementById('exaggeration-slider');
   const exVal = document.getElementById('exaggeration-val');
+  const headerSliderGroup = document.getElementById('header-slider-group');
+  const mobileEleSheet = document.getElementById('mobile-ele-sheet');
+  const btnCloseMobileEle = document.getElementById('btn-close-mobile-ele');
+  const mobileEleRange = document.getElementById('mobile-ele-range');
+  const mobileEleValText = document.getElementById('mobile-ele-val-text');
+  const mobilePresetBtns = document.querySelectorAll('.mobile-ele-preset-btn');
+
+  const setExaggerationValue = (v) => {
+    currentExaggeration = v;
+    if (exVal) exVal.innerText = `${v.toFixed(1)}x`;
+    if (exSlider) exSlider.value = v;
+    if (mobileEleRange) mobileEleRange.value = v;
+    if (mobileEleValText) mobileEleValText.innerText = `${v.toFixed(1)}x`;
+    map.setTerrain({ source: 'terrain-dem', exaggeration: v });
+    mobilePresetBtns.forEach(btn => {
+      btn.classList.toggle('active', Math.abs(parseFloat(btn.dataset.val) - v) < 0.05);
+    });
+  };
+
   if (exSlider) {
     exSlider.addEventListener('input', e => {
-      const v = parseFloat(e.target.value);
-      currentExaggeration = v;
-      if (exVal) exVal.innerText = `${v.toFixed(1)}x`;
-      map.setTerrain({ source: 'terrain-dem', exaggeration: v });
+      setExaggerationValue(parseFloat(e.target.value));
     });
   }
+
+  // 手机端点击高程胶囊唤起大滑块抽屉
+  headerSliderGroup?.addEventListener('click', (e) => {
+    if (window.innerWidth <= 768) {
+      e.stopPropagation();
+      const isHidden = !mobileEleSheet || mobileEleSheet.style.display === 'none';
+      if (mobileEleSheet) {
+        mobileEleSheet.style.display = isHidden ? 'flex' : 'none';
+        if (isHidden) {
+          setExaggerationValue(currentExaggeration);
+        }
+      }
+    }
+  });
+
+  mobileEleRange?.addEventListener('input', e => {
+    setExaggerationValue(parseFloat(e.target.value));
+  });
+
+  mobilePresetBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setExaggerationValue(parseFloat(btn.dataset.val));
+    });
+  });
+
+  btnCloseMobileEle?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (mobileEleSheet) mobileEleSheet.style.display = 'none';
+  });
+
+  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (改善手机端易点空白收起的体验)
+  map.on('click', () => {
+    if (pickingRoutePt || isContinuousPicking) return;
+    const toClose = [
+      document.getElementById('route-panel'),
+      document.getElementById('favorites-drawer'),
+      document.getElementById('mobile-ele-sheet'),
+      document.getElementById('waypoint-modal'),
+      document.getElementById('save-route-modal'),
+      document.getElementById('map-context-menu'),
+      document.getElementById('prov-popover-menu'),
+      document.getElementById('search-popover')
+    ];
+    toClose.forEach(el => {
+      if (el && el.style.display !== 'none') {
+        el.style.display = 'none';
+      }
+    });
+  });
 
   // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/名山/城市全量POI检索与回车直达)
   const searchTrigger = document.getElementById('btn-search-trigger');
