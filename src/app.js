@@ -54,6 +54,43 @@ function escapeHtml(str) {
   }[m]));
 }
 
+// Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
+function showFluentAlert(message, title = 'Outmap 提示') {
+  const overlay = document.getElementById('fluent-alert-overlay');
+  const msgEl = document.getElementById('fluent-alert-message');
+  const titleEl = document.getElementById('fluent-alert-title');
+  const btnConfirm = document.getElementById('btn-confirm-fluent-alert');
+  const btnClose = document.getElementById('btn-close-fluent-alert');
+
+  if (!overlay || !msgEl) {
+    if (window._nativeAlert) window._nativeAlert(message);
+    else console.warn(message);
+    return;
+  }
+
+  if (titleEl) titleEl.innerText = title;
+  msgEl.innerText = message;
+  overlay.style.display = 'flex';
+
+  const closeAlert = () => {
+    overlay.style.display = 'none';
+  };
+
+  if (btnConfirm) btnConfirm.onclick = closeAlert;
+  if (btnClose) btnClose.onclick = closeAlert;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeAlert();
+  };
+}
+
+if (!window._nativeAlert && typeof window.alert === 'function') {
+  window._nativeAlert = window.alert.bind(window);
+}
+window.alert = (msg) => {
+  showFluentAlert(msg);
+};
+window.showFluentAlert = showFluentAlert;
+
 // 2. 重点地标城市与著名乡镇
 const MAJOR_CITIES = [
   { name: "北京市", pinyin: "beijing", py: "bj", coords: [116.4074, 39.9042], province: "北京市" },
@@ -889,86 +926,50 @@ async function initApplication() {
       }
     });
 
-    // 2. 底图切片全球国界底层纯白轮廓 (消除锯齿，赋予微观立体感)
-    map.addLayer({
-      id: 'osm-boundary-country-casing',
-      type: 'line',
-      source: 'osm-vector-source',
-      'source-layer': 'boundary',
-      filter: ['==', ['get', 'admin_level'], 2],
-      minzoom: 3,
-      paint: {
-        'line-color': '#ffffff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 3, 2.5, 6, 3.8, 10, 5.5],
-        'line-opacity': 0.75
-      }
-    });
-
-    // 3. 底图切片全球国界主线 (微观视口下，沿江沿脊严格贴合，0 偏差)
+    // 2. 底图切片陆地国界主线 (过滤海上领海边界，微观视口下沿江沿脊贴合，苹果地图极简暖灰风格)
     map.addLayer({
       id: 'osm-boundary-country',
       type: 'line',
       source: 'osm-vector-source',
       'source-layer': 'boundary',
-      filter: ['==', ['get', 'admin_level'], 2],
+      filter: [
+        'all',
+        ['==', ['get', 'admin_level'], 2],
+        ['!=', ['get', 'maritime'], 1],
+        ['!=', ['get', 'maritime'], '1']
+      ],
       minzoom: 3,
       paint: {
-        'line-color': '#7f1d1d',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 6, 2.0, 10, 3.2],
-        'line-dasharray': [6, 2.5, 2, 2.5],
-        'line-opacity': 0.85
+        'line-color': '#78716c',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.0, 6, 1.4, 10, 2.0],
+        'line-dasharray': [5, 3],
+        'line-opacity': 0.55
       }
     });
 
-    // 4. 中国国家法定标准陆地国界 - 柔白高对比底衬
-    map.addLayer({
-      id: 'china-boundary-national-casing',
-      type: 'line',
-      source: 'china-boundary-source',
-      filter: ['==', ['get', 'type'], 'boundary'],
-      paint: {
-        'line-color': '#ffffff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 2.6, 5, 4.0, 9, 5.8],
-        'line-opacity': 0.88
-      }
-    });
-
-    // 5. 中国国家法定标准陆地国界 - 权威朱红主线 (自然资源部标准色)
+    // 3. 中国法定陆地国界主线 (苹果地图沉稳暖灰，自然写意融入山水，无突兀红线)
     map.addLayer({
       id: 'china-boundary-national-line',
       type: 'line',
       source: 'china-boundary-source',
       filter: ['==', ['get', 'type'], 'boundary'],
       paint: {
-        'line-color': '#991b1b',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.4, 5, 2.4, 9, 3.6],
-        'line-opacity': 0.95
+        'line-color': '#78716c',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 5, 1.8, 9, 2.6],
+        'line-opacity': 0.65
       }
     });
 
-    // 6. 中国南海诸岛十段线 - 柔白底衬
-    map.addLayer({
-      id: 'china-boundary-ten-dash-casing',
-      type: 'line',
-      source: 'china-boundary-source',
-      filter: ['==', ['get', 'type'], 'ten_dash_line'],
-      paint: {
-        'line-color': '#ffffff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 3.0, 5, 4.8, 9, 6.5],
-        'line-opacity': 0.9
-      }
-    });
-
-    // 7. 中国南海诸岛十段线 - 权威规范断续线
+    // 4. 中国南海诸岛十段线 (苹果地图沉稳暖灰规范断续线)
     map.addLayer({
       id: 'china-boundary-ten-dash-line',
       type: 'line',
       source: 'china-boundary-source',
       filter: ['==', ['get', 'type'], 'ten_dash_line'],
       paint: {
-        'line-color': '#991b1b',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.8, 5, 3.0, 9, 4.2],
-        'line-opacity': 1.0
+        'line-color': '#78716c',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.4, 5, 2.0, 9, 3.0],
+        'line-opacity': 0.7
       }
     });
 
@@ -2054,6 +2055,14 @@ function setupOfficeHeaderInteractions(map) {
   let searchDebounceTimer = null;
   let currentLandingMarker = null;
 
+  const clearLandingMarker = () => {
+    if (currentLandingMarker) {
+      currentLandingMarker.remove();
+      currentLandingMarker = null;
+    }
+  };
+  window.clearLandingMarker = clearLandingMarker;
+
   function getSearchHistory() {
     try {
       return JSON.parse(localStorage.getItem('outmap_search_history') || '[]');
@@ -2139,11 +2148,12 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   /**
-   * 精确计算地标在特定视口比例（默认屏幕高度 67%，即居中偏下三分之一）时的摄像机中心经纬度
+   * 精确计算地标在特定视口比例时的摄像机中心经纬度
    * 采用三维针孔摄像机透视投影与地面反向求交方程，彻底根除 MapLibre 原生 flyTo 传入 offset 时
    * 在大跨层级缩放（如 4.5 到 15）及 3D 俯仰视角下所产生的非线性插值畸变、跑偏与甩出屏幕问题。
+   * 支持倾角自适应：2D (0°) 时比例为 0.54，50° 俯仰时自适应为 0.58，兼顾上方卡片舒展与下方视野充足留白，永不“太靠下”。
    */
-  function calculateOffsetCameraCenter(mapInstance, targetCoords, targetZoom = 15.0, targetPitch = 50, screenRatioY = 0.67) {
+  function calculateOffsetCameraCenter(mapInstance, targetCoords, targetZoom = 15.0, targetPitch = 50, screenRatioY = null) {
     if (!targetCoords || targetCoords.length < 2) return targetCoords;
     const lng = Number(targetCoords[0]);
     const lat = Number(targetCoords[1]);
@@ -2156,9 +2166,14 @@ function setupOfficeHeaderInteractions(map) {
     // 1. 水平方向严格绝对居中，经度保持一致
     const centerLng = lng;
 
-    // 2. 垂直方向基于 MapLibre 3D 针孔相机几何解算地面 Mercator 像素偏移
-    const dy = height * (screenRatioY - 0.5);
-    const pitchRad = (targetPitch || 0) * Math.PI / 180;
+    // 2. 垂直方向自适应倾角比例：0° 时为 0.54，50° 倾斜时自适应为 0.580，既留出卡片空间，又绝不过于偏下
+    const effectivePitch = Math.min(65, Math.max(0, targetPitch || 0));
+    const finalRatio = typeof screenRatioY === 'number'
+      ? screenRatioY
+      : (0.54 + (effectivePitch / 60) * 0.048);
+
+    const dy = height * (finalRatio - 0.5);
+    const pitchRad = effectivePitch * Math.PI / 180;
     const fovRad = 36.87 * Math.PI / 180; // MapLibre 默认固定垂直视野角
     const d0 = 0.5 / Math.tan(fovRad / 2) * height;
 
@@ -2253,6 +2268,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnStart) {
       btnStart.addEventListener('click', (e) => {
         e.stopPropagation();
+        clearLandingMarker();
         setRouteStartPoint(map, validCoords, title);
       });
     }
@@ -2262,6 +2278,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnVia) {
       btnVia.addEventListener('click', (e) => {
         e.stopPropagation();
+        clearLandingMarker();
         addViaPoint(map, validCoords, title);
       });
     }
@@ -2271,17 +2288,18 @@ function setupOfficeHeaderInteractions(map) {
     if (btnEnd) {
       btnEnd.addEventListener('click', (e) => {
         e.stopPropagation();
+        clearLandingMarker();
         setRouteEndPoint(map, validCoords, title);
       });
     }
 
-    // 点击图钉重新飞到此处完美偏下居中 (zoom 15, offset: [0, 0])
+    // 点击图钉重新飞到此处自适应偏下居中 (zoom 15, offset: [0, 0])
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() || 50;
-        const cameraCenter = calculateOffsetCameraCenter(map, validCoords, 15.0, curPitch, 0.67);
+        const cameraCenter = calculateOffsetCameraCenter(map, validCoords, 15.0, curPitch);
         map.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
       });
     }
@@ -2371,10 +2389,10 @@ function setupOfficeHeaderInteractions(map) {
     const minFlightZoom = Math.max(7.0, Math.min(currentZoom, targetZoom) - 2.0);
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
 
-    // 省份全境直接正中居中，具体地点/POI应用透视光线求交居中偏下 (比例 0.67)，完全杜绝跑偏与飞出屏幕
+    // 省份全境直接正中居中，具体地点/POI应用透视光线求交自适应居中偏下，开阔自然且杜绝出界
     const cameraCenter = isProv
       ? validCoords
-      : calculateOffsetCameraCenter(map, validCoords, targetZoom, targetPitch, 0.67);
+      : calculateOffsetCameraCenter(map, validCoords, targetZoom, targetPitch);
 
     map.flyTo({
       center: cameraCenter,
@@ -4076,7 +4094,7 @@ function setupWaypointAndFavoritesSystem(map) {
       el.addEventListener('mouseleave', () => el.style.transform = 'scale(1.0)');
       el.addEventListener('click', () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.5, curPitch, 0.67);
+        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.5, curPitch);
         map.flyTo({ center: cameraCenter, zoom: 14.5, pitch: curPitch, offset: [0, 0], duration: 1200 });
       });
 
@@ -4269,7 +4287,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.2, curPitch, 0.67);
+        const cameraCenter = calculateOffsetCameraCenter(map, [wp.lng, wp.lat], 14.2, curPitch);
         map.flyTo({ center: cameraCenter, zoom: 14.2, pitch: curPitch, offset: [0, 0], duration: 1200 });
       });
 
@@ -4522,7 +4540,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       const currentZoom = map.getZoom();
       const minFlightZoom = Math.max(7.0, Math.min(currentZoom, 15.0) - 2.0);
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() || 50, 52);
-      const cameraCenter = calculateOffsetCameraCenter(map, item.coords, 15.0, targetPitch, 0.67);
+      const cameraCenter = calculateOffsetCameraCenter(map, item.coords, 15.0, targetPitch);
       map.flyTo({
         center: cameraCenter,
         zoom: 15.0,
@@ -4782,6 +4800,7 @@ function renderViaList(mapInstance) {
 
 // 添加途径点并自动刷新规划
 function addViaPoint(map, coords, label) {
+  if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   const idx = routeViaPoints.length + 1;
   let marker = null;
@@ -4791,7 +4810,7 @@ function addViaPoint(map, coords, label) {
     el.innerText = idx;
     el.addEventListener('click', () => {
       const curPitch = m.getPitch() || 50;
-      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch, 0.67);
+      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch);
       m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
     });
 
@@ -4841,6 +4860,7 @@ function removeViaPoint(map, index) {
 
 // 设置起点
 function setRouteStartPoint(map, coords, label) {
+  if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   routeStartCoord = coords;
   routeStartName = label || `起点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
@@ -4854,7 +4874,7 @@ function setRouteStartPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch, 0.67);
+      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch);
       m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
     }
   });
@@ -4868,6 +4888,7 @@ function setRouteStartPoint(map, coords, label) {
 
 // 设置终点
 function setRouteEndPoint(map, coords, label) {
+  if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   routeEndCoord = coords;
   routeEndName = label || `终点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
@@ -4881,7 +4902,7 @@ function setRouteEndPoint(map, coords, label) {
   el.addEventListener('click', () => {
     if (m) {
       const curPitch = m.getPitch() || 50;
-      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch, 0.67);
+      const cameraCenter = calculateOffsetCameraCenter(m, coords, 15.0, curPitch);
       m.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
     }
   });
@@ -4929,7 +4950,7 @@ function renderRouteGeometry(map, pathCoords) {
       }
     });
 
-    // 2. 中层紫霞光晕 (赋予清晰立体的高级夜光浮空轨迹质感)
+    // 2. 中层 Apple 翡翠绿柔光微光晕 (赋予通透立体的苹果地图质感)
     map.addLayer({
       id: 'outdoor-route-glow',
       type: 'line',
@@ -4939,14 +4960,14 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#7c3aed',
+        'line-color': '#10b981',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.5, 10, 10.0, 14, 14.5],
-        'line-opacity': 0.32,
-        'line-blur': 2.0
+        'line-opacity': 0.28,
+        'line-blur': 2.2
       }
     });
 
-    // 3. 顶层户外高对比电光紫核心带 (与橙/黄国道省道、蓝水系、绿地表形成 100% 互补高对比，清晰显眼且不突兀)
+    // 3. 顶层 Apple Maps 标志性导航绿核心带 (自驾/骑行/徒步风格全面统一，清爽显眼)
     map.addLayer({
       id: 'outdoor-route-line',
       type: 'line',
@@ -4956,13 +4977,13 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#7c3aed',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.8, 10, 4.2, 14, 6.2],
+        'line-color': '#059669',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3.0, 10, 4.4, 14, 6.5],
         'line-opacity': 1.0
       }
     });
 
-    // 4. 内部晶莹高亮线 (营造微发光通透悬浮感)
+    // 4. 内部晶莹高亮线 (薄荷白绿微发光浮空感)
     map.addLayer({
       id: 'outdoor-route-inner-core',
       type: 'line',
@@ -4972,9 +4993,9 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#f5f3ff',
+        'line-color': '#ecfdf5',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 1.5, 14, 2.2],
-        'line-opacity': 0.9
+        'line-opacity': 0.85
       }
     });
   }
@@ -5201,9 +5222,22 @@ function setupOutdoorRouteSystem(map) {
     if (isHidden) {
       closeConflictingBottomPanels('route-panel');
       routePanel.style.display = 'flex';
+      if (typeof window.clearLandingMarker === 'function') {
+        window.clearLandingMarker();
+      }
     } else {
       routePanel.style.display = 'none';
     }
+  });
+
+  startInput?.addEventListener('focus', () => {
+    if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
+  });
+  endInput?.addEventListener('focus', () => {
+    if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
+  });
+  btnCalcRoute?.addEventListener('click', () => {
+    if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   });
 
   btnCloseRoute?.addEventListener('click', () => {
@@ -5343,7 +5377,7 @@ function setupOutdoorRouteSystem(map) {
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
             const curPitch = map.getPitch() || 50;
-            const cameraCenter = calculateOffsetCameraCenter(map, [lng, lat], 15.0, curPitch, 0.67);
+            const cameraCenter = calculateOffsetCameraCenter(map, [lng, lat], 15.0, curPitch);
             map.flyTo({ center: cameraCenter, zoom: 15.0, pitch: curPitch, offset: [0, 0], duration: 800, essential: true });
           });
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
@@ -5811,12 +5845,12 @@ function drawElevationChart(canvas, data) {
   ctx.closePath();
 
   const gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartH);
-  gradient.addColorStop(0, 'rgba(124, 58, 237, 0.40)');
-  gradient.addColorStop(1, 'rgba(139, 92, 246, 0.03)');
+  gradient.addColorStop(0, 'rgba(16, 185, 129, 0.38)');
+  gradient.addColorStop(1, 'rgba(16, 185, 129, 0.03)');
   ctx.fillStyle = gradient;
   ctx.fill();
 
-  // 绘制曲线勾边 (高对比电光紫)
+  // 绘制曲线勾边 (Apple Maps 翡翠绿风格)
   ctx.beginPath();
   data.forEach((d, i) => {
     const x = paddingLeft + (d.distKm / totalDist) * chartW;
@@ -5824,7 +5858,7 @@ function drawElevationChart(canvas, data) {
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
-  ctx.strokeStyle = '#7c3aed';
+  ctx.strokeStyle = '#059669';
   ctx.lineWidth = 2;
   ctx.stroke();
 }

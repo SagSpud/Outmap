@@ -45,17 +45,17 @@ html, body {
   position: relative;
 }
 
-/* 高分屏 (Retina / 2K / 4K / High-DPI) 极致抗锯齿矢量手型光标，彻底根除 Windows/Chromium 原生抓手位图锯齿 */
+/* 高分屏 (Retina / 2K / 4K / High-DPI) 极致抗锯齿矢量手型光标，彻底根除 Windows/Chromium 原生抓手位图锯齿，自然亲和平展掌心与握拳 */
 .maplibregl-canvas-container.maplibregl-interactive,
 .maplibregl-canvas-container.maplibregl-interactive:hover,
 #map,
 #map canvas {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M12.5 3a1.5 1.5 0 0 0-3 0v6.5h-1a1.5 1.5 0 0 0-3 0v1.5h-.5a1.5 1.5 0 0 0-3 0v4.5c0 3.5 2.5 6.5 6 6.5h4c3.5 0 6.5-3 6.5-6.5v-3.5a1.5 1.5 0 0 0-3 0v-1h-.5a1.5 1.5 0 0 0-2.5-1.1V3z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 10 10, grab !important;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'%3E%3Cpath d='M 7.5 12.5 V 5 A 1.5 1.5 0 0 1 10.5 5 V 8.5 L 11 8.5 V 3.5 A 1.5 1.5 0 0 1 14 3.5 V 8.5 L 14.5 8.5 V 4.5 A 1.5 1.5 0 0 1 17.5 4.5 V 10 L 18 10 V 7 A 1.25 1.25 0 0 1 20.5 7 V 15.5 C 20.5 19.5 17.5 22.5 13.5 22.5 H 10 C 6.5 22.5 5 19.5 5 16.5 L 5 15 L 2.5 13 A 1.5 1.5 0 0 1 4.5 10.8 L 7.5 12.5 Z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") 10 10, grab !important;
 }
 
 .maplibregl-canvas-container.maplibregl-interactive:active,
 #map canvas:active {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M8 7a1.5 1.5 0 0 1 3 0v2h.5a1.5 1.5 0 0 1 3 0v.5h.5a1.5 1.5 0 0 1 3 0v5c0 3.5-3 6-6.5 6h-3c-3.5 0-6-2.5-6-6v-3.5a1.5 1.5 0 0 1 3 0v1.5h1V7z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 10 10, grabbing !important;
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'%3E%3Cpath d='M 7.5 12.5 V 9.5 A 1.5 1.5 0 0 1 10.5 9.5 V 10 L 11 10 V 8.5 A 1.5 1.5 0 0 1 14 8.5 V 10 L 14.5 10 V 9 A 1.5 1.5 0 0 1 17.5 9 V 10.5 L 18 10.5 V 10 A 1.25 1.25 0 0 1 20.5 10 V 15 C 20.5 19 17.5 22 13.5 22 H 10 C 6.5 22 5 19 5 16 L 5 14.5 L 2.5 12.5 A 1.5 1.5 0 0 1 4.5 10.5 L 7.5 12.5 Z' fill='%23ffffff' stroke='%230f172a' stroke-width='1.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") 10 10, grabbing !important;
 }
 
 /* 原生丝滑微动效反馈：全局按钮、药丸胶囊、操作项触控/点击按压弹性回弹 */
@@ -1893,11 +1893,11 @@ body.web-mode #manage-modal {
 }
 
 .ctx-header {
-  padding: 4px 6px 3px 6px;
+  padding: 5px 8px 4px 8px;
 }
 
 .ctx-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
@@ -4158,3 +4158,131 @@ body.web-mode .office-prov-group {
     font-size: 13px;
   }
 }
+
+/* ==========================================================================
+   Fluent / Apple 风格高质感全局弹窗系统 (彻底替换原生 Win32/浏览器 alert)
+   ========================================================================== */
+.fluent-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fluentOverlayFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fluentOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fluent-alert-box {
+  width: 90%;
+  max-width: 380px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-radius: 16px;
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.85) inset, 0 2px 6px rgba(0, 0, 0, 0.08);
+  padding: 20px 22px 18px 22px;
+  transform-origin: center;
+  animation: fluentBoxPop 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+@keyframes fluentBoxPop {
+  from { opacity: 0; transform: scale(0.92) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.fluent-alert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.fluent-alert-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fluent-alert-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fluent-alert-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+}
+
+.fluent-alert-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.05);
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.fluent-alert-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #0f172a;
+}
+
+.fluent-alert-body {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #334155;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fluent-alert-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fluent-alert-btn-primary {
+  padding: 8px 24px;
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fluent-alert-btn-primary:hover {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
+.fluent-alert-btn-primary:active {
+  transform: scale(0.96);
+}
+
