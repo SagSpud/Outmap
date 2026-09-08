@@ -18,7 +18,19 @@ function inChina(z, x, y, boxes) {
 }
 
 function scan({ baseDir, provinces, boxes }) {
-  const stats = { demCount: 0, vectorCount: 0, demBytes: 0, vectorBytes: 0, totalTiles: 0, totalBytes: 0, exact: true };
+  const stats = {
+    demCount: 0,
+    vectorCount: 0,
+    satCount: 0,
+    fontCount: 0,
+    demBytes: 0,
+    vectorBytes: 0,
+    satBytes: 0,
+    fontBytes: 0,
+    totalTiles: 0,
+    totalBytes: 0,
+    exact: true
+  };
   const result = {};
   const ranges = {};
   for (let z = 0; z <= 14; z++) {
@@ -49,57 +61,90 @@ function scan({ baseDir, provinces, boxes }) {
 
   let lastReportCount = 0;
 
-  for (const layer of ['dem', 'vector']) {
-    const ext = layer === 'dem' ? 'webp' : 'pbf';
-    const sampleBytes = [];
+  // 1. 全图层立体扫描：覆盖 dem, vector 以及巨幅卫星图 sat / satellite
+  const TILE_LAYERS = [
+    { dirName: 'dem', statKey: 'dem', regex: /^\d+\.(webp|png)$/i, defaultAvg: 24000, isProvLayer: true },
+    { dirName: 'vector', statKey: 'vector', regex: /^\d+\.(pbf|mvt)$/i, defaultAvg: 16000, isProvLayer: true },
+    { dirName: 'sat', statKey: 'sat', regex: /^\d+\.(jpg|jpeg|png|webp)$/i, defaultAvg: 45000, isProvLayer: false },
+    { dirName: 'satellite', statKey: 'sat', regex: /^\d+\.(jpg|jpeg|png|webp)$/i, defaultAvg: 45000, isProvLayer: false }
+  ];
 
-    for (const zd of entries(path.join(baseDir, layer))) {
+  for (const layerCfg of TILE_LAYERS) {
+    const layerPath = path.join(baseDir, layerCfg.dirName);
+    const zDirs = entries(layerPath);
+    if (zDirs.length === 0) continue;
+
+    const zoomStats = {};
+
+    for (const zd of zDirs) {
       if (!zd.isDirectory() || !/^\d+$/.test(zd.name)) continue;
       const z = Number(zd.name);
+      const zStats = (zoomStats[z] ||= { count: 0, sampleBytes: [] });
 
-      for (const xd of entries(path.join(baseDir, layer, zd.name))) {
+      for (const xd of entries(path.join(layerPath, zd.name))) {
         if (!xd.isDirectory() || !/^\d+$/.test(xd.name)) continue;
         const x = Number(xd.name);
-        const candidates = (ranges[z] || []).filter(r => x >= r.b[0] && x <= r.b[1]);
-        const fileEntries = entries(path.join(baseDir, layer, zd.name, xd.name));
+        const candidates = layerCfg.isProvLayer ? (ranges[z] || []).filter(r => x >= r.b[0] && x <= r.b[1]) : [];
+        const fileEntries = entries(path.join(layerPath, zd.name, xd.name));
 
         for (let fi = 0; fi < fileEntries.length; fi++) {
           const file = fileEntries[fi];
-          const match = file.name.match(new RegExp('^(\\d+)\\.' + ext + '$'));
+          const match = file.name.match(layerCfg.regex);
           if (!file.isFile() || !match) continue;
 
-          // 适量采样校准切片字节大小，消除对 88 万文件的昂贵同步 statSync 磁盘阻塞
-          if (sampleBytes.length < 300 && fi % 30 === 0) {
+          // 分层级均衡采样：每 Zoom 层级均匀采样多达 50 块切片，彻底避免低层级小切片拉低整体均值
+          if (zStats.sampleBytes.length < 50 && (fi % 12 === 0 || zStats.sampleBytes.length < 5)) {
             try {
-              const s = fs.statSync(path.join(baseDir, layer, zd.name, xd.name, file.name)).size;
-              if (s > 20) sampleBytes.push(s);
+              const s = fs.statSync(path.join(layerPath, zd.name, xd.name, file.name)).size;
+              if (s > 20) zStats.sampleBytes.push(s);
             } catch (e) {}
           }
 
-          const y = Number(match[1]);
-          stats[layer + 'Count']++;
+          const y = Number(file.name.split('.')[0]);
+          stats[layerCfg.statKey + 'Count']++;
+          zStats.count++;
 
-          if (inChina(z, x, y, boxes)) {
+          if (layerCfg.isProvLayer && candidates.length > 0 && inChina(z, x, y, boxes)) {
             for (const r of candidates) {
               if (y >= r.b[2] && y <= r.b[3]) {
-                result[r.key].layers[layer].levels[z].present++;
+                result[r.key].layers[layerCfg.dirName].levels[z].present++;
               }
             }
           }
 
-          const currentTotal = stats.demCount + stats.vectorCount;
+          const currentTotal = stats.demCount + stats.vectorCount + stats.satCount;
           if (parentPort && (currentTotal - lastReportCount >= 2500)) {
             lastReportCount = currentTotal;
-            parentPort.postMessage({ type: 'progress', count: currentTotal, layer, z });
+            parentPort.postMessage({ type: 'progress', count: currentTotal, layer: layerCfg.dirName, z });
           }
         }
       }
     }
 
-    const avgTileSize = sampleBytes.length > 0
-      ? Math.round(sampleBytes.reduce((a, b) => a + b, 0) / sampleBytes.length)
-      : (layer === 'dem' ? 24000 : 15000);
-    stats[layer + 'Bytes'] = stats[layer + 'Count'] * avgTileSize;
+    // 按各 Zoom 层级实际瓦片数加权汇总，确保真实体积与 Windows 资源管理器 20+G 高度吻合
+    let layerTotalBytes = 0;
+    for (const [zStr, zInfo] of Object.entries(zoomStats)) {
+      const avgZ = zInfo.sampleBytes.length > 0
+        ? Math.round(zInfo.sampleBytes.reduce((a, b) => a + b, 0) / zInfo.sampleBytes.length)
+        : layerCfg.defaultAvg;
+      layerTotalBytes += zInfo.count * avgZ;
+    }
+    stats[layerCfg.statKey + 'Bytes'] += layerTotalBytes;
+  }
+
+  // 2. 统计离线字体库 fonts (若存在)
+  const fontDir = path.join(baseDir, 'fonts');
+  const fontDirs = entries(fontDir);
+  for (const fd of fontDirs) {
+    if (fd.isDirectory()) {
+      const rangeFiles = entries(path.join(fontDir, fd.name));
+      for (const rf of rangeFiles) {
+        if (rf.isFile() && /\.pbf$/i.test(rf.name)) {
+          stats.fontCount++;
+          stats.fontBytes += 40000;
+        }
+      }
+    }
   }
 
   // 科学严格三态统计：全量就绪 (绿) 必须 present >= expected；部分下载 (蓝) present > 0
@@ -120,10 +165,10 @@ function scan({ baseDir, provinces, boxes }) {
     p.partialZ = Math.max(p.layers.dem.partialZ, p.layers.vector.partialZ);
   }
 
-  stats.totalTiles = stats.demCount + stats.vectorCount;
-  stats.totalBytes = stats.demBytes + stats.vectorBytes;
+  stats.totalTiles = stats.demCount + stats.vectorCount + stats.satCount + stats.fontCount;
+  stats.totalBytes = stats.demBytes + stats.vectorBytes + stats.satBytes + stats.fontBytes;
   stats.lastScannedAt = Date.now();
-  return { stats, provinces: result, inventoryVersion: 2 };
+  return { stats, provinces: result, inventoryVersion: 3 };
 }
 
 // Streaming enumeration bounds memory even for a nationwide L14 request. Overlaps

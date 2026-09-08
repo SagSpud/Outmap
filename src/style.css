@@ -29,6 +29,63 @@
   margin: 0;
   padding: 0;
   user-select: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+/* Windows 11 Fluent 2 / iOS 原生系统级超纤细浮动滚动条，彻底剔除 Chromium 浏览器老式粗灰滚动条与箭头方块 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  transition: background 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+button, .fab-btn, .action-btn {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+button:focus:not(:focus-visible),
+.fab-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+button:focus-visible,
+.fab-btn:focus-visible {
+  outline: 2px solid rgba(16, 185, 129, 0.5);
+  outline-offset: 2px;
+}
+
+button:active,
+.fab-btn:active {
+  transform: scale(0.97);
+  transition: transform 0.1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html, body {

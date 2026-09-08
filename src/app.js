@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -684,6 +684,23 @@ async function initApplication() {
         });
       }
 
+      if (window.electronAPI && window.electronAPI.onOfflineInventoryUpdated) {
+        window.electronAPI.onOfflineInventoryUpdated(data => {
+          if (data && data.stats) {
+            totalOfflineCount = data.stats.totalTiles || 0;
+            totalOfflineBytes = data.stats.totalBytes || 0;
+            titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
+            titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
+          }
+          if (data && data.provinces) {
+            offlineProvCache = data.provinces;
+            if (typeof renderProvinceGrid === 'function') {
+              try { renderProvinceGrid(); } catch (e) {}
+            }
+          }
+        });
+      }
+
       titleStat.addEventListener('click', async () => {
         titleStat.innerText = '离线: 扫描中...';
         try {
@@ -693,7 +710,7 @@ async function initApplication() {
               totalOfflineCount = stats.totalTiles || 0;
               totalOfflineBytes = stats.totalBytes || 0;
               titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
-              titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块 · 占用空间: ${formatBytes(totalOfflineBytes)} (点击可重新校准磁盘)`;
+              titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
             }
           }
         } catch (e) {

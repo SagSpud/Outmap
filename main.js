@@ -774,7 +774,8 @@ function refreshOfflineInventory() {
 function getQuickTileCount(forceRefresh = false) {
   const manifest = loadOfflineManifest();
   if (!memoryTileStats) memoryTileStats = manifest.stats || { totalTiles: 0, totalBytes: 0 };
-  if (forceRefresh || manifest.inventoryVersion !== 2) {
+  const isStale = !manifest.stats?.lastScannedAt || (Date.now() - manifest.stats.lastScannedAt > 24 * 3600 * 1000);
+  if (forceRefresh || manifest.inventoryVersion !== 3 || isStale) {
     refreshOfflineInventory().catch(error => console.warn('[Offline Scan]', error.message));
   }
   return { ...memoryTileStats, scanning: Boolean(inventoryScan) };
@@ -885,7 +886,7 @@ app.whenReady().then(async () => {
     return {
       port: localServerPort,
       demCount: stats.demCount || 0,
-      satCount: 0,
+      satCount: stats.satCount || 0,
       vectorCount: stats.vectorCount || 0,
       fontCount: stats.fontCount || 0,
       totalTiles: stats.totalTiles || 0,
@@ -900,7 +901,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('get-offline-manifest', async () => {
-    if (loadOfflineManifest().inventoryVersion !== 2) await refreshOfflineInventory();
+    if (loadOfflineManifest().inventoryVersion !== 3) await refreshOfflineInventory();
     return loadOfflineManifest();
   });
 
@@ -981,7 +982,7 @@ app.whenReady().then(async () => {
     activeDownloadAbort = new AbortController();
     const signal = activeDownloadAbort.signal;
     if (inventoryScan) await inventoryScan;
-    if (loadOfflineManifest().inventoryVersion !== 2) await refreshOfflineInventory();
+    if (loadOfflineManifest().inventoryVersion !== 3) await refreshOfflineInventory();
     const baselineStats = { ...(memoryTileStats || loadOfflineManifest().stats || {}) };
 
     // 规整目标省份列表 (支持多选批量下载)
@@ -1243,6 +1244,9 @@ app.whenReady().then(async () => {
     } finally {
       offlineDownloadRunning = false;
       activeDownloadAbort = null;
+      if (newlySavedCount > 0 || newlyAddedCount > 0) {
+        refreshOfflineInventory().catch(() => {});
+      }
     }
   });
 

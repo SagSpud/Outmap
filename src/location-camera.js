@@ -21,7 +21,7 @@
     }
     // All coordinates are CSS pixels, independent of devicePixelRatio.
     // Anchor the geographic pin, not a screen-fixed imitation of its marker.
-    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.56));
+    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.62));
   }
 
   function cancel(map) { active.get(map)?.dispose(); }
