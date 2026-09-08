@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.2.12" />
+  <link rel="stylesheet" href="style.css?v=1.2.13" />
   <script src="vendor/maplibre-gl.js"></script>
   <script src="vendor/maplibre-contour.js"></script>
 </head>
@@ -43,8 +43,11 @@
             <!-- 拼音首字母分组的省份展开面板 -->
             <div class="prov-popover-menu" id="prov-popover-menu" style="display: none;">
               <div class="prov-menu-header">
-                <span class="prov-menu-title">🇨🇳 全国行政区划</span>
-                <span class="prov-menu-hint">按拼音首字母检索</span>
+                <div class="prov-menu-header-text">
+                  <span class="prov-menu-title">🇨🇳 全国行政区划</span>
+                  <span class="prov-menu-hint">按拼音首字母检索</span>
+                </div>
+                <button class="card-close" id="btn-close-prov-menu" title="关闭">✕</button>
               </div>
               <div class="prov-menu-quick-index" id="prov-quick-index">
                 <!-- A-Z 快捷索引 -->
@@ -66,7 +69,6 @@
             <span class="dl-live-blue-dot" id="dl-live-blue-dot" style="display: none;" title="后台正在下载离线瓦片..."></span>
           </button>
         </div>
-
         <span class="cache-badge" id="titlebar-cache-stat" title="本地离线切片数">离线: 854</span>
       </div>
 
@@ -100,7 +102,7 @@
 
       <!-- 右侧：高程夸大比例滑块 (调至右侧，滑块控件加长) -->
       <div class="header-right">
-        <div class="office-slider-group" title="高程夸大比例调整 (拖动细腻增减3D地形立体起伏)">
+        <div id="header-slider-group" class="office-slider-group" title="高程夸大比例调整 (拖动细腻增减3D地形立体起伏)">
           <span class="slider-lbl">高程: <b id="exaggeration-val">2.0x</b></span>
           <input type="range" id="exaggeration-slider" min="1.0" max="3.0" step="0.1" value="2.0" />
         </div>
@@ -676,6 +678,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=1.2.12"></script>
+  <script src="app.js?v=1.2.13"></script>
 </body>
 </html>

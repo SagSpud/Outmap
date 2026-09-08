@@ -1239,18 +1239,41 @@ function setupOfficeHeaderInteractions(map) {
     });
   }
 
-  // 手机端点击高程胶囊唤起大滑块抽屉
-  headerSliderGroup?.addEventListener('click', (e) => {
-    if (window.innerWidth <= 768) {
+  // 手机端点击高程胶囊唤起大滑块抽屉 (支持 click 与 touchend，防止移动端手势被吞)
+  const toggleMobileElevationSheet = (e) => {
+    if (e) {
       e.stopPropagation();
-      const isHidden = !mobileEleSheet || mobileEleSheet.style.display === 'none';
-      if (mobileEleSheet) {
-        mobileEleSheet.style.display = isHidden ? 'flex' : 'none';
-        if (isHidden) {
-          setExaggerationValue(currentExaggeration);
-        }
-      }
+      e.preventDefault();
     }
+    const sheet = document.getElementById('mobile-ele-sheet');
+    if (!sheet) return;
+    const isHidden = sheet.style.display === 'none' || !sheet.classList.contains('active');
+    if (isHidden) {
+      sheet.style.display = 'flex';
+      sheet.classList.add('active');
+      setExaggerationValue(currentExaggeration);
+    } else {
+      sheet.style.display = 'none';
+      sheet.classList.remove('active');
+    }
+  };
+
+  const sliderGroupEl = document.getElementById('header-slider-group') || document.querySelector('.office-slider-group');
+  if (sliderGroupEl) {
+    sliderGroupEl.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768) {
+        toggleMobileElevationSheet(e);
+      }
+    });
+    sliderGroupEl.addEventListener('touchend', (e) => {
+      if (window.innerWidth <= 768) {
+        toggleMobileElevationSheet(e);
+      }
+    });
+  }
+
+  mobileEleSheet?.addEventListener('click', (e) => {
+    e.stopPropagation();
   });
 
   mobileEleRange?.addEventListener('input', e => {
@@ -1258,16 +1281,27 @@ function setupOfficeHeaderInteractions(map) {
   });
 
   mobilePresetBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    const handlePreset = (e) => {
       e.stopPropagation();
+      e.preventDefault();
       setExaggerationValue(parseFloat(btn.dataset.val));
-    });
+    };
+    btn.addEventListener('click', handlePreset);
+    btn.addEventListener('touchend', handlePreset);
   });
 
-  btnCloseMobileEle?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (mobileEleSheet) mobileEleSheet.style.display = 'none';
-  });
+  const handleCloseMobileEle = (e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (mobileEleSheet) {
+      mobileEleSheet.style.display = 'none';
+      mobileEleSheet.classList.remove('active');
+    }
+  };
+  btnCloseMobileEle?.addEventListener('click', handleCloseMobileEle);
+  btnCloseMobileEle?.addEventListener('touchend', handleCloseMobileEle);
 
   // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (改善手机端易点空白收起的体验)
   map.on('click', () => {
@@ -1285,8 +1319,11 @@ function setupOfficeHeaderInteractions(map) {
     toClose.forEach(el => {
       if (el && el.style.display !== 'none') {
         el.style.display = 'none';
+        el.classList.remove('active');
       }
     });
+    const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
+    if (provTriggerBtn) provTriggerBtn.classList.remove('active');
   });
 
   // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/名山/城市全量POI检索与回车直达)
@@ -1692,10 +1729,15 @@ function setupOfficeHeaderInteractions(map) {
       }
     });
 
-    searchClose?.addEventListener('click', e => {
-      e.stopPropagation();
+    const handleCloseSearch = (e) => {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
       closeSearchPopover();
-    });
+    };
+    searchClose?.addEventListener('click', handleCloseSearch);
+    searchClose?.addEventListener('touchend', handleCloseSearch);
 
     document.addEventListener('click', e => {
       if (!searchPopover.contains(e.target) && e.target !== searchTrigger && !searchTrigger.contains(e.target)) {
@@ -1940,6 +1982,19 @@ function setupProvinceDropdown(map) {
     provPopover.style.display = isHidden ? 'flex' : 'none';
     provTriggerBtn.classList.toggle('active', isHidden);
   });
+
+  // 关闭按钮点击收起
+  const btnCloseProv = document.getElementById('btn-close-prov-menu');
+  const handleCloseProv = (e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    provPopover.style.display = 'none';
+    provTriggerBtn.classList.remove('active');
+  };
+  btnCloseProv?.addEventListener('click', handleCloseProv);
+  btnCloseProv?.addEventListener('touchend', handleCloseProv);
 
   // 点击空白处收起
   document.addEventListener('click', (e) => {
