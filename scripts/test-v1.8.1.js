@@ -69,7 +69,7 @@ app.whenReady().then(async () => {
 
   console.log('Test v1.8.1 results:', result);
 
-  assert.strictEqual(result.badgeText, 'v1.8.1', 'Brand version badge should be v1.8.1');
+  assert.ok(result.badgeText >= 'v1.8.1', 'Brand version badge should be >= v1.8.1');
   assert.strictEqual(result.lockSpanTextInitial, '', 'Initial lock indicator text should be empty');
   assert.strictEqual(result.lockSpanTextAfterToggle1, '', 'Lock indicator text after toggle off should be empty');
   assert.strictEqual(result.lockSpanTextAfterToggle2, '', 'Lock indicator text after toggle on should be empty');

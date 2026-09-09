@@ -886,6 +886,12 @@ function createWindow() {
       }
     });
 
+    mainWindow.on('focus', () => {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.send('app-window-focused');
+      }
+    });
+
     // 1.5秒兜底显示，防止特定低端核显环境 ready-to-show 触发延迟
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
@@ -1812,19 +1818,106 @@ del "%~f0"
     }
   });
 
+  function pullBufferFromR2(s3Key) {
+    return new Promise((resolve, reject) => {
+      const host = `${R2_SYNC_CONFIG.accountId}.r2.cloudflarestorage.com`;
+      const s3Path = `/${R2_SYNC_CONFIG.bucket}/${s3Key.replace(/^\//, '')}`;
+
+      const now = new Date();
+      const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+      const dateStamp = amzDate.substring(0, 8);
+      const region = 'auto';
+      const service = 's3';
+
+      const payloadHash = crypto.createHash('sha256').update('').digest('hex');
+
+      const canonicalHeaders = [
+        `host:${host}`,
+        `x-amz-content-sha256:${payloadHash}`,
+        `x-amz-date:${amzDate}`
+      ].join('\n') + '\n';
+
+      const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+
+      const canonicalRequest = [
+        'GET',
+        encodeURI(s3Path),
+        '',
+        canonicalHeaders,
+        signedHeaders,
+        payloadHash
+      ].join('\n');
+
+      const canonicalRequestHash = crypto.createHash('sha256').update(canonicalRequest).digest('hex');
+      const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+      const stringToSign = [
+        'AWS4-HMAC-SHA256',
+        amzDate,
+        credentialScope,
+        canonicalRequestHash
+      ].join('\n');
+
+      const signingKey = getR2SyncSignatureKey(R2_SYNC_CONFIG.secretAccessKey, dateStamp, region, service);
+      const signature = crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+      const authorization = `AWS4-HMAC-SHA256 Credential=${R2_SYNC_CONFIG.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+      const options = {
+        hostname: host,
+        port: 443,
+        path: s3Path,
+        method: 'GET',
+        headers: {
+          'Host': host,
+          'x-amz-date': amzDate,
+          'x-amz-content-sha256': payloadHash,
+          'Authorization': authorization
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        let respBody = '';
+        res.on('data', (chunk) => { respBody += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const json = JSON.parse(respBody);
+              resolve({ success: true, data: json });
+            } catch (e) {
+              reject(new Error('JSON解析失败: ' + e.message));
+            }
+          } else if (res.statusCode === 404) {
+            resolve({ success: false, notFound: true, message: '云端暂未发现此账号的同步记录' });
+          } else {
+            reject(new Error(`S3 GET HTTP ${res.statusCode}: ${respBody}`));
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(err);
+      });
+      req.end();
+    });
+  }
+
   ipcMain.handle('pull-cloud-sync-data', async (event, { syncKey }) => {
+    const key = (syncKey || 'default').trim();
+    // 1. 优先从公网 CDN 拉取 (快速低延迟)
     try {
-      const key = (syncKey || 'default').trim();
       const url = `https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(key)}.json?t=${Date.now()}`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         const json = await r.json();
         return { success: true, data: json };
       } else if (r.status === 404) {
         return { success: false, notFound: true, message: '云端暂未发现此账号的同步记录' };
-      } else {
-        return { success: false, message: `拉取失败 (HTTP ${r.status})` };
       }
+    } catch (_) {}
+
+    // 2. 兜底通过 S3 签名直连 Cloudflare R2 存储桶拉取
+    try {
+      const s3Key = `Outmap/sync/${encodeURIComponent(key)}.json`;
+      return await pullBufferFromR2(s3Key);
     } catch (err) {
       return { success: false, message: err.message };
     }

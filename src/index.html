@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.8.1" />
+  <link rel="stylesheet" href="style.css?v=1.8.2" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.1</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.2</span>
                 </div>
               </div>
             </div>
@@ -664,8 +664,9 @@
               <span class="sync-user-sync-badge" id="sync-user-status-badge">🟢 同步中</span>
             </div>
           </div>
-          <div class="sync-logout-row">
-            <button class="modal-btn secondary sync-logout-btn" id="btn-sync-logout">退出登录 / 切换账号</button>
+          <div class="sync-action-row" style="margin-top: 12px; display: flex; gap: 8px;">
+            <button class="modal-btn primary" id="btn-sync-now" style="flex: 1; min-height: 36px;">🔄 立即同步</button>
+            <button class="modal-btn secondary sync-logout-btn" id="btn-sync-logout" style="flex: 1; min-height: 36px;">退出登录</button>
           </div>
         </div>
 
@@ -778,8 +779,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.8.1"></script>
-  <script src="app.js?v=1.8.1"></script>
+  <script src="location-camera.js?v=1.8.2"></script>
+  <script src="app.js?v=1.8.2"></script>
 </body>
 </html>
 

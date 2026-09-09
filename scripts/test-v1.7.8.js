@@ -144,9 +144,10 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.afterSecondAdd.endInputVal, '上海人民广场', 'End input box must show 上海人民广场');
   assert.strictEqual(result.afterSecondAdd.viaCount, 0, 'Via points count must be 0 after promotion to end');
 
-  // After 3rd via add:
-  assert.strictEqual(result.afterThirdAdd.viaCount, 1, '3rd via must remain as true via point');
-  assert.strictEqual(result.afterThirdAdd.via1Name, '南京玄武湖', 'Via 1 name must be 南京玄武湖');
+  // After 3rd via add (Amap / Apple Maps succession logic: previous end becomes via 1, latest becomes end):
+  assert.strictEqual(result.afterThirdAdd.viaCount, 1, '3rd via shifts previous end into via list (count 1)');
+  assert.strictEqual(result.afterThirdAdd.via1Name, '上海人民广场', 'Previous end (上海人民广场) shifts to via 1');
+  assert.strictEqual(result.afterThirdAdd.endInputVal, '南京玄武湖', 'Latest added point (南京玄武湖) becomes current end');
 
   console.log('✅ ALL v1.7.8 VERIFICATIONS PASSED SUCCESSFULLY!');
   clearTimeout(watchdog);

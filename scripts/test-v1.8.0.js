@@ -68,7 +68,7 @@ app.whenReady().then(async () => {
 
   console.log('Test v1.8.0 results:', result);
 
-  assert.strictEqual(result.badgeText, 'v1.8.0', 'Brand version badge should be v1.8.0');
+  assert.ok(result.badgeText >= 'v1.8.0', 'Brand version badge should be >= v1.8.0');
   assert.strictEqual(result.hasLandingMarkerBefore, true, 'Landing marker should be displayed before right click');
   assert.strictEqual(result.hasLandingMarkerAfter, false, 'Landing marker must be cleared on right click');
   assert.strictEqual(result.hasContextMenu, true, 'Context menu should open on right click');

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.8.2';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -4250,6 +4250,51 @@ async function triggerRealtimeCloudSync(reason = 'change') {
     cloudSyncUploading = true;
     try {
       const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
+
+      // 1. 若是数据增删改操作，上传前优先拉取云端最新存档执行双向智能合并，防止覆盖手机/网页端新增地标
+      let cloudData = null;
+      if (reason !== 'view_changed' && reason !== 'pitch_lock_changed') {
+        if (window.electronAPI?.pullCloudSyncData) {
+          try {
+            const pullRes = await window.electronAPI.pullCloudSyncData({ syncKey });
+            if (pullRes?.success && pullRes.data) cloudData = pullRes.data;
+          } catch (_) {}
+        }
+        if (!cloudData) {
+          try {
+            const r = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`);
+            if (r.ok) cloudData = await r.json();
+          } catch (_) {}
+        }
+      }
+
+      // 读取本地数据
+      const localFavs = JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]');
+      const localRoutes = JSON.parse(localStorage.getItem('outmap_saved_routes') || '[]');
+      const localFolders = JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]');
+
+      // 双向智能合并与墓碑过滤
+      const cloudDeleted = cloudData?.deletedWaypoints || [];
+      const localDeleted = getDeletedWaypoints();
+      const mergedDeleted = [...localDeleted, ...cloudDeleted].filter((item, idx, arr) =>
+        arr.findIndex(x => (x.id && x.id === item.id) || (x.name === item.name && x.lng === item.lng && x.lat === item.lat)) === idx
+      ).slice(-500);
+      try { localStorage.setItem('outmap_deleted_waypoints', JSON.stringify(mergedDeleted)); } catch (e) {}
+
+      const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
+      const mergedRoutes = cloudData?.routes ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
+      const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
+
+      // 若发现云端有新增地标或路线，立即同步写入本地并全量刷新地图与收藏夹列表！
+      const hasNewIncoming = mergedFavs.length !== localFavs.length || mergedRoutes.length !== localRoutes.length;
+      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
+      localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
+      localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
+
+      if (hasNewIncoming && typeof window.reloadFavoritesData === 'function') {
+        window.reloadFavoritesData();
+      }
+
       const payload = {
         syncKey,
         data: {
@@ -4257,10 +4302,10 @@ async function triggerRealtimeCloudSync(reason = 'change') {
           username: user.username,
           password: user.password || '',
           syncedAt: new Date().toISOString(),
-          favorites: JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]'),
-          folders: JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]'),
-          routes: JSON.parse(localStorage.getItem('outmap_saved_routes') || '[]'),
-          deletedWaypoints: getDeletedWaypoints(),
+          favorites: mergedFavs,
+          folders: mergedFolders,
+          routes: mergedRoutes,
+          deletedWaypoints: mergedDeleted,
           views: window.mapInstance ? {
             center: window.mapInstance.getCenter(),
             zoom: window.mapInstance.getZoom(),
@@ -4383,9 +4428,9 @@ function setupCloudSync(map) {
   });
 
   // 执行全量双向智能合并与云端同步
-  const executeFullSync = async (user) => {
+  const executeFullSync = async (user, isUserInitiated = true) => {
     const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
-    showStatus('正在同步云端数据...');
+    if (isUserInitiated) showStatus('正在同步云端数据...');
 
     try {
       // 1. 从云端拉取存档
@@ -4395,7 +4440,8 @@ function setupCloudSync(map) {
         if (pullRes && pullRes.success && pullRes.data) {
           cloudData = pullRes.data;
         }
-      } else {
+      }
+      if (!cloudData) {
         try {
           const r = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`);
           if (r.ok) cloudData = await r.json();
@@ -4486,15 +4532,18 @@ function setupCloudSync(map) {
       }
       return true;
     } catch (err) {
-      showStatus(`同步提示: ${err.message}`, true);
-      const userBadge = document.getElementById('sync-user-status-badge');
-      if (userBadge) {
-        userBadge.innerText = '🔴 同步失败';
-        userBadge.className = 'sync-user-sync-badge err';
+      if (isUserInitiated) {
+        showStatus(`同步提示: ${err.message}`, true);
+        const userBadge = document.getElementById('sync-user-status-badge');
+        if (userBadge) {
+          userBadge.innerText = '🔴 同步失败';
+          userBadge.className = 'sync-user-sync-badge err';
+        }
       }
       return false;
     }
   };
+  window.executeFullSync = executeFullSync;
 
   // 登录表单回车键快捷登录支持
   const handleLoginSubmit = () => {
@@ -4591,12 +4640,55 @@ function setupCloudSync(map) {
     }
   });
 
-  // 页面启动时：如果浏览器端已记住登录状态，自动执行一次后台全量漫游同步
+  // 绑定 "🔄 立即同步" 按钮
+  const btnSyncNow = document.getElementById('btn-sync-now');
+  btnSyncNow?.addEventListener('click', async () => {
+    const user = getLoggedInUser();
+    if (!user) return;
+    btnSyncNow.disabled = true;
+    btnSyncNow.innerText = '⏳ 正在同步...';
+    try {
+      await executeFullSync(user, true);
+    } finally {
+      btnSyncNow.disabled = false;
+      btnSyncNow.innerText = '🔄 立即同步';
+    }
+  });
+
+  // 窗口重新获得焦点或切回前台时，自动执行静默增量漫游同步 (10秒防抖)
+  let lastFocusSyncTime = Date.now();
+  const triggerFocusSync = () => {
+    const user = getLoggedInUser();
+    if (!user) return;
+    const now = Date.now();
+    if (now - lastFocusSyncTime < 10000) return;
+    lastFocusSyncTime = now;
+    console.log('[CloudSync] 窗口激活聚焦，静默拉取云端同步数据...');
+    executeFullSync(user, false);
+  };
+
+  window.addEventListener('focus', triggerFocusSync);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') triggerFocusSync();
+  });
+  if (window.electronAPI?.onWindowFocus) {
+    window.electronAPI.onWindowFocus(triggerFocusSync);
+  }
+
+  // 后台定时静默轮询漫游同步 (每 25 秒自动核验并合并云端最新地标与路线)
+  setInterval(() => {
+    const user = getLoggedInUser();
+    if (user) {
+      executeFullSync(user, false);
+    }
+  }, 25000);
+
+  // 页面启动时：如果已记住登录状态，自动执行一次后台全量漫游同步
   const currentUser = getLoggedInUser();
   if (currentUser) {
     setTimeout(() => {
-      executeFullSync(currentUser);
-    }, 1500);
+      executeFullSync(currentUser, false);
+    }, 1200);
   }
 }
 
@@ -5471,6 +5563,7 @@ let routeEndCoord = null;
 let routeEndName = '';
 let routeEndMarker = null;
 let routeEndZoom = 14.5;
+let routeEndIsFromVia = false; // 标识终点是否由添加途径点顺延接替生成
 
 let routeViaPoints = []; // 存储途径点数组 [{ id, coords, name, marker, zoom }]
 let isContinuousPicking = false; // 连续拾点模式开关
@@ -5798,6 +5891,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       } else if (pointType === 'end') {
         routeEndCoord = null;
         routeEndName = '';
+        routeEndIsFromVia = false;
         if (routeEndMarker) { routeEndMarker.remove(); routeEndMarker = null; }
         if (map) {
           syncRouteMarkersVisualState(map);
@@ -5998,6 +6092,7 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
       zoom: s.zoom || 14.5,
       marker: s.marker
     }));
+    routeEndIsFromVia = false;
   }
 
   // 4. 同步更新起终点输入框内容
@@ -6373,12 +6468,57 @@ function renderViaList(mapInstance) {
   syncRouteMarkersVisualState(map);
 }
 
-// 添加途径点并自动刷新规划
+// 添加途径点并自动刷新规划 (高德 / Apple Maps 递进模式：弱化固定终点，支持在末尾持续追加点)
 function addViaPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
-  const idx = routeViaPoints.length + 1;
   const targetZoom = Number.isFinite(zoom) ? zoom : 14.8;
+
+  // 1. 若起点尚未设定且传入了有效坐标，直接作为起点建立路线之首
+  if (!routeStartCoord && coords) {
+    setRouteStartPoint(m, coords, label, targetZoom);
+    return;
+  }
+
+  // 2. 若已有起点，但尚未设定终点且当前没有途径点，且传入了有效坐标：
+  //    此点即为当前二点航段的终点（预览规划时以最后一点为终点）
+  if (coords && !routeEndCoord && (!routeViaPoints || routeViaPoints.length === 0)) {
+    setRouteEndPoint(m, coords, label, targetZoom, true);
+    return;
+  }
+
+  // 3. 若已有起终点（或已有有效终点），用户再次添加有效点时（高德 / Apple Maps 顺延递进逻辑）：
+  //    弱化终点的固定概念：原终点顺延沉淀为途径点，新添加的有效点接替成为最新终点！
+  //    使得路线始终单向向前延伸：起 -> 途1 -> 途2 -> ... -> 最新终点
+  if (coords && routeEndCoord) {
+    const prevEndCoord = routeEndCoord;
+    const prevEndName = routeEndName;
+    const prevEndZoom = routeEndZoom;
+    const prevEndMarker = routeEndMarker;
+
+    // 将旧终点转为途径点并推入数组
+    const viaIdx = routeViaPoints.length + 1;
+    if (prevEndMarker && prevEndMarker.getElement()) {
+      const el = prevEndMarker.getElement();
+      el.className = 'route-via-marker-pin';
+      el.style.background = '#0284c7';
+      el.innerText = viaIdx;
+    }
+    routeViaPoints.push({
+      id: 'via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      coords: prevEndCoord,
+      name: prevEndName || `途径点 ${viaIdx}`,
+      marker: prevEndMarker,
+      zoom: prevEndZoom
+    });
+
+    routeEndMarker = null; // 旧 marker 已安全移交途径点
+    setRouteEndPoint(m, coords, label, targetZoom, true);
+    return;
+  }
+
+  // 4. 用户点击面板内 "+ 添加途径点"（coords 为 null，待手动输入），或尚无终点时的普通追加
+  const idx = routeViaPoints.length + 1;
   let marker = null;
   if (coords && m) {
     const el = document.createElement('div');
@@ -6469,9 +6609,36 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
 }
 
 // 设置终点
-function setRouteEndPoint(map, coords, label, zoom = null) {
+function setRouteEndPoint(map, coords, label, zoom = null, isFromVia = false) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
+
+  // 若当前已有作为临时终点的途径点（routeEndIsFromVia 为 true），且本次是外部显式设置真实终点（isFromVia 为 false）：
+  // 将先前的临时终点顺延归入途径点列表，使得连续添加途径点后再显式指定终点时，原有途径点不被吞噬！
+  if (routeEndCoord && routeEndIsFromVia && !isFromVia) {
+    const prevEndCoord = routeEndCoord;
+    const prevEndName = routeEndName;
+    const prevEndZoom = routeEndZoom;
+    const prevEndMarker = routeEndMarker;
+
+    const viaIdx = routeViaPoints.length + 1;
+    if (prevEndMarker && prevEndMarker.getElement()) {
+      const el = prevEndMarker.getElement();
+      el.className = 'route-via-marker-pin';
+      el.style.background = '#0284c7';
+      el.innerText = viaIdx;
+    }
+    routeViaPoints.push({
+      id: 'via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      coords: prevEndCoord,
+      name: prevEndName || `途径点 ${viaIdx}`,
+      marker: prevEndMarker,
+      zoom: prevEndZoom
+    });
+    routeEndMarker = null;
+  }
+
+  routeEndIsFromVia = isFromVia;
   routeEndCoord = coords;
   routeEndName = label || `终点 (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)`;
   if (Number.isFinite(zoom)) {
@@ -6538,7 +6705,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (last.marker) {
         try { last.marker.remove(); } catch (e) {}
       }
-      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 14.5);
+      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 14.5, true);
       changed = true;
     }
   }
@@ -7452,6 +7619,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 对调起终点按钮绑定 (点击 ⇅ 键对调起终点并反转途径点)
   const swapStartAndEndRoutePoints = () => {
+    routeEndIsFromVia = false;
     const tCoord = routeStartCoord;
     const tName = routeStartName;
     const tMarker = routeStartMarker;
@@ -7559,18 +7727,7 @@ function setupOutdoorRouteSystem(map) {
           exitRoutePickingMode();
         } else {
           // 高德 / Apple Maps 模式：连续选点时自动递进，终点始终自动接替并填充在底栏终点输入框
-          if (!routeStartCoord) {
-            setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
-          } else if (!routeEndCoord) {
-            setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
-          } else {
-            // 已有起终点：将原终点顺延沉淀为途径点，新点击点接替成为终点！
-            const prevEndCoord = routeEndCoord;
-            const prevEndName = routeEndName;
-            const prevEndZoom = routeEndZoom;
-            addViaPoint(map, prevEndCoord, prevEndName, prevEndZoom);
-            setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
-          }
+          addViaPoint(map, [lng, lat], cleanLocation || '途径点');
           if (btnPickViaInline) {
             const totalCount = (routeStartCoord ? 1 : 0) + routeViaPoints.length + (routeEndCoord ? 1 : 0);
             btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${totalCount})</span>`;
@@ -7725,6 +7882,7 @@ function setupOutdoorRouteSystem(map) {
     routeEndMarker = null;
     routeStartZoom = 14.5;
     routeEndZoom = 14.5;
+    routeEndIsFromVia = false;
 
     hideRouteFloatingDropdown();
 
