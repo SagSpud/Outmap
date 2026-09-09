@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const assert = require('assert');
 const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
 const os = require('os');
 
@@ -113,7 +114,7 @@ app.whenReady().then(async () => {
   assert.strictEqual(results.hasOpenFileDialog, true, 'electronAPI.openFileDialog must be exposed');
   assert.strictEqual(results.hasWriteClipboardText, true, 'electronAPI.writeClipboardText must be exposed');
   assert.strictEqual(results.hasCopyHelper, true, 'window.copyTextToClipboard must be available');
-  assert.strictEqual(results.version, '1.5.9', 'OUTMAP_APP_VERSION must be 1.5.9');
+  assert.strictEqual(results.version, pkg.version, 'OUTMAP_APP_VERSION must match package.json');
 
   if (pageErrors.length > 0) {
     console.error('Page errors encountered during test:', pageErrors);

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.5.9';
+const APP_VERSION = '1.6.1';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -82,7 +82,7 @@ function smoothClosePanel(el, onClosed) {
     el.style.display = 'none';
     el.classList.remove('panel-closing');
     if (typeof onClosed === 'function') onClosed();
-  }, 160);
+  }, 180);
 }
 
 function smoothCloseModal(overlayEl, onClosed) {
@@ -96,7 +96,7 @@ function smoothCloseModal(overlayEl, onClosed) {
     overlayEl.style.display = 'none';
     overlayEl.classList.remove('modal-overlay-closing');
     if (typeof onClosed === 'function') onClosed();
-  }, 160);
+  }, 180);
 }
 
 function smoothClosePopover(el, onClosed) {
@@ -110,7 +110,23 @@ function smoothClosePopover(el, onClosed) {
     el.style.display = 'none';
     el.classList.remove('popover-closing');
     if (typeof onClosed === 'function') onClosed();
-  }, 140);
+  }, 160);
+}
+
+function smoothCloseContextMenu(onClosed) {
+  const ctxMenu = document.getElementById('map-context-menu');
+  if (!ctxMenu || ctxMenu.style.display === 'none') {
+    if (typeof onClosed === 'function') onClosed();
+    return;
+  }
+  if (ctxMenu.classList.contains('ctx-closing')) return;
+  ctxMenu.classList.remove('ctx-opening');
+  ctxMenu.classList.add('ctx-closing');
+  setTimeout(() => {
+    ctxMenu.style.display = 'none';
+    ctxMenu.classList.remove('ctx-closing');
+    if (typeof onClosed === 'function') onClosed();
+  }, 160);
 }
 
 // Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
@@ -2051,6 +2067,15 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   // 手机端点击高程胶囊唤起大滑块抽屉 (支持 click 与 touchend，防止移动端手势被吞)
+  const closeMobileElevationSheet = () => {
+    const sheet = document.getElementById('mobile-ele-sheet');
+    if (sheet && sheet.style.display !== 'none') {
+      smoothClosePanel(sheet, () => {
+        sheet.classList.remove('active');
+      });
+    }
+  };
+
   const toggleMobileElevationSheet = (e) => {
     if (e) {
       e.stopPropagation();
@@ -2064,8 +2089,7 @@ function setupOfficeHeaderInteractions(map) {
       sheet.classList.add('active');
       setExaggerationValue(currentExaggeration);
     } else {
-      sheet.style.display = 'none';
-      sheet.classList.remove('active');
+      closeMobileElevationSheet();
     }
   };
 
@@ -2106,44 +2130,48 @@ function setupOfficeHeaderInteractions(map) {
       e.stopPropagation();
       e.preventDefault();
     }
-    if (mobileEleSheet) {
-      mobileEleSheet.style.display = 'none';
-      mobileEleSheet.classList.remove('active');
-    }
+    closeMobileElevationSheet();
   };
   btnCloseMobileEle?.addEventListener('click', handleCloseMobileEle);
   btnCloseMobileEle?.addEventListener('touchend', handleCloseMobileEle);
 
-  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (若路线已清空，亦自动收起路线规划面板)
+  // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (全量流体平滑动效退出)
   map.on('click', () => {
     if (pickingRoutePt) return;
-    const toClose = [
-      document.getElementById('favorites-drawer'),
-      document.getElementById('mobile-ele-sheet'),
-      document.getElementById('waypoint-modal'),
-      document.getElementById('save-route-modal'),
-      document.getElementById('map-context-menu'),
-      document.getElementById('prov-popover-menu'),
-      document.getElementById('search-popover'),
-      document.getElementById('layers-popover')
-    ];
+
+    // 1. 右键菜单平滑收起
+    smoothCloseContextMenu();
+
+    // 2. 底部浮动面板平滑退出
+    ['favorites-drawer', 'mobile-ele-sheet', 'waypoint-modal'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.style.display !== 'none') {
+        smoothClosePanel(el, () => el.classList.remove('active'));
+      }
+    });
 
     const routePanel = document.getElementById('route-panel');
     const isRouteEmpty = !routeStartCoord && !routeEndCoord && (!routeViaPoints || routeViaPoints.length === 0);
     if (isRouteEmpty && routePanel && routePanel.style.display !== 'none') {
-      toClose.push(routePanel);
+      smoothClosePanel(routePanel, () => routePanel.classList.remove('active'));
     }
 
-    toClose.forEach(el => {
+    // 3. 模态窗口平滑退出
+    const saveRouteModal = document.getElementById('save-route-modal');
+    if (saveRouteModal && saveRouteModal.style.display !== 'none') {
+      smoothCloseModal(saveRouteModal);
+    }
+
+    // 4. 浮动气泡菜单平滑收起
+    ['prov-popover-menu', 'search-popover', 'layers-popover'].forEach(id => {
+      const el = document.getElementById(id);
       if (el && el.style.display !== 'none') {
-        el.style.display = 'none';
-        el.classList.remove('active');
+        smoothClosePopover(el, () => {
+          if (id === 'prov-popover-menu') document.getElementById('btn-prov-dropdown-trigger')?.classList.remove('active');
+          if (id === 'layers-popover') document.getElementById('btn-fab-layers')?.classList.remove('active');
+        });
       }
     });
-    const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
-    if (provTriggerBtn) provTriggerBtn.classList.remove('active');
-    const btnFabLayers = document.getElementById('btn-fab-layers');
-    if (btnFabLayers) btnFabLayers.classList.remove('active');
   });
 
   // 3. 点击展开的全局搜索交互系统 (中国境内严格过滤、搜索历史持久化、支持经纬度/小区/城市/地标全量POI检索与回车直达)
@@ -2420,6 +2448,16 @@ function setupOfficeHeaderInteractions(map) {
     resultsContainer.style.display = 'block';
   }
 
+  function closeSearchPopover() {
+    ++searchRequestSequence;
+    clearTimeout(searchDebounceTimer);
+    if (searchPopover && searchPopover.style.display !== 'none') {
+      smoothClosePopover(searchPopover, () => {
+        if (sInput) sInput.blur();
+      });
+    }
+  }
+
   function executeJumpToResult(item) {
     if (!item || !item.coords || item.coords.length < 2) return;
     ++searchRequestSequence;
@@ -2429,7 +2467,7 @@ function setupOfficeHeaderInteractions(map) {
     if (isNaN(lng) || isNaN(lat)) return;
     const validCoords = [lng, lat];
 
-    if (searchPopover) searchPopover.style.display = 'none';
+    closeSearchPopover();
     if (resultsContainer) resultsContainer.style.display = 'none';
     if (sInput) sInput.value = item.name;
 
@@ -2560,25 +2598,18 @@ function setupOfficeHeaderInteractions(map) {
     }
   };
 
-  const closeSearchPopover = () => {
-    ++searchRequestSequence;
-    clearTimeout(searchDebounceTimer);
-    if (searchPopover && searchPopover.style.display !== 'none') {
-      smoothClosePopover(searchPopover, () => {
-        if (sInput) sInput.blur();
-      });
-    }
-  };
-
   if (searchTrigger && searchPopover) {
     searchTrigger.addEventListener('click', e => {
       e.stopPropagation();
       const isHidden = searchPopover.style.display === 'none';
       if (isHidden) {
-        const provPopover = document.getElementById('prov-popover-menu');
-        if (provPopover) provPopover.style.display = 'none';
-        const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
-        if (provTriggerBtn) provTriggerBtn.classList.remove('active');
+        if (typeof window.closeProvincePopover === 'function') {
+          window.closeProvincePopover();
+        } else {
+          const provPopover = document.getElementById('prov-popover-menu');
+          if (provPopover) smoothClosePopover(provPopover);
+          document.getElementById('btn-prov-dropdown-trigger')?.classList.remove('active');
+        }
         searchPopover.style.display = 'block';
         if (sInput) {
           sInput.focus();
@@ -2816,8 +2847,7 @@ function setupProvinceDropdown(map) {
     allChinaBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       updateProvDropdownLabel('china');
-      provPopover.style.display = 'none';
-      provTriggerBtn.classList.remove('active');
+      closeProvincePopover();
       flyToProvince(map, 'china');
     });
     provMenuList.appendChild(allChinaBtn);
@@ -2854,8 +2884,7 @@ function setupProvinceDropdown(map) {
         pBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           updateProvDropdownLabel(p.key);
-          provPopover.style.display = 'none';
-          provTriggerBtn.classList.remove('active');
+          closeProvincePopover();
           flyToProvince(map, p.key);
         });
 
@@ -2867,6 +2896,15 @@ function setupProvinceDropdown(map) {
     });
   };
 
+  const closeProvincePopover = () => {
+    if (provPopover && provPopover.style.display !== 'none') {
+      smoothClosePopover(provPopover, () => {
+        provTriggerBtn?.classList.remove('active');
+      });
+    }
+  };
+  window.closeProvincePopover = closeProvincePopover;
+
   renderListContent();
 
   // 点击触发按钮展开/收起
@@ -2875,11 +2913,15 @@ function setupProvinceDropdown(map) {
     const isHidden = provPopover.style.display === 'none';
     if (isHidden) {
       const searchPopover = document.getElementById('search-popover');
-      if (searchPopover) searchPopover.style.display = 'none';
+      if (searchPopover && searchPopover.style.display !== 'none') {
+        smoothClosePopover(searchPopover);
+      }
       renderListContent(); // 重新检查是否有新下载完成的省份并刷新勾选
+      provPopover.style.display = 'flex';
+      provTriggerBtn.classList.add('active');
+    } else {
+      closeProvincePopover();
     }
-    provPopover.style.display = isHidden ? 'flex' : 'none';
-    provTriggerBtn.classList.toggle('active', isHidden);
   });
 
   // 关闭按钮点击收起
@@ -2889,37 +2931,25 @@ function setupProvinceDropdown(map) {
       e.stopPropagation();
       e.preventDefault();
     }
-    provPopover.style.display = 'none';
-    provTriggerBtn.classList.remove('active');
+    closeProvincePopover();
   };
   btnCloseProv?.addEventListener('click', handleCloseProv);
   btnCloseProv?.addEventListener('touchend', handleCloseProv);
 
   // 点击空白处收起
   document.addEventListener('click', (e) => {
-    if (!provPopover.contains(e.target) && !provTriggerBtn.contains(e.target)) {
-      provPopover.style.display = 'none';
-      provTriggerBtn.classList.remove('active');
+    if (provPopover.style.display !== 'none' && !provPopover.contains(e.target) && !provTriggerBtn.contains(e.target)) {
+      closeProvincePopover();
     }
   });
 
-  map.on('mousedown', () => {
-    provPopover.style.display = 'none';
-    provTriggerBtn.classList.remove('active');
-  });
-  map.on('click', () => {
-    provPopover.style.display = 'none';
-    provTriggerBtn.classList.remove('active');
-  });
-  map.on('dragstart', () => {
-    provPopover.style.display = 'none';
-    provTriggerBtn.classList.remove('active');
-  });
+  map.on('mousedown', () => closeProvincePopover());
+  map.on('click', () => closeProvincePopover());
+  map.on('dragstart', () => closeProvincePopover());
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      provPopover.style.display = 'none';
-      provTriggerBtn.classList.remove('active');
+      closeProvincePopover();
     }
   });
 }
@@ -3041,13 +3071,18 @@ function setupPyramidModal(map) {
   };
 
   const openPyramidModal = async () => {
-    const provPopover = document.getElementById('prov-popover-menu');
-    if (provPopover) provPopover.style.display = 'none';
-    const provTriggerBtn = document.getElementById('btn-prov-dropdown-trigger');
-    if (provTriggerBtn) provTriggerBtn.classList.remove('active');
+    if (typeof window.closeProvincePopover === 'function') {
+      window.closeProvincePopover();
+    } else {
+      const provPopover = document.getElementById('prov-popover-menu');
+      if (provPopover && provPopover.style.display !== 'none') smoothClosePopover(provPopover);
+      document.getElementById('btn-prov-dropdown-trigger')?.classList.remove('active');
+    }
 
     const searchPopover = document.getElementById('search-popover');
-    if (searchPopover) searchPopover.style.display = 'none';
+    if (searchPopover && searchPopover.style.display !== 'none') {
+      smoothClosePopover(searchPopover);
+    }
 
     if (typeof window.clearLandingMarker === 'function') {
       window.clearLandingMarker();
@@ -4597,7 +4632,7 @@ function closeConflictingBottomPanels(exceptId = null) {
       const el = document.getElementById(id);
       if (el) {
         el.style.display = 'none';
-        el.classList.remove('panel-closing', 'modal-overlay-closing', 'popover-closing');
+        el.classList.remove('panel-closing', 'modal-overlay-closing', 'popover-closing', 'active');
       }
     }
   });
@@ -4712,7 +4747,7 @@ function setupWaypointAndFavoritesSystem(map) {
       btnFabPoint.classList.toggle('active', isPickingPoint);
       map.getCanvas().style.cursor = isPickingPoint ? 'var(--cursor-crosshair)' : '';
       if (isPickingPoint) {
-        if (wpModal) wpModal.style.display = 'none';
+        if (wpModal && wpModal.style.display !== 'none') smoothClosePanel(wpModal);
       }
     });
   }
@@ -6758,6 +6793,12 @@ function setupOutdoorRouteSystem(map) {
   });
 
   // 2. 导出下拉菜单切换 (存到收藏夹、导出GPX)
+  const closeRouteExportMenu = () => {
+    if (routeExportMenu && routeExportMenu.style.display !== 'none') {
+      smoothClosePopover(routeExportMenu);
+    }
+  };
+
   btnRouteExportTrigger?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (!routeExportMenu) return;
@@ -6773,7 +6814,7 @@ function setupOutdoorRouteSystem(map) {
       }
       routeExportMenu.style.display = 'flex';
     } else {
-      routeExportMenu.style.display = 'none';
+      closeRouteExportMenu();
     }
   });
 
@@ -6806,7 +6847,7 @@ function setupOutdoorRouteSystem(map) {
   // 5. 点击页面空白或地图自动关闭下拉菜单
   document.addEventListener('click', (e) => {
     if (routeExportMenu && !routeExportMenu.contains(e.target) && e.target !== btnRouteExportTrigger) {
-      routeExportMenu.style.display = 'none';
+      closeRouteExportMenu();
     }
     if (startDropdown && !startDropdown.contains(e.target) && e.target !== startInput) {
       startDropdown.style.display = 'none';
@@ -6847,7 +6888,7 @@ function setupOutdoorRouteSystem(map) {
     if (endInput) endInput.value = '';
     if (startDropdown) startDropdown.style.display = 'none';
     if (endDropdown) endDropdown.style.display = 'none';
-    if (routeExportMenu) routeExportMenu.style.display = 'none';
+    closeRouteExportMenu();
     if (btnRouteDetailsToggle) btnRouteDetailsToggle.innerText = '详情 ▾';
     renderViaList(map);
 
@@ -6872,7 +6913,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 点击【💾 存路线】
   btnSaveRoute?.addEventListener('click', () => {
-    if (routeExportMenu) routeExportMenu.style.display = 'none';
+    closeRouteExportMenu();
     if (!routeStartCoord || !routeEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
       alert('请先在地图上设定起点和终点，生成路线后再保存！');
       return;
@@ -6942,7 +6983,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 点击【📥 导出GPX】(当前规划路线，支持无显式终点时自动以最后一个途径点作为终点导出)
   btnExportGpx?.addEventListener('click', () => {
-    if (routeExportMenu) routeExportMenu.style.display = 'none';
+    closeRouteExportMenu();
     const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
     const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
     if (!routeStartCoord || !effectiveEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
@@ -7654,8 +7695,11 @@ function setupLayersPopover(map) {
     if (next) {
       closeConflictingBottomPanels('layers-popover');
       popover.style.display = 'block';
+      btnFabLayers.classList.add('active');
     } else {
-      popover.style.display = 'none';
+      smoothClosePopover(popover, () => {
+        btnFabLayers.classList.remove('active');
+      });
     }
   };
 
@@ -7734,15 +7778,8 @@ function setupMapContextMenu(map) {
 
   let currentContextPoint = null;
 
-  const hideContextMenu = () => {
-    if (ctxMenu && ctxMenu.style.display !== 'none') {
-      if (ctxMenu.classList.contains('ctx-closing')) return;
-      ctxMenu.classList.add('ctx-closing');
-      setTimeout(() => {
-        ctxMenu.style.display = 'none';
-        ctxMenu.classList.remove('ctx-closing');
-      }, 120);
-    }
+  const hideContextMenu = (onDone) => {
+    smoothCloseContextMenu(onDone);
   };
 
   const handleContextMenuSelection = (action, point) => {
@@ -7770,7 +7807,7 @@ function setupMapContextMenu(map) {
     }
   };
 
-  // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 亚克力交互卡片)
+  // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 亚克力交互卡片，完整支持进入与退出物理动效)
   const showContextMenuAtPoint = (lngLat, point, customName = null) => {
     const { lng, lat } = lngLat;
     const ele = Math.round(getRealElevation(map, lngLat) || 0);
@@ -7793,6 +7830,7 @@ function setupMapContextMenu(map) {
 
     if (ctxMenu) {
       ctxMenu.classList.remove('ctx-closing');
+      ctxMenu.classList.remove('ctx-opening');
       const wrap = document.getElementById('map-wrap');
       const maxW = wrap ? wrap.clientWidth - 190 : window.innerWidth - 190;
       const maxH = wrap ? wrap.clientHeight - 220 : window.innerHeight - 220;
@@ -7802,6 +7840,8 @@ function setupMapContextMenu(map) {
       ctxMenu.style.left = `${x}px`;
       ctxMenu.style.top = `${y}px`;
       ctxMenu.style.display = 'block';
+      void ctxMenu.offsetWidth; // 触发重绘回流，确保每次打开都完整播放弹性微进入动效
+      ctxMenu.classList.add('ctx-opening');
     }
   };
 
@@ -7854,33 +7894,37 @@ function setupMapContextMenu(map) {
     }
   });
 
-  // 1. 右键菜单：添加地点到收藏夹
+  // 1. 右键菜单：添加地点到收藏夹 (先播放平滑收起退出动效，再展开目标弹窗)
   btnAddFav?.addEventListener('click', () => {
-    hideContextMenu();
-    handleContextMenuSelection('add-fav', currentContextPoint);
+    hideContextMenu(() => {
+      handleContextMenuSelection('add-fav', currentContextPoint);
+    });
   });
 
   // 2. 右键菜单：设为路线起点
   btnRouteStart?.addEventListener('click', () => {
-    hideContextMenu();
-    handleContextMenuSelection('route-start', currentContextPoint);
+    hideContextMenu(() => {
+      handleContextMenuSelection('route-start', currentContextPoint);
+    });
   });
 
   // 3. 右键菜单：添加为路线途径点
   btnRouteVia?.addEventListener('click', () => {
-    hideContextMenu();
-    handleContextMenuSelection('route-via', currentContextPoint);
+    hideContextMenu(() => {
+      handleContextMenuSelection('route-via', currentContextPoint);
+    });
   });
 
   // 4. 右键菜单：设为路线终点
   btnRouteEnd?.addEventListener('click', () => {
-    hideContextMenu();
-    handleContextMenuSelection('route-end', currentContextPoint);
+    hideContextMenu(() => {
+      handleContextMenuSelection('route-end', currentContextPoint);
+    });
   });
 
-  // 隐藏右键菜单触发机制
-  map.on('click', hideContextMenu);
-  map.on('movestart', hideContextMenu);
+  // 隐藏右键菜单触发机制 (平滑流体淡出)
+  map.on('click', () => hideContextMenu());
+  map.on('movestart', () => hideContextMenu());
   document.addEventListener('click', e => {
     if (ctxMenu && !ctxMenu.contains(e.target)) {
       hideContextMenu();
@@ -7895,13 +7939,7 @@ function setupGlobalKeyboardDispatcher() {
       // 0. 地图右键菜单 (最高响应优先级)
       const ctxMenu = document.getElementById('map-context-menu');
       if (ctxMenu && ctxMenu.style.display !== 'none') {
-        if (!ctxMenu.classList.contains('ctx-closing')) {
-          ctxMenu.classList.add('ctx-closing');
-          setTimeout(() => {
-            ctxMenu.style.display = 'none';
-            ctxMenu.classList.remove('ctx-closing');
-          }, 120);
-        }
+        smoothCloseContextMenu();
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -7910,14 +7948,9 @@ function setupGlobalKeyboardDispatcher() {
       // 0.05 图层控制面板
       const layersPopover = document.getElementById('layers-popover');
       if (layersPopover && layersPopover.style.display !== 'none') {
-        if (typeof smoothClosePopover === 'function') {
-          smoothClosePopover(layersPopover, () => {
-            document.getElementById('btn-fab-layers')?.classList.remove('active');
-          });
-        } else {
-          layersPopover.style.display = 'none';
+        smoothClosePopover(layersPopover, () => {
           document.getElementById('btn-fab-layers')?.classList.remove('active');
-        }
+        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -7953,9 +7986,10 @@ function setupGlobalKeyboardDispatcher() {
       // 1. 最高优先级：离线下载对话框省份下拉浮层与对话框
       const provDropdownPanel = document.getElementById('pyramid-prov-dropdown-panel');
       if (provDropdownPanel && provDropdownPanel.style.display !== 'none') {
-        provDropdownPanel.style.display = 'none';
-        const trigger = document.getElementById('pyramid-prov-dropdown-trigger');
-        if (trigger) trigger.classList.remove('active');
+        smoothClosePopover(provDropdownPanel, () => {
+          const trigger = document.getElementById('pyramid-prov-dropdown-trigger');
+          if (trigger) trigger.classList.remove('active');
+        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
