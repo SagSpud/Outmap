@@ -4342,7 +4342,7 @@ body.web-mode #manage-modal {
 
 .sync-input {
   width: 100%;
-  padding-left: 32px !important;
+  padding: 0 12px !important;
   height: 38px;
   font-size: 13px;
   border-radius: 7px;

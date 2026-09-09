@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.7.2';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -602,12 +602,16 @@ function mergeWaypoints(localList = [], cloudList = []) {
   const map = new Map();
   (cloudList || []).forEach(item => {
     if (!item) return;
-    const key = item.id || `${item.name}_${(item.coords || []).join(',')}`;
+    const lng = item.lng ?? item.coords?.[0];
+    const lat = item.lat ?? item.coords?.[1];
+    const key = item.id || `${item.name}_${lng},${lat}`;
     map.set(key, item);
   });
   (localList || []).forEach(item => {
     if (!item) return;
-    const key = item.id || `${item.name}_${(item.coords || []).join(',')}`;
+    const lng = item.lng ?? item.coords?.[0];
+    const lat = item.lat ?? item.coords?.[1];
+    const key = item.id || `${item.name}_${lng},${lat}`;
     map.set(key, item);
   });
   return Array.from(map.values());
@@ -665,12 +669,14 @@ async function initApplication() {
     // 启动时静默检查并智能双向合并 R2 云端漫游数据
     try {
       if (window.electronAPI && window.electronAPI.pullCloudSyncData) {
-        let syncKey = 'default';
-        if (window.electronAPI.getCloudSyncConfig) {
+        let syncKey = null;
+        const loggedUser = (typeof getLoggedInUser === 'function') ? getLoggedInUser() : null;
+        if (loggedUser) {
+          syncKey = loggedUser.syncKey || ('user_' + encodeURIComponent(loggedUser.username.toLowerCase()));
+        } else if (window.electronAPI.getCloudSyncConfig) {
           const syncCfg = await window.electronAPI.getCloudSyncConfig();
-          if (syncCfg) {
-            if (syncCfg.autoSync === false) syncKey = null; // 用户关闭了自动漫游
-            else if (syncCfg.syncKey) syncKey = syncCfg.syncKey;
+          if (syncCfg && syncCfg.autoSync !== false && syncCfg.syncKey) {
+            syncKey = syncCfg.syncKey;
           }
         }
         if (syncKey) {
@@ -694,6 +700,9 @@ async function initApplication() {
               if (d.settings.lockedPitchVal) {
                 localStorage.setItem('outmap_locked_pitch_val', String(d.settings.lockedPitchVal));
               }
+            }
+            if (typeof window.reloadFavoritesData === 'function') {
+              window.reloadFavoritesData();
             }
             console.log('[CloudSync] 启动自动双向合并云端漫游数据成功');
           }
@@ -4283,18 +4292,13 @@ function setupCloudSync(map) {
       const mergedRoutes = cloudData?.routes ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
       const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
 
-      // 4. 写回本地并刷新界面标记与列表
+      // 4. 写回本地并全量刷新界面标记与列表
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
       localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
       localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
 
-      if (cloudData?.views?.center) {
-        map.flyTo({
-          center: cloudData.views.center,
-          zoom: cloudData.views.zoom || 4.45,
-          pitch: cloudData.views.pitch ?? 50,
-          bearing: cloudData.views.bearing || 0
-        });
+      if (typeof window.reloadFavoritesData === 'function') {
+        window.reloadFavoritesData();
       }
 
       window.dispatchEvent(new Event('storage'));
@@ -4360,6 +4364,31 @@ function setupCloudSync(map) {
       return false;
     }
   };
+
+  // 登录表单回车键快捷登录支持
+  const handleLoginSubmit = () => {
+    if (btnLogin && !btnLogin.disabled) {
+      btnLogin.click();
+    }
+  };
+
+  usernameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.keyCode === 13) {
+      e.preventDefault();
+      if (!passwordInput?.value) {
+        passwordInput?.focus();
+      } else {
+        handleLoginSubmit();
+      }
+    }
+  });
+
+  passwordInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.keyCode === 13) {
+      e.preventDefault();
+      handleLoginSubmit();
+    }
+  });
 
   // 登录 / 注册按钮点击
   btnLogin?.addEventListener('click', async () => {
@@ -5261,6 +5290,31 @@ function setupWaypointAndFavoritesSystem(map) {
 
   btnCloseFav?.addEventListener('click', () => {
     smoothClosePanel(favDrawer);
+  });
+
+  // 全量重载本地/云端同步数据并刷新界面元素
+  const reloadFavoritesData = () => {
+    try {
+      const raw = localStorage.getItem('outmap_saved_waypoints');
+      savedWaypoints = raw ? JSON.parse(raw) : [];
+      const rawFolders = localStorage.getItem('outmap_custom_folders');
+      customFolders = rawFolders ? JSON.parse(rawFolders) : [];
+      const rawRoutes = localStorage.getItem('outmap_saved_routes');
+      savedRoutes = rawRoutes ? JSON.parse(rawRoutes) : [];
+    } catch (e) {}
+
+    renderWaypointMarkersOnMap();
+    refreshFolderOptions();
+    renderFolderTabs();
+    renderFavoritesList();
+    renderSavedRoutesList();
+  };
+  window.reloadFavoritesData = reloadFavoritesData;
+
+  window.addEventListener('storage', (e) => {
+    if (!e.key || e.key.startsWith('outmap_saved_') || e.key.startsWith('outmap_custom_')) {
+      reloadFavoritesData();
+    }
   });
 }
 

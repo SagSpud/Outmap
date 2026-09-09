@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.7.1" />
+  <link rel="stylesheet" href="style.css?v=1.7.2" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.7.1</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.7.2</span>
                 </div>
               </div>
             </div>
@@ -630,8 +630,7 @@
     <div class="modal-card sync-modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <span class="m-icon" id="sync-modal-icon">☁️</span>
-          <span id="sync-modal-title">用户登录 / 云端同步</span>
+          <span id="sync-modal-title">数据同步</span>
         </div>
         <button class="modal-close-btn" id="btn-close-sync-modal">✕</button>
       </div>
@@ -641,21 +640,19 @@
           <div class="sync-form-group">
             <label class="sync-input-label" for="sync-username">用户名</label>
             <div class="sync-input-wrapper">
-              <span class="sync-input-icon">👤</span>
               <input type="text" id="sync-username" class="form-control sync-input" placeholder="请输入用户名" autocomplete="username" />
             </div>
           </div>
           <div class="sync-form-group">
             <label class="sync-input-label" for="sync-password">密码</label>
             <div class="sync-input-wrapper">
-              <span class="sync-input-icon">🔒</span>
               <input type="password" id="sync-password" class="form-control sync-input" placeholder="请输入密码" autocomplete="current-password" />
             </div>
           </div>
           <div class="sync-action-row">
             <button class="modal-btn primary sync-submit-btn" id="btn-sync-login">登录 / 注册</button>
           </div>
-          <div class="sync-login-hint">新用户首次登录将自动创建云端同步存档，全量实时同步</div>
+          <div class="sync-login-hint">首次登录将自动创建同步存档，全量实时同步</div>
         </div>
 
         <!-- 已登录视图: 显示当前账号与全量同步状态 -->
@@ -780,8 +777,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.7.1"></script>
-  <script src="app.js?v=1.7.1"></script>
+  <script src="location-camera.js?v=1.7.2"></script>
+  <script src="app.js?v=1.7.2"></script>
 </body>
 </html>
 
