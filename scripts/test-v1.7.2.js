@@ -22,12 +22,12 @@ const indexHtml = fs.readFileSync(path.resolve(__dirname, '../src/index.html'), 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
 // 1.1 Version consistency
-assert(['1.7.2', '1.7.3', '1.7.4'].includes(packageJson.version), 'package.json version must be valid');
-assert(appJs.includes("const APP_VERSION = '1.7.2'") || appJs.includes("const APP_VERSION = '1.7.3'") || appJs.includes("const APP_VERSION = '1.7.4'"), 'app.js must declare valid APP_VERSION');
+assert(['1.7.2', '1.7.3', '1.7.4', '1.7.5'].includes(packageJson.version), 'package.json version must be valid');
+assert(appJs.includes("const APP_VERSION = '1.7.2'") || appJs.includes("const APP_VERSION = '1.7.3'") || appJs.includes("const APP_VERSION = '1.7.4', '1.7.5'"), 'app.js must declare valid APP_VERSION');
 assert(indexHtml.includes('style.css?v=1.7.2') || indexHtml.includes('style.css?v=1.7.3') || indexHtml.includes('style.css?v=1.7.4'), 'index.html must reference style.css');
 assert(indexHtml.includes('location-camera.js?v=1.7.2') || indexHtml.includes('location-camera.js?v=1.7.3') || indexHtml.includes('location-camera.js?v=1.7.4'), 'index.html must reference location-camera.js');
 assert(indexHtml.includes('app.js?v=1.7.2') || indexHtml.includes('app.js?v=1.7.3') || indexHtml.includes('app.js?v=1.7.4'), 'index.html must reference app.js');
-assert(indexHtml.includes('v1.7.2') || indexHtml.includes('v1.7.3') || indexHtml.includes('v1.7.4'), 'index.html must display version badge');
+assert(indexHtml.includes('v1.7.2') || indexHtml.includes('v1.7.3') || indexHtml.includes('v1.7.4', 'v1.7.5'), 'index.html must display version badge');
 console.log('  [PASS] 1. Version 1.7.2/1.7.3/1.7.4 declared consistently across all configuration and source files');
 
 // 1.2 Data Sync Modal Title and Icon clean-up
@@ -157,7 +157,7 @@ app.whenReady().then(async () => {
   })()`);
 
   console.log('Runtime verification results:');
-  assert(['v1.7.2', 'v1.7.3', 'v1.7.4'].includes(results.badgeText), 'Brand badge must display valid version');
+  assert(['v1.7.2', 'v1.7.3', 'v1.7.4', 'v1.7.5'].includes(results.badgeText), 'Brand badge must display valid version');
   console.log('  [PASS] Brand badge displays ' + results.badgeText);
 
   assert.strictEqual(results.modalTitle, '数据同步', 'Modal title must be 数据同步');
