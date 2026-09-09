@@ -2604,6 +2604,42 @@ body.web-mode #manage-modal {
   font-size: 11px;
 }
 
+.new-folder-inline-box .modal-btn {
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.new-folder-inline-box .modal-btn.primary {
+  background: #16a34a;
+  border: 1px solid #15803d;
+  color: #ffffff;
+}
+
+.new-folder-inline-box .modal-btn.primary:hover {
+  background: #15803d;
+}
+
+.new-folder-inline-box .modal-btn.secondary {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.new-folder-inline-box .modal-btn.secondary:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
 .office-btn-subtle {
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -3216,15 +3252,13 @@ body.web-mode #manage-modal {
   flex-shrink: 0;
 }
 
-.route-actions-row > .modal-btn,
-.route-actions-row .route-export-dropdown-wrap {
+.route-actions-row > .modal-btn {
   flex: 1 1 0;
   min-width: 0;
   margin: 0;
 }
 
-.route-actions-row .modal-btn,
-.route-actions-row .route-export-dropdown-wrap .modal-btn {
+.route-actions-row .modal-btn {
   width: 100%;
   height: 32px;
   min-height: 32px;
@@ -3246,8 +3280,7 @@ body.web-mode #manage-modal {
   transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.route-actions-row .modal-btn:active,
-.route-actions-row .route-export-dropdown-wrap .modal-btn:active {
+.route-actions-row .modal-btn:active {
   transform: scale(0.97);
 }
 
@@ -4733,31 +4766,25 @@ body.web-mode .office-prov-group {
 
   .route-actions-row {
     display: grid !important;
-    grid-template-columns: repeat(4, 1fr) !important;
-    gap: 4px !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 5px !important;
     width: 100% !important;
     flex-shrink: 0 !important;
   }
 
   .route-actions-row .modal-btn,
-  .route-actions-row .modal-btn.secondary-sm,
-  .route-actions-row .route-export-dropdown-wrap .modal-btn {
+  .route-actions-row .modal-btn.secondary-sm {
     height: 34px !important;
     min-height: 34px !important;
     max-height: 34px !important;
     padding: 0 2px !important;
-    font-size: 11.5px !important;
+    font-size: 12px !important;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
     text-align: center !important;
     white-space: nowrap !important;
     box-sizing: border-box !important;
-  }
-
-  .route-export-dropdown-wrap {
-    width: 100% !important;
-    height: 34px !important;
   }
 
   .route-stats-grid {
@@ -5678,18 +5705,130 @@ body.map-is-moving .fluent-alert-box {
 /* 路线保存内联面板 (直接在路线规划底栏顺滑展开) */
 .save-route-inline-box {
   margin-top: 8px;
-  background: rgba(248, 250, 252, 0.96);
+  background: rgba(255, 255, 255, 0.98);
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px 12px;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
   animation: panelSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
 .save-route-inline-box.panel-closing {
   animation: panelSlideOut 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+}
+
+.save-route-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.save-route-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.save-route-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.save-route-body .form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.save-route-body .form-lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.save-route-body .form-control {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.save-route-body .form-control:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+.save-route-body .point-meta-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.save-route-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.save-route-footer .modal-btn {
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.save-route-footer .modal-btn.primary {
+  background: #16a34a;
+  border: 1px solid #15803d;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.2);
+}
+
+.save-route-footer .modal-btn.primary:hover {
+  background: #15803d;
+  border-color: #166534;
+}
+
+.save-route-footer .modal-btn.secondary {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.save-route-footer .modal-btn.secondary:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
 }
 
 /* 收藏点右键修改类型菜单样式 */

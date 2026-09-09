@@ -965,7 +965,7 @@ app.whenReady().then(async () => {
       const eleTxt = (typeof ele === 'number' && !isNaN(ele)) ? ` · ${Math.round(ele)}m` : '';
       const template = [
         {
-          label: `📍 ${cleanName}${eleTxt}`,
+          label: `${cleanName}${eleTxt}`,
           enabled: false
         },
         { type: 'separator' },
@@ -974,26 +974,66 @@ app.whenReady().then(async () => {
           click: () => resolve({ action: 'add-fav' })
         },
         {
-          label: '➕ 添加为路线途径点',
+          label: '设为途径点',
           click: () => resolve({ action: 'route-via' })
         },
         {
-          label: '🚩 设为路线起点',
+          label: '设为路线起点',
           click: () => resolve({ action: 'route-start' })
         },
         {
-          label: '🏁 设为路线终点',
+          label: '设为路线终点',
           click: () => resolve({ action: 'route-end' })
         },
         { type: 'separator' },
         {
-          label: '📋 复制经纬度坐标 (WGS84)',
+          label: '复制经纬度坐标',
           click: () => {
             const text = `${lng.toFixed(6)}, ${lat.toFixed(6)}`;
             clipboard.writeText(text);
             resolve({ action: 'copy-coords', text });
           }
         }
+      ];
+
+      const menu = Menu.buildFromTemplate(template);
+      menu.popup({
+        window: win,
+        callback: () => {
+          setTimeout(() => resolve({ action: null }), 50);
+        }
+      });
+    });
+  });
+
+  // 收藏点位类型原生切换菜单 (Windows 11 Fluent 原生单选菜单，零 DOM 延迟)
+  ipcMain.handle('show-waypoint-type-menu', async (event, { currentType, waypointName }) => {
+    return new Promise((resolve) => {
+      const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+      const cleanName = (waypointName || '收藏点位').trim();
+      const typeList = [
+        { key: 'view', name: '景点' },
+        { key: 'camp', name: '露营' },
+        { key: 'water', name: '水源' },
+        { key: 'supply', name: '补给' },
+        { key: 'parking', name: '停车' },
+        { key: 'hotel', name: '住宿' },
+        { key: 'photo', name: '摄影' },
+        { key: 'hiking', name: '徒步' }
+      ];
+
+      const template = [
+        {
+          label: `更改类型 · ${cleanName}`,
+          enabled: false
+        },
+        { type: 'separator' },
+        ...typeList.map(t => ({
+          label: t.name,
+          type: 'radio',
+          checked: currentType === t.key,
+          click: () => resolve({ action: 'change-type', newType: t.key })
+        }))
       ];
 
       const menu = Menu.buildFromTemplate(template);

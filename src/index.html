@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.8.8" />
+  <link rel="stylesheet" href="style.css?v=1.8.9" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.8</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.9</span>
                 </div>
               </div>
             </div>
@@ -229,7 +229,7 @@
       <!-- 选点收藏录入弹窗 (4类单行，已去除险段；支持内联新增收藏夹) -->
       <div id="waypoint-modal" class="floating-card" style="display: none;">
         <div class="card-header">
-          <div class="card-title"><span>📍</span><span>添加地标收藏</span></div>
+          <div class="card-title"><span>添加地标收藏</span></div>
           <button class="card-close" id="btn-close-waypoint-modal">✕</button>
         </div>
         <div class="card-body">
@@ -263,8 +263,8 @@
             <!-- 内联新建收藏夹输入框 (替代被 Electron 拦截的 window.prompt) -->
             <div id="new-folder-inline" class="new-folder-inline-box" style="display: none;">
               <input type="text" id="new-folder-input" class="form-control" placeholder="输入收藏夹名称 (如: 川西自驾)..." />
-              <button class="office-btn-primary sm" id="btn-confirm-new-folder" type="button">确定</button>
-              <button class="office-btn-subtle sm" id="btn-cancel-new-folder" type="button">取消</button>
+              <button class="modal-btn primary sm" id="btn-confirm-new-folder" type="button">确定</button>
+              <button class="modal-btn secondary sm" id="btn-cancel-new-folder" type="button">取消</button>
             </div>
           </div>
           <div class="point-meta-box">
@@ -274,7 +274,7 @@
         </div>
         <div class="card-footer">
           <button class="modal-btn secondary" id="btn-cancel-waypoint">取消</button>
-          <button class="modal-btn primary" id="btn-save-waypoint">💾 保存到收藏</button>
+          <button class="modal-btn primary" id="btn-save-waypoint">保存到收藏</button>
         </div>
       </div>
 
@@ -334,38 +334,33 @@
 
           <div class="route-actions-row">
             <button class="modal-btn primary" id="btn-calc-route">规划</button>
-            <div class="route-export-dropdown-wrap">
-              <button class="modal-btn secondary-sm" id="btn-route-export-trigger">导出 ▾</button>
-              <div class="route-export-menu" id="route-export-menu" style="display: none;">
-                <button class="route-export-menu-item" id="btn-export-gpx">导出 GPX</button>
-                <button class="route-export-menu-item" id="btn-save-route">收藏</button>
-                <button class="route-export-menu-item" id="btn-route-import-trigger">导入路线</button>
-              </div>
-              <input type="file" id="route-panel-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
-            </div>
+            <button class="modal-btn secondary-sm" id="btn-route-import-trigger">导入</button>
+            <button class="modal-btn secondary-sm" id="btn-export-gpx">导出</button>
+            <button class="modal-btn secondary-sm" id="btn-save-route-trigger">收藏</button>
             <button class="modal-btn secondary-sm" id="btn-route-details-toggle">详情 ▾</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route">清空</button>
+            <input type="file" id="route-panel-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
           </div>
 
-          <!-- 保存路线内联面板 (点击 导出 ▾ -> 收藏 后在下方顺滑展开) -->
+          <!-- 保存路线内联面板 (点击 收藏 后在下方顺滑展开) -->
           <div id="save-route-modal" class="save-route-inline-box" style="display: none;">
-            <div class="card-header" style="padding: 4px 0 6px 0; border-bottom: 1px solid #e2e8f0; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-              <div class="card-title" style="font-size: 12px; font-weight: 600; color: #0f172a;">保存路线</div>
-              <button class="card-close" id="btn-close-save-route-modal" style="font-size: 12px; cursor: pointer;">✕</button>
+            <div class="save-route-header">
+              <div class="save-route-title">保存路线</div>
+              <button class="card-close" id="btn-close-save-route-modal">✕</button>
             </div>
-            <div class="card-body" style="padding: 0;">
-              <div class="form-row" style="margin-bottom: 6px;">
-                <label class="form-lbl" style="font-size: 11px; margin-bottom: 3px;">路线名称:</label>
-                <input type="text" id="save-route-name-input" class="form-control" style="font-size: 12px; padding: 5px 8px; width: 100%; box-sizing: border-box;" placeholder="输入路线名称..." />
+            <div class="save-route-body">
+              <div class="form-row">
+                <label class="form-lbl">路线名称:</label>
+                <input type="text" id="save-route-name-input" class="form-control" placeholder="输入路线名称..." />
               </div>
-              <div class="point-meta-box" id="save-route-summary-box" style="margin-bottom: 8px; padding: 6px 8px; background: #f8fafc; border-radius: 6px; font-size: 11px; display: flex; justify-content: space-between;">
+              <div class="point-meta-box" id="save-route-summary-box">
                 <div class="meta-item">里程: <span id="save-route-dist-text">-- km</span></div>
                 <div class="meta-item">爬升: <b id="save-route-ascent-text" style="color: #16a34a;">+-- m</b></div>
               </div>
             </div>
-            <div class="card-footer" style="padding: 0; display: flex; justify-content: flex-end; gap: 6px;">
-              <button class="modal-btn secondary-sm" id="btn-cancel-save-route">取消</button>
-              <button class="modal-btn primary-sm" id="btn-confirm-save-route">确认保存</button>
+            <div class="save-route-footer">
+              <button class="modal-btn secondary" id="btn-cancel-save-route" type="button">取消</button>
+              <button class="modal-btn primary" id="btn-confirm-save-route" type="button">保存路线</button>
             </div>
           </div>
 
@@ -791,8 +786,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.8.8"></script>
-  <script src="app.js?v=1.8.8"></script>
+  <script src="location-camera.js?v=1.8.9"></script>
+  <script src="app.js?v=1.8.9"></script>
 </body>
 </html>
 

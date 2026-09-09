@@ -1,19 +1,24 @@
 const fs = require('fs');
 const assert = require('assert');
 
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception in test-v1.8.8:', err);
+  process.exit(1);
+});
+
 console.log('Running Outmap v1.8.8 GPU Performance & Downloader Optimization Tests...');
 
 // 1. Version consistency check
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-assert.strictEqual(pkg.version, '1.8.8', 'package.json version must be 1.8.8');
+assert(/^\d+\.\d+\.\d+$/.test(pkg.version), 'package.json version must be valid');
 
 const html = fs.readFileSync('src/index.html', 'utf8');
-assert(html.includes('style.css?v=1.8.8'), 'index.html must reference style.css?v=1.8.8');
-assert(html.includes('app.js?v=1.8.8'), 'index.html must reference app.js?v=1.8.8');
-assert(html.includes('id="brand-ver-badge-txt">v1.8.8</span>'), 'index.html brand badge must show v1.8.8');
+assert(html.includes(`style.css?v=${pkg.version}`), `index.html must reference style.css?v=${pkg.version}`);
+assert(html.includes(`app.js?v=${pkg.version}`), `index.html must reference app.js?v=${pkg.version}`);
+assert(html.includes(`id="brand-ver-badge-txt">v${pkg.version}</span>`), `index.html brand badge must show v${pkg.version}`);
 
 const appJs = fs.readFileSync('src/app.js', 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.8.8';"), "app.js must declare APP_VERSION = '1.8.8'");
+assert(appJs.includes(`const APP_VERSION = '${pkg.version}';`), `app.js must declare APP_VERSION = '${pkg.version}'`);
 
 // 2. CSS GPU optimization verification
 const css = fs.readFileSync('src/style.css', 'utf8');

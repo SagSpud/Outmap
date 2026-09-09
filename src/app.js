@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.8';
+const APP_VERSION = '1.8.9';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -887,7 +887,7 @@ async function initApplication() {
     ? { workers: 2, demCache: 512, tileCache: 512, prefetch: 0 }
     : isWebMode
       ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 1800, tileCache: 1800, prefetch: 1 }
-      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 3200, tileCache: 3200, prefetch: 1 };
+      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 3200, tileCache: 3200, prefetch: 2 };
   maplibregl.workerCount = mapPerformance.workers;
 
   // 初始化 DEM 高程数据源 (工作站满血模式：扩大高程网格缓存至 6000 片，反复缩放平移零延迟)
@@ -912,7 +912,7 @@ async function initApplication() {
     maxZoom: 17, // 限制最大缩放层级为 17 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
-    fadeDuration: 180, // 保留 MapLibre 原生符号淡入淡出，避免整数层级标签硬切闪烁
+    fadeDuration: 0, // 零延迟符号渲染，彻底消除快速连续滚轮缩放时的图层/注记频闪
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
     renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
@@ -5377,7 +5377,33 @@ function setupWaypointAndFavoritesSystem(map) {
   // 1. 收藏地点列表渲染
   
   // 右键修改收藏点图标（类型：景点/露营/水源/补给/停车/住宿/摄影/徒步）
-  const showChangeWaypointTypeMenu = (wp, x, y) => {
+  const showChangeWaypointTypeMenu = async (wp, x, y) => {
+    // 1. 桌面客户端优先使用操作系统原生上下文菜单 (Windows 11 Fluent 风格，零 DOM 开销)
+    if (window.electronAPI?.showWaypointTypeMenu) {
+      try {
+        const res = await window.electronAPI.showWaypointTypeMenu({
+          currentType: wp.type,
+          waypointName: wp.name
+        });
+        if (res && res.action === 'change-type' && res.newType && res.newType !== wp.type) {
+          wp.type = res.newType;
+          try {
+            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+          } catch (err) {}
+          renderWaypointMarkersOnMap();
+          renderFavoritesList();
+          if (typeof window.triggerRealtimeCloudSync === 'function') {
+            window.triggerRealtimeCloudSync('update_waypoint_type');
+          }
+          // 不弹出 toast，图标实时响应立即可见
+        }
+        return;
+      } catch (err) {
+        console.warn('Native waypoint type menu failed, falling back to Web DOM menu:', err);
+      }
+    }
+
+    // 2. 网页版或兜底原生 DOM 弹出菜单
     document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
     const menu = document.createElement('div');
     menu.className = 'fav-point-type-menu';
@@ -5430,7 +5456,7 @@ function setupWaypointAndFavoritesSystem(map) {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
         const newType = item.getAttribute('data-type');
-        if (newType) {
+        if (newType && newType !== wp.type) {
           wp.type = newType;
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
@@ -5440,8 +5466,7 @@ function setupWaypointAndFavoritesSystem(map) {
           if (typeof window.triggerRealtimeCloudSync === 'function') {
             window.triggerRealtimeCloudSync('update_waypoint_type');
           }
-          const matched = typeList.find(t => t.key === newType);
-          showToast(`已将“${wp.name}”类型修改为【${matched?.name || newType}】`);
+          // 不弹出 toast，图标实时响应立即可见
         }
         closeMenu();
       });
@@ -7914,12 +7939,14 @@ function setupOutdoorRouteSystem(map) {
   const btnCalcRoute = document.getElementById('btn-calc-route');
   const btnClearRoute = document.getElementById('btn-clear-route');
 
-  // 导出下拉与详情折叠按钮
-  const btnRouteExportTrigger = document.getElementById('btn-route-export-trigger');
-  const routeExportMenu = document.getElementById('route-export-menu');
-  const btnRouteDetailsToggle = document.getElementById('btn-route-details-toggle');
-  const btnSaveRoute = document.getElementById('btn-save-route');
+  // 操作按钮：规划、导入、导出、收藏、详情 ▾、清空
+  const btnRouteImportTrigger = document.getElementById('btn-route-import-trigger');
+  const routePanelImportInput = document.getElementById('route-panel-import-input');
   const btnExportGpx = document.getElementById('btn-export-gpx');
+  const btnSaveRoute = document.getElementById('btn-save-route') || document.getElementById('btn-save-route-trigger');
+  const btnSaveRouteTrigger = document.getElementById('btn-save-route-trigger') || btnSaveRoute;
+  const btnRouteDetailsToggle = document.getElementById('btn-route-details-toggle');
+  const routeExportMenu = document.getElementById('route-export-menu');
 
   const statsBox = document.getElementById('route-stats-box');
   const chartSection = document.getElementById('route-chart-section');
@@ -8206,22 +8233,68 @@ function setupOutdoorRouteSystem(map) {
     }
   };
 
-  btnRouteExportTrigger?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (!routeExportMenu) return;
-    const isShown = routeExportMenu.style.display !== 'none';
-    if (!isShown) {
-      const rect = btnRouteExportTrigger.getBoundingClientRect();
-      if (rect.top < 110) {
-        routeExportMenu.style.bottom = 'auto';
-        routeExportMenu.style.top = 'calc(100% + 5px)';
-      } else {
-        routeExportMenu.style.bottom = 'calc(100% + 5px)';
-        routeExportMenu.style.top = 'auto';
+  // 2. 独立顶级「导入」路线按钮 (与收藏夹导入体验一致，优先系统原生文件选择器)
+  const handleRouteTrackFile = (text, filename) => {
+    const trackData = parseTrackFile(text, filename);
+    const hasTrack = trackData && trackData.coords && trackData.coords.length >= 2;
+    const hasWaypoints = trackData && trackData.waypoints && trackData.waypoints.length > 0;
+
+    if (!hasTrack && !hasWaypoints) {
+      alert('未能解析到有效的路线轨迹或点位，请确认文件为标准的 GPX / KML / GeoJSON / TCX 格式！');
+      return;
+    }
+
+    if (!hasTrack && hasWaypoints) {
+      importWaypointsIntoFavorites(trackData.waypoints, filename, map);
+      return;
+    }
+
+    displayImportedTrack(map, trackData);
+    showToast(`已成功导入路线: ${filename}`);
+
+    if (hasWaypoints && trackData.waypoints.length > 0) {
+      setTimeout(() => {
+        if (confirm(`检测到该文件还包含 ${trackData.waypoints.length} 个途经点位，是否同时导入到【我的收藏 · 收藏地点】？`)) {
+          importWaypointsIntoFavorites(trackData.waypoints, filename, map);
+        }
+      }, 450);
+    }
+  };
+
+  btnRouteImportTrigger?.addEventListener('click', async () => {
+    closeRouteExportMenu();
+    if (window.electronAPI?.openFileDialog) {
+      try {
+        const res = await window.electronAPI.openFileDialog({
+          title: '选择路线轨迹文件',
+          filters: [
+            { name: '路线轨迹文件 (*.gpx;*.kml;*.geojson;*.json;*.tcx)', extensions: ['gpx', 'kml', 'geojson', 'json', 'tcx'] },
+            { name: 'All Files (*.*)', extensions: ['*'] }
+          ]
+        });
+        if (res && res.success && res.content) {
+          handleRouteTrackFile(res.content, res.filename);
+        }
+      } catch (err) {
+        alert(`打开路线文件失败: ${err.message}`);
       }
-      showElement(routeExportMenu, 'flex');
-    } else {
-      closeRouteExportMenu();
+      return;
+    }
+
+    if (routePanelImportInput) {
+      routePanelImportInput.value = '';
+      routePanelImportInput.click();
+    }
+  });
+
+  routePanelImportInput?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      handleRouteTrackFile(text, file.name);
+    } catch (err) {
+      alert(`读取路线文件失败: ${err.message}`);
     }
   });
 
@@ -8361,15 +8434,22 @@ function setupOutdoorRouteSystem(map) {
   const saveRouteDistText = document.getElementById('save-route-dist-text');
   const saveRouteAscentText = document.getElementById('save-route-ascent-text');
 
-  // 点击【💾 存路线】
-  btnSaveRoute?.addEventListener('click', () => {
+  // 点击【收藏】路线按钮 (在下方顺滑展开/收起保存路线卡片)
+  btnSaveRouteTrigger?.addEventListener('click', () => {
     closeRouteExportMenu();
-    if (!routeStartCoord || !routeEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
-      alert('请先在地图上设定起点和终点，生成路线后再保存！');
+    const isSaveModalOpen = saveRouteModal && saveRouteModal.style.display !== 'none' && !saveRouteModal.classList.contains('panel-closing');
+    if (isSaveModalOpen) {
+      closeSaveModal();
+      return;
+    }
+    const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
+    const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
+    if (!routeStartCoord || !effectiveEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
+      alert('请先在地图上设定起点和终点（或途径点），生成路线后再保存！');
       return;
     }
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
-    const defaultName = `${routeStartName || '起点'} 至 ${routeEndName || '终点'} (${modeNames[activeRouteMode] || '户外'})`;
+    const defaultName = `${routeStartName || '起点'} 至 ${effectiveEndName || '终点'} (${modeNames[activeRouteMode] || '户外'})`;
     if (saveRouteNameInput) saveRouteNameInput.value = defaultName;
     if (saveRouteDistText && currentRouteMetrics) {
       saveRouteDistText.innerText = `${currentRouteMetrics.totalDistKm.toFixed(1)} km`;
@@ -8437,7 +8517,7 @@ function setupOutdoorRouteSystem(map) {
     const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
     const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
     if (!routeStartCoord || !effectiveEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
-      alert('请先设定起点和终点（或途径点）并生成路线后再导出 GPX！');
+      alert('请先设定起点和终点（或途径点）并生成路线后再导出！');
       return;
     }
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
@@ -8627,7 +8707,7 @@ function exportRouteToGpx(routeData, map) {
   }, 100);
 }
 
-// 调出保存的路线并在 3D 地图上完美复原
+// 调出保存的路线并在 3D 地图上完美复原 (零重复网络请求，零相机飞掠掉帧)
 function loadSavedRoute(routeId, map) {
   const route = savedRoutes.find(r => r.id === routeId);
   if (!route) return;
@@ -8658,6 +8738,14 @@ function loadSavedRoute(routeId, map) {
     setRouteEndPoint(map, route.end.coords, route.end.name || '终点');
   }
 
+  // 关键：彻底取消因设置起点/途径点/终点而排队的后台自动重新算路定时器，
+  // 避免在 1400ms fitBounds 相机飞掠期间发起 OSRM 网络请求与图层重绘导致掉帧卡顿！
+  clearTimeout(routePlanTimer);
+  routePlanTimer = null;
+  currentRouteAbortController?.abort();
+  currentRouteAbortController = null;
+  ++currentRouteRequestId;
+
   // 还原 3D 轨迹线与高程剖面
   if (route.pathCoords && route.pathCoords.length > 0) {
     currentPlannedRouteCoords = route.pathCoords;
@@ -8665,6 +8753,10 @@ function loadSavedRoute(routeId, map) {
     const m = route.metrics || {};
     updateProfileAndMetrics(map, route.pathCoords, m.distKm, null, true, true);
   }
+
+  // 再次确保不被后续微任务误触发
+  clearTimeout(routePlanTimer);
+  routePlanTimer = null;
 
   // 关闭其余右下角抽屉，展开路线规划面板
   closeConflictingBottomPanels('route-panel');

@@ -136,8 +136,8 @@ app.whenReady().then(async () => {
       const btnExportGpx = document.getElementById('btn-export-gpx');
       const layersPopover = document.getElementById('layers-popover');
       const btnFabLayers = document.getElementById('btn-fab-layers');
-      const btnFabImport = document.getElementById('btn-fab-import');
-      const trackInput = document.getElementById('track-file-import-input');
+      const btnFabImport = document.getElementById('btn-fab-import') || document.getElementById('btn-route-import-trigger');
+      const trackInput = document.getElementById('track-file-import-input') || document.getElementById('route-panel-import-input');
       const cacheStat = document.getElementById('titlebar-cache-stat');
 
       // 光标测试
