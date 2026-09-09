@@ -134,13 +134,12 @@ app.whenReady().then(async () => {
     document.getElementById('btn-clear-route').click();
     await sleep(240);
     window.setRouteStartPoint(m, [118.3564, 35.1047], '临沂市', 11.5);
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 60; i++) {
       window.addViaPoint(m, [117 - i * 0.35, 35.2 + (i % 4) * 0.18], '途经点 ' + (i + 1), 12);
     }
     window.setRouteEndPoint(m, [106.2309, 38.4872], '银川市', 11.5);
-    await sleep(80);
+    for (let i = 0; i < 20 && state.active !== 0; i++) await sleep(20);
     state.calls = [];
-    state.active = 0;
     state.maxActive = 0;
     window.autoPlanMultiPointRoute(m);
     await sleep(500);
@@ -149,13 +148,16 @@ app.whenReady().then(async () => {
     const sourceData = source?._data || source?.serialize?.().data;
     const mergedPointCount = sourceData?.geometry?.coordinates?.length || 0;
     const manyDistance = document.getElementById('stat-route-dist').innerText;
+    const layerIds = m.getStyle().layers.map(layer => layer.id);
+    const routeAboveRoads = layerIds.indexOf('outdoor-route-casing') > layerIds.indexOf('osm-highway-core');
+    const routeBelowLabels = layerIds.indexOf('outdoor-route-line') < layerIds.indexOf('osm-road-shields');
 
     window.fetch = originalFetch;
     window.queryLocationCandidates = originalQuery;
     window.OutmapLocationCamera.fly = originalFly;
     return { startBounds, endBounds, viaBounds, autoDistance, autoProfiles, modeProfiles,
       manyCalls, maxActive: state.maxActive, aborts: state.aborts, mergedPointCount, manyDistance, longGeometryCount,
-      routePanelVisible: getComputedStyle(routePanel).display !== 'none' };
+      routeAboveRoads, routeBelowLabels, routePanelVisible: getComputedStyle(routePanel).display !== 'none' };
   })()`);
 
   console.log(JSON.stringify(result, null, 2));
@@ -168,11 +170,13 @@ app.whenReady().then(async () => {
   assert(result.longGeometryCount > 1 && result.longGeometryCount <= 6000, 'Long mobile route geometry must be capped at 6,000 points');
   assert(result.modeProfiles.includes('bike'), 'Cycling must use its dedicated profile');
   assert(result.modeProfiles.includes('foot'), 'Walking must use its dedicated profile');
-  assert(result.manyCalls.length === 4, '24 points must be split into four continuous chunks');
+  assert(result.manyCalls.length === 9, '62 points must be split into nine continuous chunks');
   assert(result.manyCalls.every(call => call.pointCount >= 2 && call.pointCount <= 8), 'Every route chunk must contain 2-8 points');
   assert(result.maxActive <= 3, 'Many-waypoint routing concurrency must be bounded at three');
-  assert(result.mergedPointCount === 24, 'All 24 ordered points must survive chunk merging');
+  assert(result.mergedPointCount === 62, 'All 62 ordered points must survive chunk merging');
   assert(!result.manyDistance.includes('导引'), 'Successful many-waypoint route must remain a road route');
+  assert(result.routeAboveRoads, 'Route ribbon must render above highway surfaces');
+  assert(result.routeBelowLabels, 'Route ribbon must render below road names and shields');
   assert(result.aborts > 0, 'Superseded automatic route requests must be cancelled');
   assert(result.routePanelVisible, 'Route panel must remain usable after planning');
   clearTimeout(watchdog);

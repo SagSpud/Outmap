@@ -5572,14 +5572,19 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
 let currentRouteRequestId = 0;
 let currentRouteAbortController = null;
 
-// 寻找第一个文本/图标标注图层 (symbol 类型)，将路线置于标注文字之下，保证路名与地名清爽可见
+// Route must sit above every road surface but below road shields/names.
+// The former "first symbol" anchor was a water label placed before roads,
+// causing later yellow highway layers to paint over the green route.
 function findFirstRoadLabelLayerId(map) {
   try {
     const layers = map.getStyle()?.layers;
     if (!layers) return undefined;
+    for (const preferredId of ['osm-road-shields', 'osm-road-names']) {
+      if (layers.some(layer => layer.id === preferredId)) return preferredId;
+    }
     for (const layer of layers) {
       if (layer.id.startsWith('outdoor-route-') || layer.id.startsWith('imported-track-')) continue;
-      if (layer.type === 'symbol') {
+      if (layer.type === 'symbol' && layer.layout?.['symbol-placement'] === 'line') {
         return layer.id;
       }
     }
@@ -5616,7 +5621,7 @@ function renderRouteGeometry(map, pathCoords) {
     if (map.getLayer('outdoor-route-inner-core')) map.removeLayer('outdoor-route-inner-core');
     if (map.getLayer('outdoor-route-glow')) map.removeLayer('outdoor-route-glow');
 
-    // 1. Apple Maps 原生纯实心深绿描边轮廓 (100% 不透明度实心，线接/线头全圆角，杜绝重合模糊)
+    // High-contrast navigation ribbon above road paint, below road labels.
     map.addLayer({
       id: 'outdoor-route-casing',
       type: 'line',
@@ -5626,13 +5631,13 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#166534',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.2, 10, 8.8, 14, 12.2],
+        'line-color': '#0f7135',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4, 18, 18.0],
         'line-opacity': 1.0
       }
     }, beforeLabelId);
 
-    // 2. Apple Maps 标志性原生高饱和纯实心翠绿路线丝带 (零透明度、零半透明外晕、零内嵌白条)
+    // Bright Apple-style green core; labels remain readable above it.
     map.addLayer({
       id: 'outdoor-route-line',
       type: 'line',
@@ -5642,8 +5647,8 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#34c759',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.2, 10, 6.2, 14, 9.0],
+        'line-color': '#32d15f',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8, 18, 14.0],
         'line-opacity': 1.0
       }
     }, beforeLabelId);
