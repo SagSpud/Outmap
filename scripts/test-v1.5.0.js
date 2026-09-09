@@ -40,6 +40,8 @@ assert(mainSrc.includes("profile === 'foot' ? 'routed-foot'"), 'Desktop proxy mu
 assert(mainSrc.includes("createHash('sha256').update(`${profile}:${coordStr}`)"), 'Many-waypoint cache keys must hash the full route');
 assert(htmlSrc.includes('<span class="ctx-text">收藏此地点</span>'), 'Context menu action must be named 收藏此地点');
 assert(htmlSrc.includes('<span class="ctx-text">设为途径点</span>'), 'Context menu action must be named 设为途径点');
+assert(htmlSrc.includes('<span class="ctx-text">设为路线起点</span>'), 'Context menu action must be named 设为路线起点');
+assert(htmlSrc.includes('<span class="ctx-text">设为路线终点</span>'), 'Context menu action must be named 设为路线终点');
 
 // 离线统计与卫星图层检查 (针对 88万 / 9G vs 20+G Bug 的修复断言)
 assert(workerSrc.includes("dirName: 'sat'"), 'offline-worker.cjs must scan sat layer');

@@ -154,9 +154,9 @@ app.whenReady().then(async () => {
     const btnVia = document.getElementById('ctx-btn-route-via');
     const btnStart = document.getElementById('ctx-btn-route-start');
     const btnEnd = document.getElementById('ctx-btn-route-end');
-    assertTest('右键途径点文本', btnVia && btnVia.innerText.includes('途径点'));
-    assertTest('右键起点文本', btnStart && btnStart.innerText.includes('设为起点'));
-    assertTest('右键终点文本', btnEnd && btnEnd.innerText.includes('设为终点'));
+    assertTest('右键途径点文本', btnVia && btnVia.innerText.includes('设为途径点'));
+    assertTest('右键起点文本', btnStart && btnStart.innerText.includes('设为路线起点'));
+    assertTest('右键终点文本', btnEnd && btnEnd.innerText.includes('设为路线终点'));
 
     return results;
   })()`);
