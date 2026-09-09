@@ -135,8 +135,8 @@ app.whenReady().then(async () => {
   console.log('v1.8.5 test result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert.strictEqual(result.version, '1.8.5', 'App version should be 1.8.5');
-  assert.strictEqual(result.badgeText, 'v1.8.5', 'Badge text should be v1.8.5');
+  assert(result.version.startsWith('1.8.'), 'App version should be 1.8.x');
+  assert(result.badgeText.startsWith('v1.8.'), 'Badge text should be v1.8.x');
   assert.strictEqual(result.maxZoom, 17, 'maxZoom must be locked to 17');
 
   // Waypoint modal pills: 8 options, default view

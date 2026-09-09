@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.8.5" />
+  <link rel="stylesheet" href="style.css?v=1.8.6" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.5</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.6</span>
                 </div>
               </div>
             </div>
@@ -458,6 +458,8 @@
             <span>我的收藏</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="card-action-btn" id="btn-fav-drawer-import-pts" title="导入具体点位文件 (GPX / KML / GeoJSON / JSON)" style="display: inline-flex; align-items: center; justify-content: center; width: 58px; min-width: 58px; box-sizing: border-box; text-align: center; padding: 4px 0; font-size: 12px; font-weight: 600; color: #166534; background: rgba(22, 101, 52, 0.08); border: 1px solid rgba(22, 101, 52, 0.25); border-radius: 6px; cursor: pointer; transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;">导入</button>
+            <input type="file" id="waypoint-file-import-input" accept=".gpx,.kml,.geojson,.json" style="display: none;" />
             <button class="card-action-btn" id="btn-fav-drawer-sync" title="与云端双向同步收藏夹与路线" style="display: inline-flex; align-items: center; justify-content: center; width: 58px; min-width: 58px; box-sizing: border-box; text-align: center; padding: 4px 0; font-size: 12px; font-weight: 600; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.25); border-radius: 6px; cursor: pointer; transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;">同步</button>
             <button class="card-close" id="btn-close-favorites-drawer">✕</button>
           </div>
