@@ -530,7 +530,13 @@ function startLocalTileServer() {
               const cached = data && data.length > 20 ? JSON.parse(data) : null;
               // Older versions persisted straight-line emergency results as if
               // they were road routes. Ignore those so the next request can heal.
-              if (cached && cached.source !== 'local-engine') {
+              const cacheMeta = cached?.outmapRouteCache;
+              const isCurrentProfileCache = cacheMeta?.schema === 2 && cacheMeta.profile === profile;
+              // Legacy bike/foot cache files may contain geometry returned by
+              // the public car-only backup used before v1.6.5. Only legacy
+              // driving entries are safe to reuse; other profiles self-heal.
+              const isSafeLegacyDrivingCache = profile === 'driving' && cached?.source === 'road-engine';
+              if (cached && cached.source !== 'local-engine' && (isCurrentProfileCache || isSafeLegacyDrivingCache)) {
                 res.writeHead(200, {
                   'Content-Type': 'application/json',
                   'Cache-Control': 'private, max-age=3600',
@@ -539,6 +545,9 @@ function startLocalTileServer() {
                 res.end(data);
                 return;
               }
+              if (cached?.source === 'road-engine' && profile !== 'driving' && !isCurrentProfileCache) {
+                fs.promises.rm(localRoutePath, { force: true }).catch(() => {});
+              }
             } catch (e) {}
           }
 
@@ -546,8 +555,10 @@ function startLocalTileServer() {
           const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
           const mirrorUrls = [
             `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`,
-            `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`
-          ];
+            profile === 'driving'
+              ? `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`
+              : null
+          ].filter(Boolean);
 
           for (const osrmUrl of mirrorUrls) {
             try {
@@ -561,10 +572,21 @@ function startLocalTileServer() {
                 const json = await osrmResp.json();
                 if (json.code === 'Ok' && json.routes && json.routes.length > 0 && json.routes[0].distance > 0) {
                   json.source = 'road-engine';
+                  json.outmapRouteCache = {
+                    schema: 2,
+                    profile,
+                    provider: osrmUrl.includes('routing.openstreetmap.de') ? routedService : 'project-osrm',
+                    createdAt: Date.now()
+                  };
                   const text = JSON.stringify(json);
+                  let tempRoutePath = null;
                   try {
-                    await fs.promises.writeFile(localRoutePath, text, 'utf8');
-                  } catch (e) {}
+                    tempRoutePath = `${localRoutePath}.${process.pid}.${Date.now()}.tmp`;
+                    await fs.promises.writeFile(tempRoutePath, text, 'utf8');
+                    await fs.promises.rename(tempRoutePath, localRoutePath);
+                  } catch (e) {
+                    if (tempRoutePath) fs.promises.rm(tempRoutePath, { force: true }).catch(() => {});
+                  }
                   res.writeHead(200, {
                     'Content-Type': 'application/json',
                     'Cache-Control': 'private, max-age=3600',
@@ -617,7 +639,8 @@ function startLocalTileServer() {
                 distance: Math.round(totalDistMeters),
                 duration: durationSec
               }],
-              source: 'local-engine'
+              source: 'local-engine',
+              profile
             });
 
             res.writeHead(200, {

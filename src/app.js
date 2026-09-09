@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.4';
+const APP_VERSION = '1.6.5';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -71,46 +71,64 @@ function copyTextToClipboard(text) {
 window.copyTextToClipboard = copyTextToClipboard;
 
 // 现代流体平滑退出动效工具函数：杜绝瞬间切断的生硬视觉体验
-function smoothClosePanel(el, onClosed) {
+const pendingElementCloses = new WeakMap();
+
+function cancelPendingElementClose(el) {
+  if (!el) return;
+  const pending = pendingElementCloses.get(el);
+  if (pending) {
+    clearTimeout(pending.timer);
+    el.removeEventListener('animationend', pending.onAnimationEnd);
+    pendingElementCloses.delete(el);
+  }
+  el.classList.remove('panel-closing', 'modal-overlay-closing', 'popover-closing', 'ctx-closing');
+}
+
+function showElement(el, display = 'block') {
+  if (!el) return;
+  // Cancel ownership of any delayed close before reopening. Otherwise a
+  // close->open within 160 ms can be hidden by the stale close callback.
+  cancelPendingElementClose(el);
+  el.style.display = display;
+}
+
+function smoothCloseElement(el, closingClass, durationMs, onClosed) {
   if (!el || el.style.display === 'none') {
     if (typeof onClosed === 'function') onClosed();
     return;
   }
-  if (el.classList.contains('panel-closing')) return;
-  el.classList.add('panel-closing');
-  setTimeout(() => {
+  if (pendingElementCloses.has(el)) return;
+
+  const finish = () => {
+    const pending = pendingElementCloses.get(el);
+    if (!pending || pending.finish !== finish) return;
+    clearTimeout(pending.timer);
+    el.removeEventListener('animationend', pending.onAnimationEnd);
+    pendingElementCloses.delete(el);
     el.style.display = 'none';
-    el.classList.remove('panel-closing');
+    el.classList.remove(closingClass);
     if (typeof onClosed === 'function') onClosed();
-  }, 180);
+  };
+  const onAnimationEnd = event => {
+    if (event.target === el) finish();
+  };
+  el.classList.add(closingClass);
+  el.addEventListener('animationend', onAnimationEnd);
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const timer = setTimeout(finish, reduceMotion ? 0 : durationMs + 80);
+  pendingElementCloses.set(el, { timer, finish, onAnimationEnd });
+}
+
+function smoothClosePanel(el, onClosed) {
+  smoothCloseElement(el, 'panel-closing', 180, onClosed);
 }
 
 function smoothCloseModal(overlayEl, onClosed) {
-  if (!overlayEl || overlayEl.style.display === 'none') {
-    if (typeof onClosed === 'function') onClosed();
-    return;
-  }
-  if (overlayEl.classList.contains('modal-overlay-closing')) return;
-  overlayEl.classList.add('modal-overlay-closing');
-  setTimeout(() => {
-    overlayEl.style.display = 'none';
-    overlayEl.classList.remove('modal-overlay-closing');
-    if (typeof onClosed === 'function') onClosed();
-  }, 180);
+  smoothCloseElement(overlayEl, 'modal-overlay-closing', 180, onClosed);
 }
 
 function smoothClosePopover(el, onClosed) {
-  if (!el || el.style.display === 'none') {
-    if (typeof onClosed === 'function') onClosed();
-    return;
-  }
-  if (el.classList.contains('popover-closing')) return;
-  el.classList.add('popover-closing');
-  setTimeout(() => {
-    el.style.display = 'none';
-    el.classList.remove('popover-closing');
-    if (typeof onClosed === 'function') onClosed();
-  }, 160);
+  smoothCloseElement(el, 'popover-closing', 160, onClosed);
 }
 
 function smoothCloseContextMenu(onClosed) {
@@ -119,14 +137,9 @@ function smoothCloseContextMenu(onClosed) {
     if (typeof onClosed === 'function') onClosed();
     return;
   }
-  if (ctxMenu.classList.contains('ctx-closing')) return;
+  if (pendingElementCloses.has(ctxMenu)) return;
   ctxMenu.classList.remove('ctx-opening');
-  ctxMenu.classList.add('ctx-closing');
-  setTimeout(() => {
-    ctxMenu.style.display = 'none';
-    ctxMenu.classList.remove('ctx-closing');
-    if (typeof onClosed === 'function') onClosed();
-  }, 160);
+  smoothCloseElement(ctxMenu, 'ctx-closing', 160, onClosed);
 }
 
 // Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
@@ -145,7 +158,7 @@ function showFluentAlert(message, title = 'Outmap 提示') {
 
   if (titleEl) titleEl.innerText = title;
   msgEl.innerText = message;
-  overlay.style.display = 'flex';
+  showElement(overlay, 'flex');
 
   const closeAlert = () => {
     smoothCloseModal(overlay);
@@ -853,6 +866,8 @@ async function initApplication() {
   // 鼠标按压拖拽地图时实时切换为紧握拳头手型，松手恢复平展打开手掌 (0 毫秒延迟，无缝跟随)
   map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });
   map.on('dragend', () => { document.body.classList.remove('map-is-dragging'); });
+  map.on('movestart', () => { document.body.classList.add('map-is-moving'); });
+  map.on('moveend', () => { document.body.classList.remove('map-is-moving'); });
 
   map.on('load', () => {
     // 3D 地形高度网格
@@ -2080,7 +2095,7 @@ function setupOfficeHeaderInteractions(map) {
     if (!sheet) return;
     const isHidden = sheet.style.display === 'none' || !sheet.classList.contains('active');
     if (isHidden) {
-      sheet.style.display = 'flex';
+      showElement(sheet, 'flex');
       sheet.classList.add('active');
       setExaggerationValue(currentExaggeration);
     } else {
@@ -2091,11 +2106,6 @@ function setupOfficeHeaderInteractions(map) {
   const sliderGroupEl = document.getElementById('header-slider-group') || document.querySelector('.office-slider-group');
   if (sliderGroupEl) {
     sliderGroupEl.addEventListener('click', (e) => {
-      if (window.innerWidth <= 768) {
-        toggleMobileElevationSheet(e);
-      }
-    });
-    sliderGroupEl.addEventListener('touchend', (e) => {
       if (window.innerWidth <= 768) {
         toggleMobileElevationSheet(e);
       }
@@ -2117,7 +2127,6 @@ function setupOfficeHeaderInteractions(map) {
       setExaggerationValue(parseFloat(btn.dataset.val));
     };
     btn.addEventListener('click', handlePreset);
-    btn.addEventListener('touchend', handlePreset);
   });
 
   const handleCloseMobileEle = (e) => {
@@ -2128,7 +2137,6 @@ function setupOfficeHeaderInteractions(map) {
     closeMobileElevationSheet();
   };
   btnCloseMobileEle?.addEventListener('click', handleCloseMobileEle);
-  btnCloseMobileEle?.addEventListener('touchend', handleCloseMobileEle);
 
   // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (全量流体平滑动效退出)
   map.on('click', () => {
@@ -2608,7 +2616,7 @@ function setupOfficeHeaderInteractions(map) {
           if (provPopover) smoothClosePopover(provPopover);
           document.getElementById('btn-prov-dropdown-trigger')?.classList.remove('active');
         }
-        searchPopover.style.display = 'block';
+        showElement(searchPopover, 'block');
         if (sInput) {
           sInput.focus();
           sInput.select();
@@ -2672,7 +2680,7 @@ function setupOfficeHeaderInteractions(map) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       if (searchPopover) {
-        searchPopover.style.display = 'block';
+        showElement(searchPopover, 'block');
         if (sInput) {
           sInput.focus();
           sInput.select();
@@ -2911,7 +2919,7 @@ function setupProvinceDropdown(map) {
         smoothClosePopover(searchPopover);
       }
       renderListContent(); // 重新检查是否有新下载完成的省份并刷新勾选
-      provPopover.style.display = 'flex';
+      showElement(provPopover, 'flex');
       provTriggerBtn.classList.add('active');
     } else {
       closeProvincePopover();
@@ -3102,7 +3110,7 @@ function setupPyramidModal(map) {
       console.warn('[Offline Modal] updateEstimation error:', e);
     }
 
-    modal.style.display = 'flex';
+    showElement(modal, 'flex');
   };
 
 
@@ -4206,7 +4214,7 @@ function setupCloudSync(map) {
       showStatus('已暂停');
     }
 
-    syncModal.style.display = 'flex';
+    showElement(syncModal, 'flex');
   });
 
   const closeSync = () => {
@@ -4535,54 +4543,46 @@ function setupStatusBar(map) {
     });
   });
 
-  let fc = 0;
-  let lt = performance.now();
-  let fpsFrame = 0;
-  function loop() {
-    if (document.hidden) {
-      fpsFrame = 0;
-      return;
-    }
-    fc++;
+  // Count actual map render events instead of running a permanent RAF loop.
+  // An idle map now lets browsers and phones sleep instead of waking the main
+  // thread 60/120 times a second merely to update a once-per-second label.
+  let renderedFrames = 0;
+  let fpsSampleStartedAt = performance.now();
+  let fpsTimer = null;
+  map.on('render', () => { renderedFrames++; });
+  const updateFps = () => {
     const now = performance.now();
-    if (now - lt >= 1000) {
-      const fps = Math.round((fc * 1000) / (now - lt));
-      const el = document.getElementById('status-fps');
-      if (el) el.innerText = `${fps} FPS`;
-      fc = 0;
-      lt = now;
-    }
-    fpsFrame = requestAnimationFrame(loop);
-  }
-  fpsFrame = requestAnimationFrame(loop);
+    const elapsed = Math.max(1, now - fpsSampleStartedAt);
+    const fps = document.hidden ? 0 : Math.round((renderedFrames * 1000) / elapsed);
+    const el = document.getElementById('status-fps');
+    if (el) el.innerText = `${fps} FPS`;
+    renderedFrames = 0;
+    fpsSampleStartedAt = now;
+  };
+  const startFpsSampling = () => {
+    if (!fpsTimer && !document.hidden) fpsTimer = setInterval(updateFps, 1000);
+  };
+  const stopFpsSampling = () => {
+    if (fpsTimer) clearInterval(fpsTimer);
+    fpsTimer = null;
+  };
+  startFpsSampling();
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && !fpsFrame) {
-      fc = 0;
-      lt = performance.now();
-      fpsFrame = requestAnimationFrame(loop);
-      if (mapInstance) mapInstance.triggerRepaint();
-    } else if (document.hidden && fpsFrame) {
-      cancelAnimationFrame(fpsFrame);
-      fpsFrame = 0;
-    }
+    renderedFrames = 0;
+    fpsSampleStartedAt = performance.now();
+    if (document.hidden) stopFpsSampling();
+    else startFpsSampling();
   });
 
   if (window.electronAPI && window.electronAPI.onPowerStateChange) {
     window.electronAPI.onPowerStateChange((info) => {
       if (info.mode === 'performance') {
-        if (!fpsFrame) {
-          fc = 0;
-          lt = performance.now();
-          fpsFrame = requestAnimationFrame(loop);
-        }
+        startFpsSampling();
         if (mapInstance) {
           mapInstance.triggerRepaint();
         }
       } else if (info.mode === 'saving') {
-        if (fpsFrame) {
-          cancelAnimationFrame(fpsFrame);
-          fpsFrame = 0;
-        }
+        stopFpsSampling();
       }
     });
   }
@@ -4608,8 +4608,9 @@ function closeConflictingBottomPanels(exceptId = null) {
     if (id !== exceptId) {
       const el = document.getElementById(id);
       if (el) {
+        cancelPendingElementClose(el);
         el.style.display = 'none';
-        el.classList.remove('panel-closing', 'modal-overlay-closing', 'popover-closing', 'active');
+        el.classList.remove('active');
       }
     }
   });
@@ -4747,7 +4748,7 @@ function setupWaypointAndFavoritesSystem(map) {
       wpNameInput.focus();
     }
     closeConflictingBottomPanels('waypoint-modal');
-    if (wpModal) wpModal.style.display = 'flex';
+    showElement(wpModal, 'flex');
   });
 
   // 4类地标类型胶囊单选
@@ -4780,7 +4781,7 @@ function setupWaypointAndFavoritesSystem(map) {
       wpNameInput.focus();
     }
     closeConflictingBottomPanels('waypoint-modal');
-    if (wpModal) wpModal.style.display = 'flex';
+    showElement(wpModal, 'flex');
   };
 
   btnCloseWp?.addEventListener('click', closeWpModal);
@@ -5042,7 +5043,7 @@ function setupWaypointAndFavoritesSystem(map) {
     const isHidden = favDrawer.style.display === 'none';
     if (isHidden) {
       closeConflictingBottomPanels('favorites-drawer');
-      favDrawer.style.display = 'flex';
+      showElement(favDrawer, 'flex');
       renderFolderTabs();
       renderFavoritesList();
       renderSavedRoutesList();
@@ -5075,10 +5076,50 @@ let pickingRoutePt = null; // 'start' | 'end' | 'via' | null
 let activeRouteMode = 'drive'; // 'drive' | 'cycle' | 'hike'
 let profileCursorMarker = null;
 let currentProfileData = [];
+let routePlanTimer = null;
+
+function scheduleRoutePlan(mapInstance, delayMs = 100) {
+  const map = mapInstance || currentOutdoorMap;
+  if (!map) return;
+  clearTimeout(routePlanTimer);
+  routePlanTimer = setTimeout(() => {
+    routePlanTimer = null;
+    autoPlanMultiPointRoute(map);
+  }, delayMs);
+}
 
 // 全局有向边拓扑路由缓存池 (Key: profile:lngA,latA->lngB,latB)
 const OUTMAP_LEG_CACHE = new Map();
 window.OUTMAP_LEG_CACHE = OUTMAP_LEG_CACHE;
+const MAX_ROUTE_LEG_CACHE_ENTRIES = 384;
+const MAX_ROUTE_LEG_CACHE_VERTICES = 240000;
+let routeLegCacheVertices = 0;
+
+function getCachedRouteLeg(key) {
+  const value = OUTMAP_LEG_CACHE.get(key);
+  if (!value) return null;
+  // Refresh insertion order to provide a small, deterministic LRU.
+  OUTMAP_LEG_CACHE.delete(key);
+  OUTMAP_LEG_CACHE.set(key, value);
+  return value;
+}
+
+function cacheRouteLeg(key, value) {
+  if (!key || !value?.coords?.length) return;
+  if (OUTMAP_LEG_CACHE.size === 0) routeLegCacheVertices = 0;
+  const previous = OUTMAP_LEG_CACHE.get(key);
+  if (previous?.coords?.length) routeLegCacheVertices -= previous.coords.length;
+  OUTMAP_LEG_CACHE.delete(key);
+  OUTMAP_LEG_CACHE.set(key, value);
+  routeLegCacheVertices += value.coords.length;
+  while (OUTMAP_LEG_CACHE.size > MAX_ROUTE_LEG_CACHE_ENTRIES || routeLegCacheVertices > MAX_ROUTE_LEG_CACHE_VERTICES) {
+    const oldestKey = OUTMAP_LEG_CACHE.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldest = OUTMAP_LEG_CACHE.get(oldestKey);
+    routeLegCacheVertices -= oldest?.coords?.length || 0;
+    OUTMAP_LEG_CACHE.delete(oldestKey);
+  }
+}
 
 function getLegCacheKey(profile, pA, pB) {
   const a0 = typeof pA[0] === 'number' ? pA[0].toFixed(5) : pA[0];
@@ -5252,7 +5293,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
             .addTo(map);
         }
         renderViaList(map);
-        autoPlanMultiPointRoute(map);
+        scheduleRoutePlan(map);
         syncRouteMarkersVisualState(map);
       }
     }
@@ -5333,7 +5374,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       floatingEl.appendChild(mapPickRow);
     }
 
-    floatingEl.style.display = 'flex';
+    showElement(floatingEl, 'flex');
     positionRouteFloatingDropdown(inputEl);
   };
 
@@ -5350,7 +5391,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         routeStartCoord = null;
         routeStartName = '';
         if (routeStartMarker) { routeStartMarker.remove(); routeStartMarker = null; }
-        if (map) autoPlanMultiPointRoute(map);
+        if (map) scheduleRoutePlan(map);
       } else if (pointType === 'end') {
         routeEndCoord = null;
         routeEndName = '';
@@ -5358,7 +5399,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         if (map) {
           syncRouteMarkersVisualState(map);
           renderViaList(map);
-          autoPlanMultiPointRoute(map);
+          scheduleRoutePlan(map);
         }
       } else if (pointType === 'via' && viaIndex !== null && routeViaPoints[viaIndex]) {
         routeViaPoints[viaIndex].coords = null;
@@ -5369,7 +5410,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         }
         if (map) {
           syncRouteMarkersVisualState(map);
-          autoPlanMultiPointRoute(map);
+          scheduleRoutePlan(map);
         }
       }
       return;
@@ -5583,11 +5624,13 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
 
   // 6. 重新渲染列表与即时规划
   renderViaList(m);
-  if (m) autoPlanMultiPointRoute(m);
+  if (m) scheduleRoutePlan(m);
 }
 window.reorderRouteStops = reorderRouteStops;
 
 // 物理拖拽引擎与自适应边缘平滑滚屏 (Auto-Scroller)
+let routeDragGeneration = 0;
+let activeRouteDragSession = null;
 function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallback) {
   if (!handleEl || !rowEl) return;
   handleEl.style.touchAction = 'none';
@@ -5598,12 +5641,19 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
 
   const onPointerDown = (e) => {
     if (e.button !== 0) return;
-    if (rowEl.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+    if (activeRouteDragSession) {
+      activeRouteDragSession.cancel();
+      activeRouteDragSession = null;
+    }
+    if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur();
     e.preventDefault();
     e.stopPropagation();
 
     const startY = e.clientY;
+    const dragGeneration = ++routeDragGeneration;
+    const pointerId = e.pointerId;
     let isDragging = false;
+    let settled = false;
     let currentIndex = fromIndex;
     let autoScrollRaf = null;
     let pendingRaf = null;
@@ -5618,9 +5668,9 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       const vias = Array.from(document.querySelectorAll('#route-via-list .route-via-item'));
       const end = document.getElementById('route-end-row');
       const rows = [];
-      if (start) rows.push(start);
+      if (start && (routeStartCoord || routeStartName)) rows.push(start);
       vias.forEach(v => rows.push(v));
-      if (end) rows.push(end);
+      if (end && (routeEndCoord || routeEndName)) rows.push(end);
       return rows;
     };
 
@@ -5630,7 +5680,9 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       return;
     }
 
-    let step = 36;
+    let itemRects = [];
+
+    try { handleEl.setPointerCapture(pointerId); } catch (err) {}
 
     const startAutoScroll = () => {
       const stepScroll = () => {
@@ -5665,14 +5717,28 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
         pendingRaf = null;
         if (!isDragging) return;
 
+        if (dragGeneration !== routeDragGeneration || !rowEl.isConnected) return;
         const currentScroll = scrollBox ? scrollBox.scrollTop : 0;
         const scrollOffset = currentScroll - startScrollTop;
-        const deltaY = (latestClientY - startY) + scrollOffset;
+        const rawDeltaY = (latestClientY - startY) + scrollOffset;
+        const origin = itemRects[fromIndex];
+        if (!origin) return;
+        const minDelta = itemRects[0].top - origin.top;
+        const maxDelta = itemRects[itemRects.length - 1].top - origin.top;
+        const deltaY = Math.max(minDelta, Math.min(maxDelta, rawDeltaY));
 
         rowEl.style.transform = `translate3d(0, ${deltaY}px, 0)`;
 
-        const floatIndex = fromIndex + deltaY / step;
-        const targetIndex = Math.max(0, Math.min(allRows.length - 1, Math.round(floatIndex)));
+        const draggedCenter = origin.top + origin.height / 2 + deltaY;
+        let targetIndex = 0;
+        let nearestDistance = Infinity;
+        itemRects.forEach((rect, index) => {
+          const distance = Math.abs((rect.top + rect.height / 2) - draggedCenter);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            targetIndex = index;
+          }
+        });
 
         if (targetIndex !== currentIndex) {
           currentIndex = targetIndex;
@@ -5682,13 +5748,15 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
           if (i === fromIndex) return;
           if (fromIndex < currentIndex) {
             if (i > fromIndex && i <= currentIndex) {
-              r.style.transform = `translate3d(0, -${step}px, 0)`;
+              const offset = itemRects[i - 1].top - itemRects[i].top;
+              r.style.transform = `translate3d(0, ${offset}px, 0)`;
             } else {
               r.style.transform = 'translate3d(0, 0, 0)';
             }
           } else if (fromIndex > currentIndex) {
             if (i >= currentIndex && i < fromIndex) {
-              r.style.transform = `translate3d(0, ${step}px, 0)`;
+              const offset = itemRects[i + 1].top - itemRects[i].top;
+              r.style.transform = `translate3d(0, ${offset}px, 0)`;
             } else {
               r.style.transform = 'translate3d(0, 0, 0)';
             }
@@ -5708,16 +5776,11 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
         isDragging = true;
         scrollBox?.classList.add('is-route-reordering');
         rowEl.classList.add('is-dragging');
-        try { handleEl.setPointerCapture(ev.pointerId); } catch (err) {}
-
         allRows = getActiveStopRows();
+        if (fromIndex < 0 || fromIndex >= allRows.length) return;
         scrollBoxRect = scrollBox ? scrollBox.getBoundingClientRect() : null;
         startScrollTop = scrollBox ? scrollBox.scrollTop : 0;
-
-        const itemRects = allRows.map(r => r.getBoundingClientRect());
-        const h = itemRects[fromIndex]?.height || itemRects[0]?.height || 34;
-        const gap = itemRects.length > 1 ? Math.max(0, itemRects[1].top - itemRects[0].bottom) : 5;
-        step = h + gap;
+        itemRects = allRows.map(r => r.getBoundingClientRect());
 
         startAutoScroll();
       }
@@ -5725,11 +5788,12 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       scheduleUpdate();
     };
 
-    const onPointerUp = (ev) => {
+    const cleanup = () => {
       handleEl.removeEventListener('pointermove', onPointerMove);
       handleEl.removeEventListener('pointerup', onPointerUp);
       handleEl.removeEventListener('pointercancel', onPointerUp);
-      try { handleEl.releasePointerCapture(ev.pointerId); } catch (err) {}
+      window.removeEventListener('blur', onWindowBlur);
+      try { handleEl.releasePointerCapture(pointerId); } catch (err) {}
 
       if (autoScrollRaf) {
         cancelAnimationFrame(autoScrollRaf);
@@ -5740,34 +5804,72 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
         pendingRaf = null;
       }
 
+    };
+
+    const resetRows = () => {
+      rowEl.classList.remove('is-dragging', 'is-settling');
+      scrollBox?.classList.remove('is-route-reordering');
+      allRows.forEach(r => {
+        r.style.transform = '';
+        r.style.transition = '';
+      });
+    };
+
+    const onPointerUp = (ev) => {
+      if (settled || ev.pointerId !== pointerId) return;
+      settled = true;
+      cleanup();
+
       if (!isDragging) {
+        if (activeRouteDragSession?.generation === dragGeneration) activeRouteDragSession = null;
         if (typeof onClickFallback === 'function') {
           onClickFallback();
         }
         return;
       }
 
-      const finalOffset = (currentIndex - fromIndex) * step;
+      if (ev.type === 'pointercancel' || dragGeneration !== routeDragGeneration) {
+        resetRows();
+        if (activeRouteDragSession?.generation === dragGeneration) activeRouteDragSession = null;
+        return;
+      }
+
+      const finalOffset = (itemRects[currentIndex]?.top || itemRects[fromIndex].top) - itemRects[fromIndex].top;
+      rowEl.classList.remove('is-dragging');
+      rowEl.classList.add('is-settling');
       rowEl.style.transition = 'transform 0.16s cubic-bezier(0.2, 0, 0, 1)';
       rowEl.style.transform = `translate3d(0, ${finalOffset}px, 0)`;
 
       setTimeout(() => {
-        rowEl.classList.remove('is-dragging');
-        scrollBox?.classList.remove('is-route-reordering');
-        allRows.forEach(r => {
-          r.style.transform = '';
-          r.style.transition = '';
-        });
-
+        if (dragGeneration !== routeDragGeneration || !rowEl.isConnected) {
+          resetRows();
+          return;
+        }
+        resetRows();
         if (currentIndex !== fromIndex) {
           reorderRouteStops(fromIndex, currentIndex, mapInstance);
         }
+        if (activeRouteDragSession?.generation === dragGeneration) activeRouteDragSession = null;
       }, 160);
+    };
+
+    const onWindowBlur = () => {
+      onPointerUp({ pointerId, type: 'pointercancel' });
+    };
+
+    activeRouteDragSession = {
+      generation: dragGeneration,
+      cancel: () => {
+        settled = true;
+        cleanup();
+        resetRows();
+      }
     };
 
     handleEl.addEventListener('pointermove', onPointerMove);
     handleEl.addEventListener('pointerup', onPointerUp);
     handleEl.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('blur', onWindowBlur, { once: true });
   };
 
   handleEl._stopDragHandler = onPointerDown;
@@ -5787,23 +5889,34 @@ function bindStartAndEndRowsDrag(mapInstance) {
                      routeViaPoints.length +
                      (routeEndCoord || routeEndName ? 1 : 0);
 
-  if (startRow && btnSwapStart) {
+  if (startRow && btnSwapStart && (routeStartCoord || routeStartName)) {
     bindStopRowDrag(btnSwapStart, startRow, 0, m, () => {
       const fn = getSwapFn();
       if (fn) fn();
     });
+  } else if (btnSwapStart?._stopDragHandler) {
+    btnSwapStart.removeEventListener('pointerdown', btnSwapStart._stopDragHandler);
+    btnSwapStart._stopDragHandler = null;
   }
-  if (endRow && btnSwapEnd) {
+  if (endRow && btnSwapEnd && (routeEndCoord || routeEndName)) {
     const endIdx = totalStops > 0 ? totalStops - 1 : 1;
     bindStopRowDrag(btnSwapEnd, endRow, endIdx, m, () => {
       const fn = getSwapFn();
       if (fn) fn();
     });
+  } else if (btnSwapEnd?._stopDragHandler) {
+    btnSwapEnd.removeEventListener('pointerdown', btnSwapEnd._stopDragHandler);
+    btnSwapEnd._stopDragHandler = null;
   }
 }
 
 // 渲染途径点列表 (支持拼音/汉字回车搜索、地图定位、删除以及全站点拖拽排序)
 function renderViaList(mapInstance) {
+  if (activeRouteDragSession) {
+    activeRouteDragSession.cancel();
+    activeRouteDragSession = null;
+  }
+  ++routeDragGeneration;
   const map = mapInstance || currentOutdoorMap;
   const container = document.getElementById('route-via-list');
   if (!container) return;
@@ -5817,7 +5930,7 @@ function renderViaList(mapInstance) {
     row.innerHTML = `
       <span class="pt-tag via">${idx + 1}</span>
       <div class="route-input-wrap">
-        <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
+        <input type="text" class="route-pt-input via-name-input" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
         <div class="route-search-dropdown" style="display: none;"></div>
       </div>
       <button class="btn-via-del">✕</button>
@@ -5829,6 +5942,7 @@ function renderViaList(mapInstance) {
     const delBtn = row.querySelector('.btn-via-del');
     const dragHandle = row.querySelector('.via-drag-handle');
     const tagEl = row.querySelector('.pt-tag');
+    if (inputEl) inputEl.value = via.name || '';
 
     if (tagEl && via.coords) {
       tagEl.style.cursor = 'pointer';
@@ -5846,7 +5960,8 @@ function renderViaList(mapInstance) {
       removeViaPoint(map, idx);
     });
 
-    bindStopRowDrag(dragHandle, row, idx + 1, map, null);
+    const startOffset = (routeStartCoord || routeStartName) ? 1 : 0;
+    bindStopRowDrag(dragHandle, row, idx + startOffset, map, null);
 
     container.appendChild(row);
   });
@@ -5890,7 +6005,7 @@ function addViaPoint(map, coords, label, zoom = null) {
   syncRouteMarkersVisualState(m);
   closeConflictingBottomPanels('route-panel');
   const routePanel = document.getElementById('route-panel');
-  if (routePanel) routePanel.style.display = 'flex';
+  showElement(routePanel, 'flex');
 
   // 自动平滑滚动到底部最新添加的途径点处，彻底免除多途径点时手动滚动翻找
   const pointsBox = document.querySelector('.route-points-box');
@@ -5901,7 +6016,7 @@ function addViaPoint(map, coords, label, zoom = null) {
   }
 
   if (coords && m) {
-    autoPlanMultiPointRoute(m);
+    scheduleRoutePlan(m);
   }
 }
 
@@ -5916,7 +6031,7 @@ function removeViaPoint(map, index) {
 
     renderViaList(m);
     syncRouteMarkersVisualState(m);
-    if (m) autoPlanMultiPointRoute(m);
+    if (m) scheduleRoutePlan(m);
   }
 }
 
@@ -5946,9 +6061,9 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
     routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
   }
   closeConflictingBottomPanels('route-panel');
-  if (routePanel) routePanel.style.display = 'flex';
+  showElement(routePanel, 'flex');
   bindStartAndEndRowsDrag(m);
-  if (m) autoPlanMultiPointRoute(m);
+  if (m) scheduleRoutePlan(m);
 }
 
 // 设置终点
@@ -5979,9 +6094,9 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
   renderViaList(m);
   syncRouteMarkersVisualState(m);
   closeConflictingBottomPanels('route-panel');
-  if (routePanel) routePanel.style.display = 'flex';
+  showElement(routePanel, 'flex');
   bindStartAndEndRowsDrag(m);
-  if (m) autoPlanMultiPointRoute(m);
+  if (m) scheduleRoutePlan(m);
 }
 
 // 核心自动化多途径点规划与海拔剖面解算引擎
@@ -6069,6 +6184,19 @@ function renderRouteGeometry(map, pathCoords) {
       }
     }, beforeLabelId);
   }
+}
+
+function setRoutePendingVisual(map, isPending) {
+  try {
+    if (map.getLayer('outdoor-route-casing')) {
+      map.setPaintProperty('outdoor-route-casing', 'line-opacity', isPending ? 0.5 : 1);
+      map.setPaintProperty('outdoor-route-casing', 'line-dasharray', isPending ? [1.2, 1.15] : null);
+    }
+    if (map.getLayer('outdoor-route-line')) {
+      map.setPaintProperty('outdoor-route-line', 'line-opacity', isPending ? 0.68 : 1);
+      map.setPaintProperty('outdoor-route-line', 'line-dasharray', isPending ? [1.2, 1.15] : null);
+    }
+  } catch (e) {}
 }
 
 // 科学真实高程采样与中国三大阶梯地理基准模型 (彻底剔除脱离实际的 3100m 正弦波假数据)
@@ -6289,6 +6417,8 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
 async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   const map = mapInstance || currentOutdoorMap;
   if (!map) return;
+  clearTimeout(routePlanTimer);
+  routePlanTimer = null;
   const reqId = ++currentRouteRequestId;
   currentRouteAbortController?.abort();
   const routeController = new AbortController();
@@ -6351,7 +6481,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       const t = k / steps;
       seg.push([pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t]);
     }
-    return { coords: seg, distKm, durationSec: (distKm / 48) * 3600, isRoad: false };
+    const fallbackSpeedKmh = profile === 'bike' ? 18 : (profile === 'foot' ? 4.5 : 48);
+    return { coords: seg, distKm, durationSec: (distKm / fallbackSpeedKmh) * 3600, isRoad: false };
   };
 
   const limitGeometryPoints = coords => {
@@ -6371,7 +6502,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     const pA = ordered[s].coords;
     const pB = ordered[s + 1].coords;
     const legKey = getLegCacheKey(profile, pA, pB);
-    const hit = OUTMAP_LEG_CACHE.get(legKey);
+    const hit = getCachedRouteLeg(legKey);
     if (hit && hit.isRoad && hit.coords && hit.coords.length > 0) {
       cachedLegs.push(hit);
     } else {
@@ -6412,6 +6543,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     const totalDistKm = cachedLegs.reduce((sum, leg) => sum + (leg.distKm || 0), 0);
     const totalDurationSec = cachedLegs.reduce((sum, leg) => sum + (leg.durationSec || 0), 0);
     renderRouteGeometry(map, finalCoords);
+    setRoutePendingVisual(map, false);
     updateProfileAndMetrics(map, finalCoords, totalDistKm, totalDurationSec, true, shouldFitBounds);
     if (distEl) {
       distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', '').replace(' (导引)', '');
@@ -6421,10 +6553,17 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
 
   // 瞬间上图并展现即时导引指标
   renderRouteGeometry(map, limitGeometryPoints(initialPathCoords));
-  updateProfileAndMetrics(map, limitGeometryPoints(initialPathCoords), null, null, false, shouldFitBounds);
-
+  setRoutePendingVisual(map, true);
+  // Pending feedback stays lightweight: do not synchronously sample up to 280
+  // terrain points twice for every edit. Final road geometry owns the profile.
+  let pendingDistanceKm = 0;
+  for (let i = 1; i < initialPathCoords.length; i++) {
+    pendingDistanceKm += calculateDistanceKm(initialPathCoords[i - 1], initialPathCoords[i]);
+  }
+  currentPlannedRouteCoords = [];
+  currentRouteMetrics = null;
   if (distEl) {
-    distEl.innerText = `${distEl.innerText.replace(' (导引)', '')} (路网匹配中...)`;
+    distEl.innerText = `${pendingDistanceKm.toFixed(1)} km (路网匹配中...)`;
   }
 
   // 2. 【智能差量拓扑分段解算引擎】
@@ -6449,28 +6588,37 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         const localRouteUrl = `http://127.0.0.1:${localServerPort}/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
         const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
         const primaryOnlineUrl = `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
-        const backupOnlineUrl = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+        const backupOnlineUrl = profile === 'driving'
+          ? `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`
+          : null;
 
         let resp = null;
         if (window.electronAPI) {
           try {
-            resp = await fetchWithTimeout(localRouteUrl, 10000);
+            // The local proxy owns persistent caching and mirror failover. Do
+            // not repeat its upstream requests in the renderer on failure.
+            resp = await fetchWithTimeout(localRouteUrl, 17500);
             if (resp && resp.ok) {
               const data = await resp.json();
-              if (data.code === 'Ok' && data.routes && data.routes[0] && (data.routes[0].distance > 0 || points.length <= 1) && data.source !== 'local-engine') {
+              if (data.code === 'Ok' && data.routes && data.routes[0] && (data.routes[0].distance > 0 || points.length <= 1)) {
                 return {
                   coords: limitGeometryPoints(data.routes[0].geometry.coordinates),
                   distKm: data.routes[0].distance / 1000,
                   durationSec: data.routes[0].duration,
-                  isRoad: true
+                  isRoad: data.source !== 'local-engine'
                 };
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            return null;
+          }
+          return null;
         }
 
-        // Web 模式或桌面本地兜底超时：尝试在线双镜像自动故障转移
-        const mirrors = [primaryOnlineUrl, backupOnlineUrl];
+        // Web uses direct services. The public backup is car-only and must
+        // never be used for cycling/hiking, otherwise geometry and ETA become
+        // silently contaminated across profile-specific caches.
+        const mirrors = [primaryOnlineUrl, backupOnlineUrl].filter(Boolean);
         for (const mirrorUrl of mirrors) {
           if (routeController.signal.aborted) return null;
           try {
@@ -6496,15 +6644,16 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         // 单段或多段优先尝试整段连贯路网匹配解算
         if (subPoints.length === 2) {
           const key = getLegCacheKey(profile, subPoints[0].coords, subPoints[1].coords);
-          const cached = OUTMAP_LEG_CACHE.get(key);
+          const cached = getCachedRouteLeg(key);
           if (cached && cached.isRoad) return cached;
         }
 
         const chunkResult = await fetchSingleRouteAttempt(subPoints);
+        if (routeController.signal.aborted || reqId !== currentRouteRequestId) return null;
         if (chunkResult && chunkResult.isRoad) {
           if (subPoints.length === 2) {
             const key = getLegCacheKey(profile, subPoints[0].coords, subPoints[1].coords);
-            OUTMAP_LEG_CACHE.set(key, chunkResult);
+            cacheRouteLeg(key, chunkResult);
           }
           return chunkResult;
         }
@@ -6519,11 +6668,12 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
             if (routeController.signal.aborted) return null;
             const legPts = [subPoints[i], subPoints[i + 1]];
             const legKey = getLegCacheKey(profile, legPts[0].coords, legPts[1].coords);
-            let legResult = OUTMAP_LEG_CACHE.get(legKey);
+            let legResult = getCachedRouteLeg(legKey);
             if (!legResult || !legResult.isRoad) {
               legResult = await fetchSingleRouteAttempt(legPts);
+              if (routeController.signal.aborted || reqId !== currentRouteRequestId) return null;
               if (legResult && legResult.isRoad) {
-                OUTMAP_LEG_CACHE.set(legKey, legResult);
+                cacheRouteLeg(legKey, legResult);
               }
             }
             if (legResult && legResult.isRoad) {
@@ -6542,10 +6692,10 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
           const legMergedCoords = [];
           let legMergedDist = 0;
           let legMergedDuration = 0;
-          let anyRoad = false;
+          let everyLegIsRoad = legResults.length > 0;
 
           legResults.forEach((lr, lIdx) => {
-            if (lr.isRoad) anyRoad = true;
+            if (!lr.isRoad) everyLegIsRoad = false;
             legMergedDist += lr.distKm || 0;
             legMergedDuration += lr.durationSec || 0;
             if (lIdx === 0 || legMergedCoords.length === 0) {
@@ -6567,7 +6717,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
             coords: limitGeometryPoints(legMergedCoords),
             distKm: legMergedDist,
             durationSec: legMergedDuration,
-            isRoad: anyRoad
+            isRoad: everyLegIsRoad
           };
         }
 
@@ -6586,7 +6736,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         return {
           coords: fallbackCoords,
           distKm: fallbackDist,
-          durationSec: (fallbackDist / 48) * 3600,
+          durationSec: (fallbackDist / (profile === 'bike' ? 18 : (profile === 'foot' ? 4.5 : 48))) * 3600,
           isRoad: false
         };
       };
@@ -6646,9 +6796,10 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
           if (cIdx >= chunkItems.length) return;
           const item = chunkItems[cIdx];
           item.result = await fetchSubRoute(item.points);
+          if (routeController.signal.aborted || reqId !== currentRouteRequestId) return;
           if (item.points.length === 2 && item.result && item.result.isRoad) {
             const key = getLegCacheKey(profile, item.points[0].coords, item.points[1].coords);
-            OUTMAP_LEG_CACHE.set(key, item.result);
+            cacheRouteLeg(key, item.result);
           }
         }
       };
@@ -6685,7 +6836,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       if (mergedCoords.length > 0) {
         const finalCoords = limitGeometryPoints(mergedCoords);
         renderRouteGeometry(map, finalCoords);
-        updateProfileAndMetrics(map, finalCoords, mergedDistKm, mergedDurationSec, isEntireRouteRoad, false);
+        setRoutePendingVisual(map, false);
+        updateProfileAndMetrics(map, finalCoords, mergedDistKm, mergedDurationSec, isEntireRouteRoad, shouldFitBounds);
       }
     } catch (e) {
       if (reqId === currentRouteRequestId && distEl) {
@@ -6694,6 +6846,9 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     } finally {
       if (reqId === currentRouteRequestId && distEl) {
         distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', '');
+      }
+      if (reqId === currentRouteRequestId && currentRouteAbortController === routeController) {
+        currentRouteAbortController = null;
       }
     }
   })();
@@ -6725,10 +6880,10 @@ function setupOutdoorRouteSystem(map) {
   const chartHoverInfo = document.getElementById('chart-hover-info');
 
   btnFabRoute?.addEventListener('click', () => {
-    const isHidden = routePanel.style.display === 'none';
+    const isHidden = routePanel.style.display === 'none' || routePanel.classList.contains('panel-closing');
     if (isHidden) {
       closeConflictingBottomPanels('route-panel');
-      routePanel.style.display = 'flex';
+      showElement(routePanel, 'flex');
       if (typeof window.clearLandingMarker === 'function') {
         window.clearLandingMarker();
       }
@@ -6897,7 +7052,7 @@ function setupOutdoorRouteSystem(map) {
     }
 
     renderViaList(map);
-    autoPlanMultiPointRoute(map);
+    scheduleRoutePlan(map);
   };
   window.swapStartAndEndRoutePoints = swapStartAndEndRoutePoints;
   bindStartAndEndRowsDrag(map);
@@ -6939,7 +7094,7 @@ function setupOutdoorRouteSystem(map) {
           v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         }
         renderViaList(map);
-        autoPlanMultiPointRoute(map);
+        scheduleRoutePlan(map);
         exitRoutePickingMode();
       } else {
         // 查找是否有等待填入坐标的空途径点 (例如先点击了加号添加空白行，再去地图点选)
@@ -6963,7 +7118,7 @@ function setupOutdoorRouteSystem(map) {
             v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
           }
           renderViaList(map);
-          autoPlanMultiPointRoute(map);
+          scheduleRoutePlan(map);
           exitRoutePickingMode();
         } else {
           // 高德 / Apple Maps 模式：连续选点时自动递进，终点始终自动接替并填充在底栏终点输入框
@@ -7029,7 +7184,7 @@ function setupOutdoorRouteSystem(map) {
         routeExportMenu.style.bottom = 'calc(100% + 5px)';
         routeExportMenu.style.top = 'auto';
       }
-      routeExportMenu.style.display = 'flex';
+      showElement(routeExportMenu, 'flex');
     } else {
       closeRouteExportMenu();
     }
@@ -7179,7 +7334,7 @@ function setupOutdoorRouteSystem(map) {
     if (saveRouteAscentText && currentRouteMetrics) {
       saveRouteAscentText.innerText = `+${Math.round(currentRouteMetrics.totalAscent)} m`;
     }
-    if (saveRouteModal) saveRouteModal.style.display = 'block';
+    showElement(saveRouteModal, 'block');
     if (saveRouteNameInput) {
       saveRouteNameInput.focus();
       saveRouteNameInput.select();
@@ -7471,7 +7626,7 @@ function loadSavedRoute(routeId, map) {
   // 关闭其余右下角抽屉，展开路线规划面板
   closeConflictingBottomPanels('route-panel');
   const routePanel = document.getElementById('route-panel');
-  if (routePanel) routePanel.style.display = 'flex';
+  showElement(routePanel, 'flex');
 }
 
 // 绘制精美流畅的高清 Canvas 海拔剖面图 (完美适配 Retina 高分屏，iOS 级细腻质感)
@@ -7852,7 +8007,7 @@ function displayImportedTrack(map, trackData) {
   if (endInput) endInput.value = `[导入] ${name} 终点`;
 
   closeConflictingBottomPanels('route-panel');
-  if (routePanel) routePanel.style.display = 'flex';
+  showElement(routePanel, 'flex');
   if (statsBox) statsBox.style.display = 'grid';
   if (chartSection) {
     chartSection.style.display = 'flex';
@@ -7946,7 +8101,7 @@ function setupLayersPopover(map) {
     const next = typeof show === 'boolean' ? show : !isVisible;
     if (next) {
       closeConflictingBottomPanels('layers-popover');
-      popover.style.display = 'block';
+      showElement(popover, 'block');
       btnFabLayers.classList.add('active');
     } else {
       smoothClosePopover(popover, () => {
@@ -8049,7 +8204,7 @@ function setupMapContextMenu(map) {
         wpNameInput.focus();
       }
       closeConflictingBottomPanels('waypoint-modal');
-      if (wpModal) wpModal.style.display = 'flex';
+      showElement(wpModal, 'flex');
     } else if (action === 'route-start') {
       setRouteStartPoint(map, [point.lng, point.lat], point.placeName);
     } else if (action === 'route-via') {
@@ -8091,7 +8246,7 @@ function setupMapContextMenu(map) {
 
       ctxMenu.style.left = `${x}px`;
       ctxMenu.style.top = `${y}px`;
-      ctxMenu.style.display = 'block';
+      showElement(ctxMenu, 'block');
       void ctxMenu.offsetWidth; // 触发重绘回流，确保每次打开都完整播放弹性微进入动效
       ctxMenu.classList.add('ctx-opening');
     }
@@ -8403,13 +8558,20 @@ function setupGlobalKeyboardDispatcher() {
     }
   }, true); // 使用捕获阶段 (capture: true) 确保最先响应
 
-  // 全局禁用所有悬浮 Tooltip 提示文案，确保纯净操作交互
-  document.addEventListener('mouseover', (e) => {
-    const target = e.target.closest('[title]');
-    if (target) {
-      target.removeAttribute('title');
-    }
-  }, true);
+  // 去除浏览器原生 tooltip，但不要在每次鼠标移动/冒泡时查询 DOM。
+  // 仅在控件真正新增或写入 title 时处理，地图交互路径保持零开销。
+  const stripNativeTitles = root => {
+    if (root?.nodeType !== Node.ELEMENT_NODE) return;
+    if (root.hasAttribute?.('title')) root.removeAttribute('title');
+    root.querySelectorAll?.('[title]').forEach(el => el.removeAttribute('title'));
+  };
+  document.querySelectorAll('[title]').forEach(el => el.removeAttribute('title'));
+  new MutationObserver(records => {
+    records.forEach(record => {
+      if (record.type === 'attributes') stripNativeTitles(record.target);
+      else record.addedNodes.forEach(stripNativeTitles);
+    });
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
 }
 
 // 全局统一键盘调度与防穿透系统立即初始化

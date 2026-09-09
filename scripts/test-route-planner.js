@@ -151,12 +151,20 @@ app.whenReady().then(async () => {
     const layerIds = m.getStyle().layers.map(layer => layer.id);
     const routeAboveRoads = layerIds.indexOf('outdoor-route-casing') > layerIds.indexOf('osm-highway-core');
     const routeBelowLabels = layerIds.indexOf('outdoor-route-line') < layerIds.indexOf('osm-road-shields');
+    const debouncedAborts = state.aborts;
+
+    // Explicitly superseding an in-flight request must still abort it, while
+    // the 62 individual state mutations above should have been coalesced.
+    window.autoPlanMultiPointRoute(m);
+    document.querySelector('.route-mode-btn[data-mode="drive"]').click();
+    await sleep(100);
+    const supersessionAborts = state.aborts - debouncedAborts;
 
     window.fetch = originalFetch;
     window.queryLocationCandidates = originalQuery;
     window.OutmapLocationCamera.fly = originalFly;
     return { startBounds, endBounds, viaBounds, autoDistance, autoProfiles, modeProfiles,
-      manyCalls, maxActive: state.maxActive, aborts: state.aborts, mergedPointCount, manyDistance, longGeometryCount,
+      manyCalls, maxActive: state.maxActive, debouncedAborts, supersessionAborts, mergedPointCount, manyDistance, longGeometryCount,
       routeAboveRoads, routeBelowLabels, routePanelVisible: getComputedStyle(routePanel).display !== 'none' };
   })()`);
 
@@ -177,7 +185,8 @@ app.whenReady().then(async () => {
   assert(!result.manyDistance.includes('导引'), 'Successful many-waypoint route must remain a road route');
   assert(result.routeAboveRoads, 'Route ribbon must render above highway surfaces');
   assert(result.routeBelowLabels, 'Route ribbon must render below road names and shields');
-  assert(result.aborts > 0, 'Superseded automatic route requests must be cancelled');
+  assert(result.debouncedAborts <= 2, 'Burst point mutations must be coalesced instead of creating an abort storm');
+  assert(result.supersessionAborts > 0, 'A genuinely superseded in-flight request must still be cancelled');
   assert(result.routePanelVisible, 'Route panel must remain usable after planning');
   clearTimeout(watchdog);
   console.log('Route planner, profiles, cancellation and mobile dropdown tests passed.');

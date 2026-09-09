@@ -4,7 +4,7 @@ const assert = require('assert');
 const { app, BrowserWindow } = require('electron');
 
 async function runTests() {
-  console.log('=== Outmap v1.6.4 Unified Download Box & Esc Landing Marker Verification ===');
+  console.log('=== Outmap v1.6.5 Unified Download Box & Esc Landing Marker Verification ===');
 
   // 1. Static source assertions
   const html = fs.readFileSync('src/index.html', 'utf8');
@@ -28,7 +28,8 @@ async function runTests() {
   assert(appJs.includes('// 8.6. 搜索落地地点标记与卡片 (按 ESC 退出标记)'), 'app.js must include priority 8.6 for landing marker');
 
   // Verify title tooltip suppression
-  assert(appJs.includes("target.removeAttribute('title')"), 'app.js must suppress title tooltips via mouseover listener');
+  assert(appJs.includes('new MutationObserver') && appJs.includes("removeAttribute('title')"), 'app.js must suppress title tooltips without a high-frequency mouseover listener');
+  assert(!appJs.includes("addEventListener('mouseover'"), 'Tooltip suppression must not run on every mouseover');
   assert(!appJs.includes('btnOpen.title ='), 'app.js must not assign btnOpen.title');
   assert(!appJs.includes('dlBlueDot.title ='), 'app.js must not assign dlBlueDot.title');
   assert(!appJs.includes('btnLockPitch.title ='), 'app.js must not assign btnLockPitch.title');
