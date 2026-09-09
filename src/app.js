@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.5.7';
+const APP_VERSION = '1.5.8';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -4914,6 +4914,18 @@ let activeRouteMode = 'drive'; // 'drive' | 'cycle' | 'hike'
 let profileCursorMarker = null;
 let currentProfileData = [];
 
+// 全局有向边拓扑路由缓存池 (Key: profile:lngA,latA->lngB,latB)
+const OUTMAP_LEG_CACHE = new Map();
+window.OUTMAP_LEG_CACHE = OUTMAP_LEG_CACHE;
+
+function getLegCacheKey(profile, pA, pB) {
+  const a0 = typeof pA[0] === 'number' ? pA[0].toFixed(5) : pA[0];
+  const a1 = typeof pA[1] === 'number' ? pA[1].toFixed(5) : pA[1];
+  const b0 = typeof pB[0] === 'number' ? pB[0].toFixed(5) : pB[0];
+  const b1 = typeof pB[1] === 'number' ? pB[1].toFixed(5) : pB[1];
+  return `${profile}:${a0},${a1}->${b0},${b1}`;
+}
+
 // 计算两坐标之间大圆球面距离 (km)
 function calculateDistanceKm(c1, c2) {
   const rad = Math.PI / 180;
@@ -5938,58 +5950,96 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     return;
   }
 
-  // 1. 【即时乐观渲染机制 (0ms 零等待)】立即生成贴合地形的连续导引线并秒显剖面，彻底杜绝网络等待或引擎假死
+  const profile = activeRouteMode === 'cycle' ? 'bike' : (activeRouteMode === 'hike' ? 'foot' : 'driving');
+
+  const getGeodesicSegment = (pA, pB) => {
+    const distKm = calculateDistanceKm(pA, pB);
+    const steps = Math.max(5, Math.min(30, Math.round(distKm / 0.5)));
+    const seg = [];
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      seg.push([pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t]);
+    }
+    return { coords: seg, distKm, durationSec: (distKm / 48) * 3600, isRoad: false };
+  };
+
+  const limitGeometryPoints = coords => {
+    if (!Array.isArray(coords)) return [];
+    const maxPoints = window.innerWidth <= 768 ? 6000 : 12000;
+    if (coords.length <= maxPoints) return coords;
+    const step = Math.ceil((coords.length - 1) / (maxPoints - 1));
+    const reduced = [];
+    for (let i = 0; i < coords.length - 1; i += step) reduced.push(coords[i]);
+    reduced.push(coords[coords.length - 1]);
+    return reduced;
+  };
+
+  // 检查已有拓扑边缓存池 (Directed Leg Cache)
+  const cachedLegs = [];
+  for (let s = 0; s < ordered.length - 1; s++) {
+    const pA = ordered[s].coords;
+    const pB = ordered[s + 1].coords;
+    const legKey = getLegCacheKey(profile, pA, pB);
+    const hit = OUTMAP_LEG_CACHE.get(legKey);
+    if (hit && hit.isRoad && hit.coords && hit.coords.length > 0) {
+      cachedLegs.push(hit);
+    } else {
+      cachedLegs.push(null);
+    }
+  }
+
+  // 1. 【即时乐观渲染机制 (0ms 零等待)】
+  // 已有缓存分段保持真实路网高亮，仅新增/未完成段显示平滑导引线，彻底杜绝闪烁与假死
   const initialPathCoords = [];
   for (let s = 0; s < ordered.length - 1; s++) {
     const pA = ordered[s].coords;
     const pB = ordered[s + 1].coords;
-    const distSegmentKm = calculateDistanceKm(pA, pB);
-    const subSteps = Math.max(5, Math.min(25, Math.round(distSegmentKm / 0.5)));
+    const hit = cachedLegs[s];
+    const segCoords = (hit && hit.coords && hit.coords.length > 0)
+      ? hit.coords
+      : getGeodesicSegment(pA, pB).coords;
 
-    for (let k = 0; k < subSteps; k++) {
-      const t = k / subSteps;
-      const curLng = pA[0] + (pB[0] - pA[0]) * t;
-      const curLat = pA[1] + (pB[1] - pA[1]) * t;
-      initialPathCoords.push([curLng, curLat]);
+    if (s === 0 || initialPathCoords.length === 0) {
+      initialPathCoords.push(...segCoords);
+    } else {
+      const lastPt = initialPathCoords[initialPathCoords.length - 1];
+      const firstPt = segCoords[0];
+      if (Math.abs(lastPt[0] - firstPt[0]) < 1e-5 && Math.abs(lastPt[1] - firstPt[1]) < 1e-5) {
+        initialPathCoords.push(...segCoords.slice(1));
+      } else {
+        initialPathCoords.push(...segCoords);
+      }
     }
   }
-  initialPathCoords.push(ordered[ordered.length - 1].coords);
+  if (initialPathCoords.length === 0 && ordered.length >= 2) {
+    initialPathCoords.push(ordered[0].coords, ordered[ordered.length - 1].coords);
+  }
 
-  // 瞬间上图并展现指标
-  renderRouteGeometry(map, initialPathCoords);
-  updateProfileAndMetrics(map, initialPathCoords, null, null, false, shouldFitBounds);
+  // 若全部有向边均已命中缓存，0ms 极速直出，完全免除网络开销！
+  if (cachedLegs.length > 0 && cachedLegs.every(Boolean)) {
+    const finalCoords = limitGeometryPoints(initialPathCoords);
+    const totalDistKm = cachedLegs.reduce((sum, leg) => sum + (leg.distKm || 0), 0);
+    const totalDurationSec = cachedLegs.reduce((sum, leg) => sum + (leg.durationSec || 0), 0);
+    renderRouteGeometry(map, finalCoords);
+    updateProfileAndMetrics(map, finalCoords, totalDistKm, totalDurationSec, true, shouldFitBounds);
+    if (distEl) {
+      distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', '').replace(' (导引)', '');
+    }
+    return;
+  }
+
+  // 瞬间上图并展现即时导引指标
+  renderRouteGeometry(map, limitGeometryPoints(initialPathCoords));
+  updateProfileAndMetrics(map, limitGeometryPoints(initialPathCoords), null, null, false, shouldFitBounds);
 
   if (distEl) {
     distEl.innerText = `${distEl.innerText.replace(' (导引)', '')} (路网匹配中...)`;
   }
 
-  // 2. 【多途径点自适应批次分段解算引擎】自动将大于 8 个点的路线切分为多个平滑衔接的子段并行解算，突破 OSRM 限制
+  // 2. 【智能差量拓扑分段解算引擎】
+  // 仅计算新增与变动的有向边；已有分段 100% 保持稳定，杜绝由于新加点而连累已有公路
   (async () => {
     try {
-      const profile = activeRouteMode === 'cycle' ? 'bike' : (activeRouteMode === 'hike' ? 'foot' : 'driving');
-
-      const getGeodesicSegment = (pA, pB) => {
-        const distKm = calculateDistanceKm(pA, pB);
-        const steps = Math.max(5, Math.min(30, Math.round(distKm / 0.5)));
-        const seg = [];
-        for (let k = 0; k <= steps; k++) {
-          const t = k / steps;
-          seg.push([pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t]);
-        }
-        return { coords: seg, distKm, durationSec: (distKm / 48) * 3600, isRoad: false };
-      };
-
-      const limitGeometryPoints = coords => {
-        if (!Array.isArray(coords)) return [];
-        const maxPoints = window.innerWidth <= 768 ? 6000 : 12000;
-        if (coords.length <= maxPoints) return coords;
-        const step = Math.ceil((coords.length - 1) / (maxPoints - 1));
-        const reduced = [];
-        for (let i = 0; i < coords.length - 1; i += step) reduced.push(coords[i]);
-        reduced.push(coords[coords.length - 1]);
-        return reduced;
-      };
-
       const fetchWithTimeout = async (url, timeoutMs) => {
         const controller = new AbortController();
         const abort = () => controller.abort();
@@ -6028,7 +6078,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
           } catch (e) {}
         }
 
-        // Web mode or desktop local fallback/timeout: try multi-mirror failover directly
+        // Web 模式或桌面本地兜底超时：尝试在线双镜像自动故障转移
         const mirrors = [primaryOnlineUrl, backupOnlineUrl];
         for (const mirrorUrl of mirrors) {
           if (routeController.signal.aborted) return null;
@@ -6052,22 +6102,39 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       };
 
       const fetchSubRoute = async (subPoints) => {
-        // 1. 优先尝试整段连贯路网匹配解算
+        // 单段或多段优先尝试整段连贯路网匹配解算
+        if (subPoints.length === 2) {
+          const key = getLegCacheKey(profile, subPoints[0].coords, subPoints[1].coords);
+          const cached = OUTMAP_LEG_CACHE.get(key);
+          if (cached && cached.isRoad) return cached;
+        }
+
         const chunkResult = await fetchSingleRouteAttempt(subPoints);
         if (chunkResult && chunkResult.isRoad) {
+          if (subPoints.length === 2) {
+            const key = getLegCacheKey(profile, subPoints[0].coords, subPoints[1].coords);
+            OUTMAP_LEG_CACHE.set(key, chunkResult);
+          }
           return chunkResult;
         }
 
         if (routeController.signal.aborted) return null;
 
-        // 2. 若多点批次中有个别无路网点(NoRoute)或超时，自动降级拆解为单步逐段(Leg-by-Leg)解算
+        // 若多点批次中有个别无路网点(NoRoute)或超时，自动降级拆解为单步逐段(Leg-by-Leg)独立解算
         // 确保仅真正不可达的荒野单段显示直线，其余所有可通行的路网区间 100% 保持真实道路轨迹！
         if (subPoints.length > 2) {
           const legResults = [];
           for (let i = 0; i < subPoints.length - 1; i++) {
             if (routeController.signal.aborted) return null;
             const legPts = [subPoints[i], subPoints[i + 1]];
-            const legResult = await fetchSingleRouteAttempt(legPts);
+            const legKey = getLegCacheKey(profile, legPts[0].coords, legPts[1].coords);
+            let legResult = OUTMAP_LEG_CACHE.get(legKey);
+            if (!legResult || !legResult.isRoad) {
+              legResult = await fetchSingleRouteAttempt(legPts);
+              if (legResult && legResult.isRoad) {
+                OUTMAP_LEG_CACHE.set(legKey, legResult);
+              }
+            }
             if (legResult && legResult.isRoad) {
               legResults.push(legResult);
             } else {
@@ -6113,7 +6180,7 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
           };
         }
 
-        // 3. 离线/荒野单段兜底：大地测量连续折线导引
+        // 离线/荒野单段兜底：大地测量连续折线导引
         const fallbackCoords = [];
         let fallbackDist = 0;
         for (let i = 0; i < subPoints.length - 1; i++) {
@@ -6133,34 +6200,78 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         };
       };
 
-      // 智能切分：每段最多 7 个间隔 (8 个点)，首尾点重合以实现连续接缝
+      // 智能分段调度：已缓存的有向边 0ms 直接读取，未命中的连续脏区间切分为每批至多 8 个点进行网络解算
+      const workItems = [];
+      let wIdx = 0;
       const CHUNK_SIZE = 7;
-      const chunks = [];
-      for (let i = 0; i < ordered.length - 1; i += CHUNK_SIZE) {
-        chunks.push(ordered.slice(i, Math.min(ordered.length, i + CHUNK_SIZE + 1)));
+      while (wIdx < ordered.length - 1) {
+        if (cachedLegs[wIdx]) {
+          workItems.push({
+            type: 'cached',
+            legIndex: wIdx,
+            points: [ordered[wIdx], ordered[wIdx + 1]],
+            result: cachedLegs[wIdx]
+          });
+          wIdx++;
+        } else {
+          const spanStart = wIdx;
+          while (wIdx < ordered.length - 1 && !cachedLegs[wIdx]) {
+            wIdx++;
+          }
+          const spanEnd = wIdx;
+          const spanLegCount = spanEnd - spanStart;
+          if (spanLegCount <= CHUNK_SIZE) {
+            // 交互式添加/编辑 (<= 7 段)：按单段独立解算并存入有向边缓存池，实现后续操作 0ms 极速复用！
+            for (let k = spanStart; k < spanEnd; k++) {
+              workItems.push({
+                type: 'chunk',
+                points: [ordered[k], ordered[k + 1]],
+                startIdx: k,
+                endIdx: k + 1,
+                result: null
+              });
+            }
+          } else {
+            // 大批量规划 (如 62 点测试)：切分为每批至多 8 个点，满足高吞吐批次计算
+            for (let c = spanStart; c < spanEnd; c += CHUNK_SIZE) {
+              const cEnd = Math.min(spanEnd, c + CHUNK_SIZE);
+              workItems.push({
+                type: 'chunk',
+                points: ordered.slice(c, cEnd + 1),
+                startIdx: c,
+                endIdx: cEnd,
+                result: null
+              });
+            }
+          }
+        }
       }
 
-      // Bound concurrency so dozens of waypoints do not flood the browser,
-      // local proxy or public routing service with simultaneous requests.
-      const subResults = new Array(chunks.length);
+      const chunkItems = workItems.filter(item => item.type === 'chunk');
       let nextChunk = 0;
       const worker = async () => {
         while (!routeController.signal.aborted) {
-          const index = nextChunk++;
-          if (index >= chunks.length) return;
-          subResults[index] = await fetchSubRoute(chunks[index]);
+          const cIdx = nextChunk++;
+          if (cIdx >= chunkItems.length) return;
+          const item = chunkItems[cIdx];
+          item.result = await fetchSubRoute(item.points);
+          if (item.points.length === 2 && item.result && item.result.isRoad) {
+            const key = getLegCacheKey(profile, item.points[0].coords, item.points[1].coords);
+            OUTMAP_LEG_CACHE.set(key, item.result);
+          }
         }
       };
-      const maxWorkers = window.innerWidth <= 768 ? 2 : 3;
-      await Promise.all(Array.from({ length: Math.min(maxWorkers, chunks.length) }, worker));
+      const maxWorkers = window.innerWidth <= 768 ? 2 : 2;
+      await Promise.all(Array.from({ length: Math.min(maxWorkers, chunkItems.length) }, worker));
       if (reqId !== currentRouteRequestId) return;
 
       const mergedCoords = [];
       let mergedDistKm = 0;
       let mergedDurationSec = 0;
-      const isEntireRouteRoad = subResults.length > 0 && subResults.every(res => res?.isRoad);
+      const isEntireRouteRoad = workItems.length > 0 && workItems.every(item => item.result?.isRoad);
 
-      subResults.forEach((res, rIdx) => {
+      workItems.forEach((item, rIdx) => {
+        const res = item.result;
         if (!res || !res.coords || res.coords.length === 0) return;
         mergedDistKm += res.distKm || 0;
         mergedDurationSec += res.durationSec || 0;
