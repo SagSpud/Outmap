@@ -1027,6 +1027,16 @@ body.web-mode #manage-modal {
   100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
+.landing-card.popover-closing {
+  animation: fadeOutLandingCard 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+  pointer-events: none !important;
+}
+
+@keyframes fadeOutLandingCard {
+  0% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, 6px) scale(0.94); }
+}
+
 .landing-card::after {
   content: '';
   position: absolute;
@@ -2131,12 +2141,12 @@ body.web-mode #manage-modal {
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 12px;
   box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  padding: 6px;
-  min-width: 140px;
-  max-width: 220px;
+  padding: 5px;
+  min-width: 110px;
+  max-width: 165px;
   width: max-content;
   z-index: 3500;
   transform-origin: top left;
@@ -2166,16 +2176,17 @@ body.web-mode #manage-modal {
 }
 
 .ctx-header {
-  padding: 5px 8px 4px 8px;
+  padding: 4px 6px 3px 6px;
 }
 
 .ctx-title {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: center;
   letter-spacing: -0.2px;
 }
 
@@ -2553,6 +2564,7 @@ body.web-mode #manage-modal {
 }
 
 .pt-tag {
+  box-sizing: border-box;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -2562,9 +2574,14 @@ body.web-mode #manage-modal {
   display: flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
   flex-shrink: 0;
   cursor: pointer;
   user-select: none;
+  font-variant-numeric: tabular-nums;
   transition: transform 0.12s ease;
 }
 
@@ -5321,4 +5338,77 @@ body.web-mode .office-prov-group {
 .is-route-reordering .is-dragging,
 .is-route-reordering .is-settling {
   will-change: transform, opacity;
+}
+
+/* 途径点与起终点圆形标签绝对几何居中系统 */
+.route-via-marker-pin,
+.route-start-marker-pin,
+.route-end-marker-pin {
+  box-sizing: border-box;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  z-index: 100;
+}
+.route-via-marker-pin {
+  background: #0284c7;
+  color: #ffffff;
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.route-start-marker-pin {
+  background: #16a34a;
+  color: #ffffff;
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.route-end-marker-pin {
+  background: #ef4444;
+  color: #ffffff;
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 收藏夹地图标记：外层零延迟绝对定位，内层平滑悬浮放大，彻底消除缩放与平移乱飞 */
+.fav-marker-wrap {
+  cursor: pointer;
+  user-select: none;
+}
+.fav-marker-pin {
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center center;
+}
+.fav-marker-wrap:hover .fav-marker-pin {
+  transform: scale(1.22);
 }

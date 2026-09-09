@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.5';
+const APP_VERSION = '1.6.6';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -2571,6 +2571,12 @@ function setupOfficeHeaderInteractions(map) {
       if (e.key === 'Enter') {
         e.preventDefault();
         doSearch();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        sInput.value = '';
+        sInput.blur();
+        closeSearchPopover();
+        if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
       }
     });
   }
@@ -4374,29 +4380,15 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
   let foundProv = '';
   let foundCity = '';
 
-  // 1. 匹配 34 省级行政区外包围盒
-  const provKeys = Object.keys(PROVINCES_DATA);
-  for (let i = 0; i < provKeys.length; i++) {
-    const k = provKeys[i];
-    if (k === 'china') continue;
-    const p = PROVINCES_DATA[k];
-    const [x1, x2, y1, y2] = p.bbox;
-    if (lng >= x1 && lng <= x2 && lat >= y1 && lat <= y2) {
-      foundProv = p.name;
-      break;
-    }
-  }
-
-  // 2. 在省内 (或全国) 匹配距离最近的地级市/自治州/盟 (极速空间计算)
+  // 1. 在全国 350+ 地级行政区中匹配距离最近的中心质心 (严格经纬度几何计算，彻底废除交叠 Bbox 误判)
   let minCityDist = Infinity;
   for (let i = 0; i < CHINA_CITIES.length; i++) {
     const [cName, pName, cLng, cLat] = CHINA_CITIES[i];
-    if (foundProv && pName !== foundProv) continue;
     const d = Math.hypot((lng - cLng) * Math.cos(lat * Math.PI / 180), lat - cLat);
     if (d < minCityDist) {
       minCityDist = d;
       foundCity = cName;
-      if (!foundProv) foundProv = pName;
+      foundProv = pName;
     }
   }
 
@@ -4431,15 +4423,13 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
     } catch (e) {}
   }
 
-  // 右键快捷菜单专用模式：绝不显示“省”（状态栏已显示过），仅显示“市、县”；空间不够只显示“县”
+  // 右键快捷菜单与途径点专用模式：绝不显示“省”，精准显示“市、县/区”两级
   if (onlyCityCounty) {
     if (foundCity && foundCounty) {
       if (foundCity.includes(foundCounty) || foundCounty.includes(foundCity)) {
         return foundCounty;
       }
-      const combined = `${foundCity} · ${foundCounty}`;
-      // 空间足够（11字以内）显示“市 · 县”，字数过长则遵照用户诉求仅显示精炼的“县”
-      return combined.length <= 11 ? combined : foundCounty;
+      return `${foundCity} · ${foundCounty}`;
     } else if (foundCounty) {
       return foundCounty;
     } else if (foundCity) {
@@ -4682,32 +4672,23 @@ function setupWaypointAndFavoritesSystem(map) {
     };
 
     savedWaypoints.forEach(wp => {
-      const el = document.createElement('div');
-      el.className = 'custom-waypoint-marker';
-      el.style.cssText = `
-        background: #ffffff;
-        border: 2px solid #0284c7;
-        border-radius: 50%;
-        width: 28px;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 13px;
-        box-shadow: 0 3px 8px rgba(0,0,0,0.25);
-        cursor: pointer;
-        transition: transform 0.15s ease;
-      `;
-      el.innerText = iconMap[wp.type] || '📍';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'fav-marker-wrap';
 
-      el.addEventListener('mouseenter', () => el.style.transform = 'scale(1.25)');
-      el.addEventListener('mouseleave', () => el.style.transform = 'scale(1.0)');
-      el.addEventListener('click', () => {
+      const pin = document.createElement('div');
+      pin.className = 'fav-marker-pin';
+      pin.style.background = '#ffffff';
+      pin.style.borderColor = '#0284c7';
+      pin.innerText = iconMap[wp.type] || '📍';
+
+      wrapper.appendChild(pin);
+
+      wrapper.addEventListener('click', () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
         flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.5, pitch: curPitch, duration: 850 });
       });
 
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      const marker = new maplibregl.Marker({ element: wrapper, anchor: 'center' })
         .setLngLat([wp.lng, wp.lat])
         .addTo(map);
 
@@ -5283,7 +5264,6 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         } else {
           const el = document.createElement('div');
           el.className = 'route-via-marker-pin';
-          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
           el.innerText = viaIndex + 1;
           el.addEventListener('click', () => {
             flyToLocationPrecisely(map, via.coords || item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() ?? 50, duration: 600 });
@@ -5980,7 +5960,6 @@ function addViaPoint(map, coords, label, zoom = null) {
   if (coords && m) {
     const el = document.createElement('div');
     el.className = 'route-via-marker-pin';
-    el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
     el.innerText = idx;
     el.addEventListener('click', () => {
       const curPitch = m.getPitch() ?? 50;
@@ -6049,7 +6028,7 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
   if (startInput) startInput.value = routeStartName;
   if (routeStartMarker) routeStartMarker.remove();
   const el = document.createElement('div');
-  el.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+  el.className = 'route-start-marker-pin';
   el.innerText = '起';
   el.addEventListener('click', () => {
     if (m) {
@@ -6080,7 +6059,7 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
   if (endInput) endInput.value = routeEndName;
   if (routeEndMarker) routeEndMarker.remove();
   const el = document.createElement('div');
-  el.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+  el.className = 'route-end-marker-pin';
   el.innerText = '终';
   el.addEventListener('click', () => {
     if (m) {
@@ -7085,7 +7064,6 @@ function setupOutdoorRouteSystem(map) {
         } else {
           const el = document.createElement('div');
           el.className = 'route-via-marker-pin';
-          el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
           el.innerText = targetViaIndexForPick + 1;
           el.addEventListener('click', () => {
             const curPitch = map.getPitch() ?? 50;
@@ -7109,7 +7087,6 @@ function setupOutdoorRouteSystem(map) {
           } else {
             const el = document.createElement('div');
             el.className = 'route-via-marker-pin';
-            el.style.cssText = 'background:#0284c7; color:#fff; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
             el.innerText = emptyIdx + 1;
             el.addEventListener('click', () => {
               const curPitch = map.getPitch() ?? 50;
@@ -7906,8 +7883,7 @@ function displayImportedTrack(map, trackData) {
   const endCoord = pathCoords[pathCoords.length - 1];
 
   const startEl = document.createElement('div');
-  startEl.className = 'imported-track-marker';
-  startEl.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+  startEl.className = 'imported-track-marker route-start-marker-pin';
   startEl.innerText = '起';
   startEl.addEventListener('click', () => {
     flyToLocationPrecisely(map, startCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
@@ -7916,8 +7892,7 @@ function displayImportedTrack(map, trackData) {
   importedTrackMarkers.push(startMarker);
 
   const endEl = document.createElement('div');
-  endEl.className = 'imported-track-marker';
-  endEl.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
+  endEl.className = 'imported-track-marker route-end-marker-pin';
   endEl.innerText = '终';
   endEl.addEventListener('click', () => {
     flyToLocationPrecisely(map, endCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
@@ -8233,7 +8208,7 @@ function setupMapContextMenu(map) {
     };
 
     if (ctxPlaceName) ctxPlaceName.innerText = currentContextPoint.placeName;
-    if (ctxPlaceMeta) ctxPlaceMeta.innerText = `${lng.toFixed(4)}°E, ${lat.toFixed(4)}°N · ${ele}m`;
+    if (ctxPlaceMeta) ctxPlaceMeta.innerText = '';
 
     if (ctxMenu) {
       ctxMenu.classList.remove('ctx-closing');
@@ -8503,13 +8478,39 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 8. 搜索浮动面板
+      // 0.2 路线导出下拉菜单
+      const routeExportMenu = document.getElementById('route-export-menu');
+      if (routeExportMenu && routeExportMenu.style.display !== 'none') {
+        routeExportMenu.style.display = 'none';
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 8. 搜索框激活或搜索浮动面板打开时 (按 ESC 立即全面退出搜索并清空)
+      const sInputGlobal = document.getElementById('global-search-input');
       const searchPopover = document.getElementById('search-popover') || document.getElementById('spotlight-modal');
-      if (searchPopover && searchPopover.style.display !== 'none') {
-        smoothClosePopover(searchPopover, () => {
-          const sInput = document.getElementById('global-search-input');
-          if (sInput) sInput.blur();
-        });
+      const isSearchActive = (searchPopover && searchPopover.style.display !== 'none') ||
+                             (sInputGlobal && (document.activeElement === sInputGlobal || sInputGlobal.value.trim()));
+
+      if (isSearchActive) {
+        if (sInputGlobal) {
+          sInputGlobal.value = '';
+          sInputGlobal.blur();
+        }
+        if (searchPopover && searchPopover.style.display !== 'none') {
+          smoothClosePopover(searchPopover);
+        }
+        const targetLandingMarker = (typeof currentLandingMarker !== 'undefined' && currentLandingMarker) || window.currentLandingMarker;
+        if (targetLandingMarker) {
+          if (typeof window.clearLandingMarker === 'function') {
+            window.clearLandingMarker();
+          } else {
+            try { targetLandingMarker.remove(); } catch (err) {}
+            if (typeof currentLandingMarker !== 'undefined') currentLandingMarker = null;
+            window.currentLandingMarker = null;
+          }
+        }
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;

@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.6.5" />
+  <link rel="stylesheet" href="style.css?v=1.6.6" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.5</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.6</span>
                 </div>
               </div>
             </div>
@@ -211,7 +211,7 @@
       <div id="map-context-menu" class="fluent-context-menu" style="display: none;">
         <div class="ctx-header">
           <div class="ctx-title" id="ctx-place-name">地点</div>
-          <div class="ctx-sub" id="ctx-place-meta">--</div>
+          <div class="ctx-sub" id="ctx-place-meta" style="display: none;"></div>
         </div>
         <div class="ctx-divider"></div>
         <button class="ctx-item primary" id="ctx-btn-add-fav">
@@ -772,8 +772,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.6.5"></script>
-  <script src="app.js?v=1.6.5"></script>
+  <script src="location-camera.js?v=1.6.6"></script>
+  <script src="app.js?v=1.6.6"></script>
 </body>
 </html>
 
