@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.5.6';
+const APP_VERSION = '1.5.7';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -5996,50 +5996,124 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         routeController.signal.addEventListener('abort', abort, { once: true });
         const timer = setTimeout(abort, timeoutMs);
         try {
-          return await fetch(url, { signal: controller.signal });
+          return await fetch(url, { signal: controller.signal, cache: 'no-cache' });
         } finally {
           clearTimeout(timer);
           routeController.signal.removeEventListener('abort', abort);
         }
       };
 
-      const fetchSubRoute = async (subPoints) => {
-        const coordStr = subPoints.map(p => `${p.coords[0].toFixed(5)},${p.coords[1].toFixed(5)}`).join(';');
+      const fetchSingleRouteAttempt = async (points) => {
+        const coordStr = points.map(p => `${p.coords[0].toFixed(5)},${p.coords[1].toFixed(5)}`).join(';');
         const localRouteUrl = `http://127.0.0.1:${localServerPort}/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
         const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
-        const onlineRouteUrl = `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+        const primaryOnlineUrl = `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+        const backupOnlineUrl = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
 
         let resp = null;
         if (window.electronAPI) {
           try {
-            resp = await fetchWithTimeout(localRouteUrl, 13000);
-            if (!resp.ok) throw new Error('Local unavailable');
-          } catch (e) {}
-        } else {
-          try {
-            resp = await fetchWithTimeout(onlineRouteUrl, 12000);
-          } catch (e) {}
-        }
-
-        if (routeController.signal.aborted) return null;
-
-        if (resp && resp.ok) {
-          try {
-            const data = await resp.json();
-            if (data.code === 'Ok' && data.routes && data.routes[0]) {
-              return {
-                // Long-distance routes can contain tens of thousands of tiny
-                // vertices. Keep their shape while bounding mobile WebGL work.
-                coords: limitGeometryPoints(data.routes[0].geometry.coordinates),
-                distKm: data.routes[0].distance / 1000,
-                durationSec: data.routes[0].duration,
-                isRoad: data.source !== 'local-engine'
-              };
+            resp = await fetchWithTimeout(localRouteUrl, 10000);
+            if (resp && resp.ok) {
+              const data = await resp.json();
+              if (data.code === 'Ok' && data.routes && data.routes[0] && (data.routes[0].distance > 0 || points.length <= 1) && data.source !== 'local-engine') {
+                return {
+                  coords: limitGeometryPoints(data.routes[0].geometry.coordinates),
+                  distKm: data.routes[0].distance / 1000,
+                  durationSec: data.routes[0].duration,
+                  isRoad: true
+                };
+              }
             }
           } catch (e) {}
         }
 
-        // 离线、超时或荒野无路网 (NoRoute) 时优雅回退至大地导引线
+        // Web mode or desktop local fallback/timeout: try multi-mirror failover directly
+        const mirrors = [primaryOnlineUrl, backupOnlineUrl];
+        for (const mirrorUrl of mirrors) {
+          if (routeController.signal.aborted) return null;
+          try {
+            const mResp = await fetchWithTimeout(mirrorUrl, 7000);
+            if (mResp && mResp.ok) {
+              const data = await mResp.json();
+              if (data.code === 'Ok' && data.routes && data.routes[0] && (data.routes[0].distance > 0 || points.length <= 1)) {
+                return {
+                  coords: limitGeometryPoints(data.routes[0].geometry.coordinates),
+                  distKm: data.routes[0].distance / 1000,
+                  durationSec: data.routes[0].duration,
+                  isRoad: true
+                };
+              }
+            }
+          } catch (e) {}
+        }
+
+        return null;
+      };
+
+      const fetchSubRoute = async (subPoints) => {
+        // 1. 优先尝试整段连贯路网匹配解算
+        const chunkResult = await fetchSingleRouteAttempt(subPoints);
+        if (chunkResult && chunkResult.isRoad) {
+          return chunkResult;
+        }
+
+        if (routeController.signal.aborted) return null;
+
+        // 2. 若多点批次中有个别无路网点(NoRoute)或超时，自动降级拆解为单步逐段(Leg-by-Leg)解算
+        // 确保仅真正不可达的荒野单段显示直线，其余所有可通行的路网区间 100% 保持真实道路轨迹！
+        if (subPoints.length > 2) {
+          const legResults = [];
+          for (let i = 0; i < subPoints.length - 1; i++) {
+            if (routeController.signal.aborted) return null;
+            const legPts = [subPoints[i], subPoints[i + 1]];
+            const legResult = await fetchSingleRouteAttempt(legPts);
+            if (legResult && legResult.isRoad) {
+              legResults.push(legResult);
+            } else {
+              const g = getGeodesicSegment(subPoints[i].coords, subPoints[i + 1].coords);
+              legResults.push({
+                coords: g.coords,
+                distKm: g.distKm,
+                durationSec: g.durationSec,
+                isRoad: false
+              });
+            }
+          }
+
+          const legMergedCoords = [];
+          let legMergedDist = 0;
+          let legMergedDuration = 0;
+          let anyRoad = false;
+
+          legResults.forEach((lr, lIdx) => {
+            if (lr.isRoad) anyRoad = true;
+            legMergedDist += lr.distKm || 0;
+            legMergedDuration += lr.durationSec || 0;
+            if (lIdx === 0 || legMergedCoords.length === 0) {
+              legMergedCoords.push(...lr.coords);
+            } else {
+              const lastPt = legMergedCoords[legMergedCoords.length - 1];
+              const firstPt = lr.coords[0];
+              const dLng = Math.abs(lastPt[0] - firstPt[0]);
+              const dLat = Math.abs(lastPt[1] - firstPt[1]);
+              if (dLng < 1e-5 && dLat < 1e-5) {
+                legMergedCoords.push(...lr.coords.slice(1));
+              } else {
+                legMergedCoords.push(...lr.coords);
+              }
+            }
+          });
+
+          return {
+            coords: limitGeometryPoints(legMergedCoords),
+            distKm: legMergedDist,
+            durationSec: legMergedDuration,
+            isRoad: anyRoad
+          };
+        }
+
+        // 3. 离线/荒野单段兜底：大地测量连续折线导引
         const fallbackCoords = [];
         let fallbackDist = 0;
         for (let i = 0; i < subPoints.length - 1; i++) {

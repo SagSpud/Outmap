@@ -542,39 +542,46 @@ function startLocalTileServer() {
             } catch (e) {}
           }
 
-          // 2. Three dedicated public OSRM profiles, then persist real road data.
-          try {
-            const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
-            const osrmUrl = `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
-            const timeoutSignal = AbortSignal.timeout(10000);
-            const upstreamSignal = typeof AbortSignal.any === 'function'
-              ? AbortSignal.any([upstreamController.signal, timeoutSignal])
-              : timeoutSignal;
-            const osrmResp = await fetch(osrmUrl, { signal: upstreamSignal });
-            if (osrmResp.ok) {
-              const json = await osrmResp.json();
-              if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
-                json.source = 'road-engine';
-                const text = JSON.stringify(json);
-                try {
-                  await fs.promises.writeFile(localRoutePath, text, 'utf8');
-                } catch (e) {}
-                res.writeHead(200, {
-                  'Content-Type': 'application/json',
-                  'Cache-Control': 'private, max-age=3600',
-                  'X-Route-Source': 'osrm-cached'
-                });
-                res.end(text);
-                return;
+          // 2. Three dedicated public OSRM profiles, multi-mirror failover, then persist real road data.
+          const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
+          const mirrorUrls = [
+            `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`,
+            `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`
+          ];
+
+          for (const osrmUrl of mirrorUrls) {
+            try {
+              if (upstreamController.signal.aborted || req.aborted || res.destroyed) return;
+              const timeoutSignal = AbortSignal.timeout(8000);
+              const upstreamSignal = typeof AbortSignal.any === 'function'
+                ? AbortSignal.any([upstreamController.signal, timeoutSignal])
+                : timeoutSignal;
+              const osrmResp = await fetch(osrmUrl, { signal: upstreamSignal });
+              if (osrmResp.ok) {
+                const json = await osrmResp.json();
+                if (json.code === 'Ok' && json.routes && json.routes.length > 0 && json.routes[0].distance > 0) {
+                  json.source = 'road-engine';
+                  const text = JSON.stringify(json);
+                  try {
+                    await fs.promises.writeFile(localRoutePath, text, 'utf8');
+                  } catch (e) {}
+                  res.writeHead(200, {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'private, max-age=3600',
+                    'X-Route-Source': 'osrm-cached'
+                  });
+                  res.end(text);
+                  return;
+                }
               }
-            }
-          } catch (e) {}
+            } catch (e) {}
+          }
 
           // The renderer already requested a newer route; do not keep computing
           // or attempt to write an emergency response to a closed connection.
           if (upstreamController.signal.aborted || req.aborted || res.destroyed) return;
 
-          // 3. 离线/断网/超时时：本地三维地势连续折线路由引擎 (保障 100% 返回有效 GeoJSON)
+          // 3. 离线/断网/超时时：本地三维地势连续折线路由引擎 (保障 100% 返回有效 GeoJSON，严禁缓存以支持自愈)
           const pts = coordStr.split(';').map(s => s.split(',').map(Number));
           if (pts.length >= 2) {
             const pathCoords = [];
@@ -615,7 +622,7 @@ function startLocalTileServer() {
 
             res.writeHead(200, {
               'Content-Type': 'application/json',
-              'Cache-Control': 'private, max-age=3600',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
               'X-Route-Source': 'local-offline-fallback'
             });
             res.end(fallbackPayload);
