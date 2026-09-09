@@ -55,14 +55,6 @@ async function main() {
 
   copyDir(path.join(rootDir, 'src'), path.join(stagingDir, 'src'));
 
-  if (fs.existsSync(path.join(rootDir, 'scripts'))) {
-    copyDir(path.join(rootDir, 'scripts'), path.join(stagingDir, 'scripts'));
-  }
-
-  if (fs.existsSync(path.join(rootDir, 'build'))) {
-    copyDir(path.join(rootDir, 'build'), path.join(stagingDir, 'build'));
-  }
-
   const outAsar = path.join(outputDir, 'app.asar');
   if (fs.existsSync(outAsar)) {
     fs.unlinkSync(outAsar);

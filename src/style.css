@@ -18,9 +18,10 @@
   --status-text: #94a3b8;
   --font-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Cascadia Code", "Consolas", monospace;
-  --cursor-grab: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M7%2011V4.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V3.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V5.5a1.5%201.5%200%200%201%203%200v8a6.5%206.5%200%200%201-6.5%206.5h-1a6.5%206.5%200%200%201-5-2.4l-2.6-3.2a1.4%201.4%200%200%201%202.2-1.8L7%2013.5V11z%22%20fill%3D%22none%22%20stroke%3D%22rgba(0%2C0%2C0%2C0.35)%22%20stroke-width%3D%223.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M7%2011V4.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V3.5a1.5%201.5%200%200%201%203%200V10a1.5%201.5%200%200%201%203%200V5.5a1.5%201.5%200%200%201%203%200v8a6.5%206.5%200%200%201-6.5%206.5h-1a6.5%206.5%200%200%201-5-2.4l-2.6-3.2a1.4%201.4%200%200%201%202.2-1.8L7%2013.5V11z%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E') 10 10, grab;
-  --cursor-grabbing: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M6%2010.5c0-1.7%201.3-3%203-3h6.5c2.5%200%204.5%202%204.5%204.5v1.5c0%203.3-2.7%206-6%206h-2c-2.1%200-4-.9-5.3-2.4l-2-2.3a1.8%201.8%200%200%201%20.3-2.5%201.8%201.8%200%200%201%202.5.3L9%2014V10.5H6z%22%20fill%3D%22none%22%20stroke%3D%22rgba(0%2C0%2C0%2C0.35)%22%20stroke-width%3D%223.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M6%2010.5c0-1.7%201.3-3%203-3h6.5c2.5%200%204.5%202%204.5%204.5v1.5c0%203.3-2.7%206-6%206h-2c-2.1%200-4-.9-5.3-2.4l-2-2.3a1.8%201.8%200%200%201%20.3-2.5%201.8%201.8%200%200%201%202.5.3L9%2014V10.5H6z%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M9.5%208.5v4M12.5%208.5v4M15.5%208.5v4%22%20stroke%3D%22%2364748b%22%20stroke-width%3D%221.2%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E') 10 10, grabbing;
-  --cursor-crosshair: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%225%22%20fill%3D%22none%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%223%22%20opacity%3D%220.9%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%225%22%20fill%3D%22none%22%20stroke%3D%22%230284c7%22%20stroke-width%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M12%202v4M12%2018v4M2%2012h4M18%2012h4%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.9%22%2F%3E%3Cpath%20d%3D%22M12%202v4M12%2018v4M2%2012h4M18%2012h4%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%221.5%22%20fill%3D%22%230284c7%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%220.8%22%2F%3E%3C%2Fsvg%3E') 12 12, crosshair;
+  /* Platform cursors are rendered by Windows/macOS at the native DPI. */
+  --cursor-grab: grab;
+  --cursor-grabbing: grabbing;
+  --cursor-crosshair: crosshair;
   --cursor-pointer: pointer;
 }
 
@@ -5013,6 +5014,32 @@ body.web-mode .office-prov-group {
 
 .layer-toggle-row input[type="checkbox"]:checked + .layer-toggle-switch::after {
   transform: translateX(16px);
+}
+
+/* Mobile sheets use inline display state. These selectors must outrank the
+   layout's display:flex !important or closed sheets remain permanently open. */
+@media (max-width: 768px), (pointer: coarse) {
+  #route-panel[style*="display: none"],
+  #favorites-drawer[style*="display: none"],
+  #mobile-ele-sheet[style*="display: none"] {
+    display: none !important;
+  }
+
+  #route-panel {
+    max-height: min(62dvh, 560px) !important;
+  }
+
+  #route-panel .panel-body {
+    max-height: calc(min(62dvh, 560px) - 56px) !important;
+  }
+
+  #favorites-drawer {
+    max-height: min(55dvh, 480px) !important;
+  }
+
+  #favorites-drawer .panel-body {
+    max-height: calc(min(55dvh, 480px) - 56px) !important;
+  }
 }
 
 

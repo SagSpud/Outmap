@@ -35,7 +35,7 @@ app.whenReady().then(async () => {
     let correctiveJumps=0;
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
-    function sample(name, c, centered=false) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),padding:m.getPadding()}); }
+    function sample(name, c, centered=false) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),elevation:m.queryTerrainElevation(c),center:m.getCenter(),padding:m.getPadding()}); }
     for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
       OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await sleep(onlineTerrainTest ? 3000 : 500); sample(name,c,centered);
     }
@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
     m.jumpTo({center:[111,31],zoom:9}); await sleep(250);
     const replacementCenter=m.getCenter();
     let instantArrival=0;
-    OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(250); sample('instant',[118,35]);
+    OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35]);
     // Simulate a late, higher resolution DEM response after arrival.
     tileDelay=800;
     OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100}); await sleep(1500); sample('late DEM',[87,43]);

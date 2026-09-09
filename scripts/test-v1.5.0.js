@@ -16,7 +16,7 @@ setTimeout(() => {
 }, 30000).unref();
 
 // 1. 静态代码与配置审查
-console.log('--- 1. Static Configuration & Code Assertions (v1.5.0) ---');
+console.log('--- 1. Static Configuration & Code Assertions (v1.5.1) ---');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const mainSrc = fs.readFileSync('main.js', 'utf8');
 const preloadSrc = fs.readFileSync('preload.js', 'utf8');
@@ -27,12 +27,12 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.5.0', 'package.json version must be 1.5.0');
-assert(htmlSrc.includes('app.js?v=1.5.0'), 'index.html must reference app.js?v=1.5.0');
-assert(htmlSrc.includes('location-camera.js?v=1.5.0'), 'index.html must reference location-camera.js?v=1.5.0');
-assert(htmlSrc.includes('style.css?v=1.5.0'), 'index.html must reference style.css?v=1.5.0');
-assert(htmlSrc.includes('v1.5.0'), 'index.html must show v1.5.0 badge');
-assert(appSrc.includes("const APP_VERSION = '1.5.0'"), 'app.js must declare APP_VERSION 1.5.0');
+assert.strictEqual(pkg.version, '1.5.1', 'package.json version must be 1.5.1');
+assert(htmlSrc.includes('app.js?v=1.5.1'), 'index.html must reference app.js?v=1.5.1');
+assert(htmlSrc.includes('location-camera.js?v=1.5.1'), 'index.html must reference location-camera.js?v=1.5.1');
+assert(htmlSrc.includes('style.css?v=1.5.1'), 'index.html must reference style.css?v=1.5.1');
+assert(htmlSrc.includes('v1.5.1'), 'index.html must show v1.5.1 badge');
+assert(appSrc.includes("const APP_VERSION = '1.5.1'"), 'app.js must declare APP_VERSION 1.5.1');
 
 // 离线统计与卫星图层检查 (针对 88万 / 9G vs 20+G Bug 的修复断言)
 assert(workerSrc.includes("dirName: 'sat'"), 'offline-worker.cjs must scan sat layer');
@@ -54,9 +54,9 @@ assert(terrainIdx < favsIdx, '3D地貌效果 must be placed above 收藏夹地�
 assert(favsIdx < routesIdx, '收藏夹地点图钉 must be placed above 规划与导入路线轨迹');
 
 // 高清矢量光标断言 (无锯齿、高分屏优化)
-assert(styleSrc.includes('--cursor-grab: url('), 'style.css must define high-DPI SVG open hand cursor');
-assert(styleSrc.includes('--cursor-grabbing: url('), 'style.css must define high-DPI SVG closed fist cursor');
-assert(styleSrc.includes('--cursor-crosshair: url('), 'style.css must define high-DPI SVG crosshair cursor');
+assert(styleSrc.includes('--cursor-grab: grab'), 'style.css must use the platform-native grab cursor');
+assert(styleSrc.includes('--cursor-grabbing: grabbing'), 'style.css must use the platform-native grabbing cursor');
+assert(styleSrc.includes('--cursor-crosshair: crosshair'), 'style.css must use the platform-native crosshair cursor');
 
 // 离线状态单一圆点与语义状态断言 (彻底解决双重绿点 Bug)
 assert(styleSrc.includes('.prov-status-dot'), 'style.css must define .prov-status-dot');
@@ -152,8 +152,8 @@ app.whenReady().then(async () => {
         hasBtnFabImport: !!btnFabImport,
         hasTrackInput: !!trackInput,
         cacheStatText: cacheStat ? cacheStat.innerText : null,
-        hasSvgGrab: grabCursor.includes('data:image/svg+xml'),
-        hasSvgGrabbing: grabbingCursor.includes('data:image/svg+xml'),
+        hasNativeGrab: grabCursor.trim() === 'grab',
+        hasNativeGrabbing: grabbingCursor.trim() === 'grabbing',
         locHefei,
         locMengyin,
         layerNames
@@ -162,7 +162,7 @@ app.whenReady().then(async () => {
   `);
 
   console.log('DOM & Runtime Check result:', domCheck);
-  assert.strictEqual(domCheck.brandText, 'v1.5.0', 'Brand badge in DOM must display v1.5.0');
+  assert.strictEqual(domCheck.brandText, 'v1.5.1', 'Brand badge in DOM must display v1.5.1');
   assert(domCheck.hasRoutePanel, 'routePanel must exist');
   assert(domCheck.hasViaList, 'route-via-list must exist');
   assert(domCheck.hasCanvas, 'elevation-chart-canvas must exist');
@@ -171,33 +171,50 @@ app.whenReady().then(async () => {
   assert(domCheck.hasBtnFabLayers, 'btn-fab-layers must exist');
   assert(domCheck.hasBtnFabImport, 'btn-fab-import must exist');
   assert(domCheck.hasTrackInput, 'track-file-import-input must exist');
-  assert(domCheck.hasSvgGrab, 'Must have high-DPI SVG grab cursor');
-  assert(domCheck.hasSvgGrabbing, 'Must have high-DPI SVG grabbing cursor');
+  assert(domCheck.hasNativeGrab, 'Must use platform-native grab cursor');
+  assert(domCheck.hasNativeGrabbing, 'Must use platform-native grabbing cursor');
   assert(!domCheck.locHefei.includes('安徽省') || domCheck.locHefei.includes('合肥'), 'Context menu must not be only province');
   assert(domCheck.layerNames[0].includes('3D地貌效果'), 'Top layer must be 3D地貌效果');
 
   console.log('--- 3. Mobile Emulation & Safe Area Audit (390x844) ---');
   await win.setSize(390, 844);
   const mobileCheck = await win.webContents.executeJavaScript(`
-    (() => {
+    (async () => {
       const isNarrow = window.innerWidth <= 768;
       const anchor = window.OutmapLocationCamera ? window.OutmapLocationCamera.anchor(window.mapInstance, false) : null;
+      const routePanel = document.getElementById('route-panel');
+      const favorites = document.getElementById('favorites-drawer');
+      document.getElementById('btn-fab-route').click();
+      await new Promise(r => setTimeout(r, 30));
+      const routeOpened = getComputedStyle(routePanel).display !== 'none';
+      document.getElementById('btn-fab-fav').click();
+      await new Promise(r => setTimeout(r, 30));
+      const panelsAreExclusive = getComputedStyle(routePanel).display === 'none' && getComputedStyle(favorites).display !== 'none';
+      document.getElementById('btn-close-favorites-drawer').click();
+      await new Promise(r => setTimeout(r, 220));
+      const favoritesClosed = getComputedStyle(favorites).display === 'none';
       return {
         isNarrow,
         anchorY: anchor ? anchor.y : 0,
-        viewportH: window.innerHeight
+        viewportH: window.innerHeight,
+        routeOpened,
+        panelsAreExclusive,
+        favoritesClosed
       };
     })()
   `);
   console.log('Mobile Check result:', mobileCheck);
   assert(mobileCheck.isNarrow, 'Must detect narrow/mobile viewport');
   assert(mobileCheck.anchorY > mobileCheck.viewportH * 0.5, 'Mobile anchor must be biased downwards to avoid bottom sheets');
+  assert(mobileCheck.routeOpened, 'Mobile route sheet must open');
+  assert(mobileCheck.panelsAreExclusive, 'Mobile sheets must never stack');
+  assert(mobileCheck.favoritesClosed, 'Mobile sheet close button must actually hide it');
 
   if (pageErrors.length > 0) {
     console.error('Page errors encountered:', pageErrors);
     process.exit(1);
   }
 
-  console.log('\n🎉 ALL v1.5.0 DESKTOP & MOBILE VERIFICATIONS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL v1.5.1 DESKTOP & MOBILE VERIFICATIONS PASSED SUCCESSFULLY!');
   app.exit(0);
 });

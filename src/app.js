@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -1549,25 +1549,31 @@ async function initApplication() {
 
     renderAllMapLabels(map);
 
-    // 智能地形注记贴地系统：确保全国山峰、道路、乡镇地名贴紧三维地形，消除凹陷遮挡
+    // 点状地点、POI 与行政注记随地形抬升。沿道路排布的文字由 MapLibre
+    // 原生线标注管线处理，避免飞行动画中为大量道路文字重复计算地形高度。
     try {
       const styleLayers = map.getStyle()?.layers;
       if (styleLayers) {
         styleLayers.forEach(lyr => {
-          if (lyr.type === 'symbol') {
+          if (lyr.type === 'symbol' && lyr.layout?.['symbol-placement'] !== 'line') {
             try { map.setLayoutProperty(lyr.id, 'symbol-z-elevate', true); } catch (e) {}
           }
         });
       }
     } catch (e) {}
 
-    // 适配屏幕分辨率并确保三维地图精确居中
+    // 适配屏幕分辨率；同一帧内的连续 resize 只提交一次 WebGL 重排。
     map.resize();
-    window.addEventListener('resize', () => map.resize());
+    let resizeFrame = 0;
+    window.addEventListener('resize', () => {
+      if (resizeFrame) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        map.resize();
+      });
+    }, { passive: true });
 
-    // 3D 地形曲面与 WebGL 着色器管线静默预热：
-    // 当地图首次空闲时触发一次重绘，驱动 GPU 提前编译并缓存 3D terrain 与山体着色器，
-    // 彻底消除用户第一次点击地点飞掠时的首帧着色器编译掉帧！
+    // 首次空闲后补一帧，确保异步地形资源及时呈现。
     map.once('idle', () => {
       try {
         if (typeof map.triggerRepaint === 'function') {
@@ -2430,6 +2436,13 @@ function setupOfficeHeaderInteractions(map) {
     const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
     const flightDuration = isLongFlight ? 1100 : 500;
 
+    let landingMarkerShown = false;
+    const ensureLandingMarker = () => {
+      if (landingMarkerShown) return;
+      landingMarkerShown = true;
+      showLandingMarker(validCoords, item.name, item.desc);
+    };
+
     // 先行启动硬件加速平滑巡航，长距离飞行在着陆瞬间挂载落地 Marker DOM，杜绝巡航期间 DOM 频繁矩阵重算导致掉帧
     flyToLocationPrecisely(map, validCoords, {
       zoom: targetZoom,
@@ -2437,7 +2450,7 @@ function setupOfficeHeaderInteractions(map) {
       centered: isProv,
       duration: flightDuration,
       onArrival: () => {
-        showLandingMarker(validCoords, item.name, item.desc);
+        ensureLandingMarker();
         if (currentLandingMarker) {
           const ele = Math.round(getRealElevation(map, { lng: validCoords[0], lat: validCoords[1] }) || 0);
           const descEl = currentLandingMarker.getElement()?.querySelector('.landing-card-desc');
@@ -2451,7 +2464,7 @@ function setupOfficeHeaderInteractions(map) {
 
     if (!isLongFlight) {
       requestAnimationFrame(() => {
-        showLandingMarker(validCoords, item.name, item.desc);
+        ensureLandingMarker();
       });
     }
   }
@@ -4416,7 +4429,10 @@ function closeConflictingBottomPanels(exceptId = null) {
   panelIds.forEach(id => {
     if (id !== exceptId) {
       const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
+      if (el) {
+        el.style.display = 'none';
+        el.classList.remove('panel-closing', 'modal-overlay-closing', 'popover-closing');
+      }
     }
   });
 }

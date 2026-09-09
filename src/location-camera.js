@@ -33,6 +33,7 @@
     cancel(map); // Remove the old arrival handler BEFORE stop emits moveend.
     map.stop();
     let disposed = false, arrived = false, internal = false, frame = 0, deadline;
+    const settleTimers = [];
     let progress = 0;
     let isFlying = true;
     const previousCameraUpdate = map.transformCameraUpdate;
@@ -47,6 +48,7 @@
       for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.removeEventListener(type, dispose, true);
       cancelAnimationFrame(frame);
       clearTimeout(deadline);
+      settleTimers.forEach(clearTimeout);
       if (map.transformCameraUpdate === cameraUpdate) map.transformCameraUpdate = previousCameraUpdate;
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
@@ -84,8 +86,9 @@
       if (progress >= 1) {
         return { ...prior, ...endpoint(zoom, pitch, bearing), zoom, pitch, bearing };
       }
-      const elevation = map.queryTerrainElevation(transform.center);
-      return Number.isFinite(elevation) ? { ...prior, elevation } : prior;
+      // MapLibre already interpolates terrain elevation during flyTo/easeTo.
+      // Repeating the lookup here added work to every animation frame.
+      return prior;
     }
     const easing = t => { progress = t; return t * t * (3 - 2 * t); };
     map.transformCameraUpdate = cameraUpdate;
@@ -97,10 +100,13 @@
       if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2) return;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
-      progress = 0;
+      const settleDuration = (reduced || duration === 0) ? 0 : 250;
+      // MapLibre does not call easing for a zero-duration transition, so mark
+      // its only frame as final before transformCameraUpdate runs.
+      progress = settleDuration === 0 ? 1 : 0;
       // Late DEM revisions use a cancellable native transition, never jumpTo.
       map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
-        duration: reduced ? 0 : 250, easing, essential: false });
+        duration: settleDuration, easing, essential: false });
       internal = false;
     }
     const schedule = () => { if (!disposed && arrived && !frame) frame = requestAnimationFrame(refine); };
@@ -116,6 +122,9 @@
         if (disposed || arrived || map.isMoving()) return;
         arrived = true;
         refine();
+        // A target DEM tile can arrive without producing a useful idle window.
+        // Two bounded checks cover that race without a permanent polling loop.
+        settleTimers.push(setTimeout(refine, 250), setTimeout(refine, 1000));
         if (!disposed) options.onArrival?.();
       });
     });
@@ -125,7 +134,9 @@
     internal = true;
     // Short hops interpolate monotonically; distant flights retain the native arc.
     const method = nearby ? 'easeTo' : 'flyTo';
-    map[method]({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
+    if (duration === 0) progress = 1;
+    map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
+      padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
     internal = false;
     // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);
