@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.9';
+const APP_VERSION = '1.7.0';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -2724,35 +2724,39 @@ function setupOfficeHeaderInteractions(map) {
 let offlineProvCache = null;
 
 async function syncOfflineManifest() {
+  let diskProvinces = {};
   if (window.electronAPI && window.electronAPI.getOfflineManifest) {
     try {
-      let manifest = await window.electronAPI.getOfflineManifest();
+      const manifest = await window.electronAPI.getOfflineManifest();
       if (manifest && typeof manifest.provinces === 'object') {
-        offlineProvCache = manifest.provinces || {};
-        // 彻底清理由于历史遗留判定导致的虚假标记问题：
-        // 若磁盘实际总切片数不足以支撑标记的省份包（例如全机切片不足 8000 块却标记了 L14，或切片少于 1000 块却标记多省已就绪）
-        const hasSuspiciousL14 = Object.values(offlineProvCache).some(p => p && p.maxZ >= 14 && totalOfflineCount < 8000);
-        const hasTooManyProvsForSmallCache = totalOfflineCount < 1000 && Object.keys(offlineProvCache).length > 1;
-        if (hasSuspiciousL14 || hasTooManyProvsForSmallCache) {
-          offlineProvCache = {};
-          if (window.electronAPI.saveOfflineManifest) {
-            await window.electronAPI.saveOfflineManifest({ provinces: {} }, true);
-          }
-        }
-        try { localStorage.setItem('outmap_offline_provinces', JSON.stringify(offlineProvCache)); } catch (e) {}
-        return offlineProvCache;
+        diskProvinces = manifest.provinces || {};
       }
     } catch (e) {}
   }
-  const cached = getOfflineProvState();
-  const hasSuspiciousL14 = Object.values(cached).some(p => p && p.maxZ >= 14 && totalOfflineCount < 8000);
-  const hasTooManyProvsForSmallCache = totalOfflineCount < 1000 && Object.keys(cached).length > 1;
-  if (hasSuspiciousL14 || hasTooManyProvsForSmallCache) {
-    offlineProvCache = {};
-    try { localStorage.setItem('outmap_offline_provinces', '{}'); } catch (e) {}
-    return offlineProvCache;
+
+  let localProvinces = {};
+  try {
+    localProvinces = JSON.parse(localStorage.getItem('outmap_offline_provinces') || '{}');
+  } catch (e) {}
+
+  // 严密合并磁盘清单与本地持久化记录，双方下载状态均完整保留，取最高层级
+  const merged = { ...localProvinces };
+  for (const [k, v] of Object.entries(diskProvinces)) {
+    if (!v) continue;
+    if (!merged[k] || (v.maxZ && (!merged[k].maxZ || v.maxZ > merged[k].maxZ))) {
+      merged[k] = { ...(merged[k] || {}), ...v };
+    }
   }
-  return cached;
+
+  offlineProvCache = merged;
+  try {
+    localStorage.setItem('outmap_offline_provinces', JSON.stringify(merged));
+  } catch (e) {}
+
+  if (window.electronAPI && window.electronAPI.saveOfflineManifest) {
+    window.electronAPI.saveOfflineManifest({ provinces: merged }).catch(() => {});
+  }
+  return offlineProvCache;
 }
 
 function getOfflineProvState() {
@@ -4068,6 +4072,7 @@ async function triggerRealtimeCloudSync(reason = 'change') {
 
       if (window.electronAPI && window.electronAPI.uploadCloudSyncData) {
         const res = await window.electronAPI.uploadCloudSyncData(payload);
+        const userBadge = document.getElementById('sync-user-status-badge');
         if (res && res.success) {
           console.log(`[CloudSync] 实时自动漫游同步成功 (${reason})`);
           const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -4076,6 +4081,15 @@ async function triggerRealtimeCloudSync(reason = 'change') {
           const statusText = document.getElementById('sync-status-text');
           if (statusText) {
             statusText.innerText = `上次同步: ${nowStr}`;
+          }
+          if (userBadge) {
+            userBadge.innerText = '🟢 实时同步中';
+            userBadge.className = 'sync-user-sync-badge';
+          }
+        } else {
+          if (userBadge) {
+            userBadge.innerText = '🔴 同步失败';
+            userBadge.className = 'sync-user-sync-badge err';
           }
         }
       }
@@ -4121,11 +4135,16 @@ function setupCloudSync(map) {
 
   const updateSyncModalView = () => {
     const user = getLoggedInUser();
+    const userBadge = document.getElementById('sync-user-status-badge');
     if (user) {
       if (loginView) loginView.style.display = 'none';
       if (userView) userView.style.display = 'flex';
       if (userNameDisplay) userNameDisplay.innerText = user.username;
-      showStatus(user.lastSyncTime ? `上次同步: ${user.lastSyncTime}` : '实时全量同步中');
+      if (userBadge) {
+        userBadge.innerText = '🟢 实时同步中';
+        userBadge.className = 'sync-user-sync-badge';
+      }
+      showStatus(user.lastSyncTime ? `上次同步: ${user.lastSyncTime}` : '实时同步中');
     } else {
       if (loginView) loginView.style.display = 'flex';
       if (userView) userView.style.display = 'none';
@@ -4249,9 +4268,19 @@ function setupCloudSync(map) {
       }
 
       showStatus(`同步完成 (${nowTime})`);
+      const userBadge = document.getElementById('sync-user-status-badge');
+      if (userBadge) {
+        userBadge.innerText = '🟢 实时同步中';
+        userBadge.className = 'sync-user-sync-badge';
+      }
       return true;
     } catch (err) {
       showStatus(`同步提示: ${err.message}`, true);
+      const userBadge = document.getElementById('sync-user-status-badge');
+      if (userBadge) {
+        userBadge.innerText = '🔴 同步失败';
+        userBadge.className = 'sync-user-sync-badge err';
+      }
       return false;
     }
   };
@@ -4793,7 +4822,8 @@ function setupWaypointAndFavoritesSystem(map) {
           zoom: 14.8,
           pitch: curPitch,
           duration: flightDuration,
-          centered: false
+          centered: false,
+          elevation: Number(wp.ele) || undefined
         });
       });
 
@@ -4996,7 +5026,8 @@ function setupWaypointAndFavoritesSystem(map) {
           zoom: 14.8,
           pitch: curPitch,
           duration: flightDuration,
-          centered: false
+          centered: false,
+          elevation: Number(wp.ele) || undefined
         });
       });
 

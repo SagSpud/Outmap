@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.6.9" />
+  <link rel="stylesheet" href="style.css?v=1.7.0" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.9</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.7.0</span>
                 </div>
               </div>
             </div>
@@ -661,14 +661,10 @@
         <!-- 已登录视图: 显示当前账号与全量同步状态 -->
         <div id="sync-user-view" class="sync-user-container" style="display: none;">
           <div class="sync-user-profile-card">
-            <div class="sync-user-avatar">👤</div>
             <div class="sync-user-meta">
-              <div class="sync-user-name" id="sync-user-name-display">用户</div>
-              <div class="sync-user-sync-badge">🟢 实时全量云端同步中</div>
+              <span class="sync-user-name" id="sync-user-name-display">用户</span>
+              <span class="sync-user-sync-badge" id="sync-user-status-badge">🟢 同步中</span>
             </div>
-          </div>
-          <div class="sync-user-desc">
-            收藏地标、规划路线、自定义文件夹与默认视角均已自动双向同步至云端。
           </div>
           <div class="sync-logout-row">
             <button class="modal-btn secondary sync-logout-btn" id="btn-sync-logout">退出登录 / 切换账号</button>
@@ -784,8 +780,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.6.9"></script>
-  <script src="app.js?v=1.6.9"></script>
+  <script src="location-camera.js?v=1.7.0"></script>
+  <script src="app.js?v=1.7.0"></script>
 </body>
 </html>
 

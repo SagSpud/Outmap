@@ -73,7 +73,11 @@
       tr.setPitch(targetPitch);
       tr.setBearing(targetBearing);
       tr.setCenter(target);
-      const elevation = map.queryTerrainElevation(coords);
+      const ex = map.getTerrain ? (map.getTerrain()?.exaggeration || 1.0) : 1.0;
+      let elevation = map.queryTerrainElevation(coords);
+      if (!Number.isFinite(elevation) && Number.isFinite(options.elevation)) {
+        elevation = options.elevation * ex;
+      }
       if (Number.isFinite(elevation)) tr.setElevation(elevation);
       tr.setLocationAtPoint(target, anchor(map, isCentered));
       return { center: tr.center, elevation: tr.elevation };
@@ -99,10 +103,10 @@
       frame = 0;
       if (disposed || !arrived || map.isMoving()) return;
       const p = map.project(coords), desired = anchor(map, isCentered);
-      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2) return;
+      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2.5) return;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
-      const settleDuration = (reduced || duration === 0) ? 0 : 250;
+      const settleDuration = (reduced || duration === 0) ? 0 : 160;
       progress = settleDuration === 0 ? 1 : 0;
       map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
         duration: settleDuration, easing, essential: false });

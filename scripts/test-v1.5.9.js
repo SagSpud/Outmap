@@ -18,6 +18,7 @@ app.setPath('userData', path.join(os.tmpdir(), 'outmap-test-v159-' + process.pid
 // 注册基础 IPC 模拟处理器，确保测试窗口加载时不产生未处理异常
 ipcMain.handle('get-tile-server-info', () => ({ port: 28795, totalTiles: 0, totalBytes: 0 }));
 ipcMain.handle('get-offline-manifest', () => ({ inventoryVersion: 3, provinces: {} }));
+ipcMain.handle('save-offline-manifest', () => ({ success: true }));
 ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false, syncKey: 'default' }));
 ipcMain.handle('check-tile-updates', () => ({ updatesAvailable: false }));
 ipcMain.handle('search-location', () => []);

@@ -1,20 +1,24 @@
-// Outmap v1.6.9 Verification Test Suite
-// 1. Version consistency 1.6.9 across package.json, index.html, app.js
+// Outmap v1.7.0 Comprehensive Verification Test Suite
+// 1. Version consistency 1.7.0 across package.json, index.html, app.js
 // 2. Streamlined user login and full automatic cloud sync (no checkboxes, no sync button, remember login state)
 // 3. Brand logo click / web / mobile behavior (open login modal directly)
 // 4. Unified favorite location flight logic (centered: false, adaptive duration matching search)
+// 5. Offline manifest persistence (never wiped on restart) and elevation-aware jitter-free flight
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
+// Mock IPC for offline manifest if triggered during test
+ipcMain?.handle('save-offline-manifest', async () => true);
+
 const watchdog = setTimeout(() => {
-  console.error('v1.6.9 test timed out after 45s');
+  console.error('v1.7.0 test timed out after 45s');
   app.exit(1);
 }, 45000);
 
-console.log('=== Starting Outmap v1.6.9 Comprehensive Verification Suite ===');
+console.log('=== Starting Outmap v1.7.0 Comprehensive Verification Suite ===');
 
 // --- 1. Static CSS, HTML & JS Assertions ---
 const styleCss = fs.readFileSync(path.resolve(__dirname, '../src/style.css'), 'utf8');
@@ -24,13 +28,13 @@ const indexHtml = fs.readFileSync(path.resolve(__dirname, '../src/index.html'), 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
 // 1.1 Version consistency
-assert(['1.6.9', '1.7.0'].includes(packageJson.version), 'package.json version must be valid');
-assert(appJs.includes("const APP_VERSION = '1.6.9'") || appJs.includes("const APP_VERSION = '1.7.0'"), 'app.js must declare APP_VERSION');
-assert(indexHtml.includes('style.css?v=1.6.9') || indexHtml.includes('style.css?v=1.7.0'), 'index.html must reference style.css');
-assert(indexHtml.includes('location-camera.js?v=1.6.9') || indexHtml.includes('location-camera.js?v=1.7.0'), 'index.html must reference location-camera.js');
-assert(indexHtml.includes('app.js?v=1.6.9') || indexHtml.includes('app.js?v=1.7.0'), 'index.html must reference app.js');
-assert(indexHtml.includes('v1.6.9') || indexHtml.includes('v1.7.0'), 'index.html must display version badge');
-console.log('  [PASS] 1. Version declared consistently across all configuration and source files');
+assert.strictEqual(packageJson.version, '1.7.0', 'package.json version must be 1.7.0');
+assert(appJs.includes("const APP_VERSION = '1.7.0'"), 'app.js must declare APP_VERSION 1.7.0');
+assert(indexHtml.includes('style.css?v=1.7.0'), 'index.html must reference style.css?v=1.7.0');
+assert(indexHtml.includes('location-camera.js?v=1.7.0'), 'index.html must reference location-camera.js?v=1.7.0');
+assert(indexHtml.includes('app.js?v=1.7.0'), 'index.html must reference app.js?v=1.7.0');
+assert(indexHtml.includes('v1.7.0'), 'index.html must display v1.7.0 badge');
+console.log('  [PASS] 1. Version 1.7.0 declared consistently across all configuration and source files');
 
 // 1.2 Unified Favorite Location Flight Logic
 assert(appJs.includes('const flyOpts = { centered: false, ...options }'), 'flyToLocationPrecisely must default to centered: false (中间偏下 0.62)');
@@ -135,8 +139,8 @@ app.whenReady().then(async () => {
   })()`);
 
   console.log('Runtime verification results:');
-  assert(['v1.6.9', 'v1.7.0'].includes(results.badgeText), 'Brand badge must display valid version');
-  console.log('  [PASS] Brand badge displays ' + results.badgeText);
+  assert.strictEqual(results.badgeText, 'v1.7.0', 'Brand badge must display v1.7.0');
+  console.log('  [PASS] Brand badge displays v1.7.0');
 
   assert(results.hasOpenSyncModal, 'window.openSyncModal must be exposed as a function');
   assert(results.modalVisible, 'Calling openSyncModal must display sync modal');
@@ -152,7 +156,7 @@ app.whenReady().then(async () => {
   console.log('  [PASS] Logout button cleanly purges account session from localStorage');
 
   clearTimeout(watchdog);
-  console.log('✅ ALL v1.6.9 VERIFICATION CHECKS PASSED SUCCESSFULLY!');
+  console.log('✅ ALL v1.7.0 VERIFICATION CHECKS PASSED SUCCESSFULLY!');
   app.quit();
   process.exit(0);
 });
