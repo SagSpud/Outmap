@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.3';
+const APP_VERSION = '1.7.4';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -873,30 +873,6 @@ async function initApplication() {
     map.setPrefetchZoomDelta(mapPerformance.prefetch);
   }
 
-  // MapLibre 原生滚轮缩放灵敏度与阻尼调优：如丝般顺滑细腻，杜绝滚轮阶跃卡顿
-  if (map.scrollZoom) {
-    try {
-      map.scrollZoom.setWheelZoomRate(1 / 450);
-      map.scrollZoom.setZoomRate(1 / 100);
-    } catch (e) {}
-  }
-
-  // MapLibre 原生拖拽惯性与物理模拟
-  if (map.dragPan) {
-    try {
-      map.dragPan.enable({
-        linearity: 0.3,
-        maxSpeed: 1400,
-        deceleration: 2500
-      });
-    } catch (e) {}
-  }
-
-  // MapLibre 原生高精度动态物理比例尺控件 (随纬度动态计算真实米制标尺)
-  try {
-    const scaleCtrl = new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' });
-    map.addControl(scaleCtrl, 'bottom-left');
-  } catch (e) {}
 
   // 鼠标按压拖拽地图时实时切换为紧握拳头手型，松手恢复平展打开手掌 (0 毫秒延迟，无缝跟随)
   map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });

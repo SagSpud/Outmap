@@ -27,12 +27,12 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert(['1.7.1', '1.7.2', '1.7.3'].includes(pkg.version), 'package.json version must be valid');
-assert(htmlSrc.includes('app.js?v=1.7.3') || htmlSrc.includes('app.js?v=1.7.2') || htmlSrc.includes('app.js?v=1.7.1'), 'index.html must reference app.js');
-assert(htmlSrc.includes('location-camera.js?v=1.7.3') || htmlSrc.includes('location-camera.js?v=1.7.2') || htmlSrc.includes('location-camera.js?v=1.7.1'), 'index.html must reference location-camera.js');
-assert(htmlSrc.includes('style.css?v=1.7.3') || htmlSrc.includes('style.css?v=1.7.2') || htmlSrc.includes('style.css?v=1.7.1'), 'index.html must reference style.css');
-assert(htmlSrc.includes('v1.7.3') || htmlSrc.includes('v1.7.2') || htmlSrc.includes('v1.7.1'), 'index.html must show version badge');
-assert(appSrc.includes("const APP_VERSION = '1.7.3'") || appSrc.includes("const APP_VERSION = '1.7.2'") || appSrc.includes("const APP_VERSION = '1.7.1'"), 'app.js must declare APP_VERSION');
+assert(['1.7.1', '1.7.2', '1.7.3', '1.7.4'].includes(pkg.version), 'package.json version must be valid');
+assert(htmlSrc.includes('app.js?v=1.7.4') || htmlSrc.includes('app.js?v=1.7.3') || htmlSrc.includes('app.js?v=1.7.2'), 'index.html must reference app.js');
+assert(htmlSrc.includes('location-camera.js?v=1.7.4') || htmlSrc.includes('location-camera.js?v=1.7.3') || htmlSrc.includes('location-camera.js?v=1.7.2'), 'index.html must reference location-camera.js');
+assert(htmlSrc.includes('style.css?v=1.7.4') || htmlSrc.includes('style.css?v=1.7.3') || htmlSrc.includes('style.css?v=1.7.2'), 'index.html must reference style.css');
+assert(htmlSrc.includes('v1.7.4') || htmlSrc.includes('v1.7.3') || htmlSrc.includes('v1.7.2'), 'index.html must show version badge');
+assert(appSrc.includes("const APP_VERSION = '1.7.4'") || appSrc.includes("const APP_VERSION = '1.7.3'"), 'app.js must declare APP_VERSION');
 
 // Route planning: dedicated profiles, collision-free cache and concise context action.
 assert(mainSrc.includes("profile === 'bike' ? 'routed-bike'"), 'Desktop proxy must use the dedicated cycling router');
