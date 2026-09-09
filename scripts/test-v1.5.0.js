@@ -27,18 +27,18 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert(['1.7.1', '1.7.2', '1.7.3', '1.7.4', '1.7.5'].includes(pkg.version), 'package.json version must be valid');
-assert(htmlSrc.includes('app.js?v=1.7.5') || htmlSrc.includes('app.js?v=1.7.4') || htmlSrc.includes('app.js?v=1.7.3') || htmlSrc.includes('app.js?v=1.7.2'), 'index.html must reference app.js');
-assert(htmlSrc.includes('location-camera.js?v=1.7.5') || htmlSrc.includes('location-camera.js?v=1.7.4') || htmlSrc.includes('location-camera.js?v=1.7.3') || htmlSrc.includes('location-camera.js?v=1.7.2'), 'index.html must reference location-camera.js');
-assert(htmlSrc.includes('style.css?v=1.7.5') || htmlSrc.includes('style.css?v=1.7.4') || htmlSrc.includes('style.css?v=1.7.3') || htmlSrc.includes('style.css?v=1.7.2'), 'index.html must reference style.css');
-assert(htmlSrc.includes('v1.7.5') || htmlSrc.includes('v1.7.4') || htmlSrc.includes('v1.7.3') || htmlSrc.includes('v1.7.2'), 'index.html must show version badge');
-assert(appSrc.includes("const APP_VERSION = '1.7.5'") || appSrc.includes("const APP_VERSION = '1.7.4'") || appSrc.includes("const APP_VERSION = '1.7.3'"), 'app.js must declare APP_VERSION');
+assert(/^\d+\.\d+\.\d+$/.test(pkg.version), 'package.json version must be valid');
+assert(htmlSrc.includes(`app.js?v=${pkg.version}`), 'index.html must reference current app.js');
+assert(htmlSrc.includes(`location-camera.js?v=${pkg.version}`), 'index.html must reference current location-camera.js');
+assert(htmlSrc.includes(`style.css?v=${pkg.version}`), 'index.html must reference current style.css');
+assert(htmlSrc.includes(`v${pkg.version}`), 'index.html must show current version badge');
+assert(appSrc.includes(`const APP_VERSION = '${pkg.version}'`), 'app.js must declare package version');
 
 // Route planning: dedicated profiles, collision-free cache and concise context action.
 assert(mainSrc.includes("profile === 'bike' ? 'routed-bike'"), 'Desktop proxy must use the dedicated cycling router');
 assert(mainSrc.includes("profile === 'foot' ? 'routed-foot'"), 'Desktop proxy must use the dedicated walking router');
 assert(mainSrc.includes("createHash('sha256').update(`${profile}:${coordStr}`)"), 'Many-waypoint cache keys must hash the full route');
-assert(htmlSrc.includes('<span class="ctx-text">收藏此地点</span>'), 'Context menu action must be named 收藏此地点');
+assert(htmlSrc.includes('<span class="ctx-text">收藏</span>'), 'Context menu action must use the concise name 收藏');
 assert(htmlSrc.includes('<span class="ctx-text">设为途径点</span>'), 'Context menu action must be named 设为途径点');
 assert(htmlSrc.includes('<span class="ctx-text">设为路线起点</span>'), 'Context menu action must be named 设为路线起点');
 assert(htmlSrc.includes('<span class="ctx-text">设为路线终点</span>'), 'Context menu action must be named 设为路线终点');
@@ -63,9 +63,9 @@ assert(terrainIdx < favsIdx, '3D地貌效果 must be placed above 收藏夹地�
 assert(favsIdx < routesIdx, '收藏夹地点图钉 must be placed above 规划与导入路线轨迹');
 
 // 高清矢量光标断言 (无锯齿、高分屏优化)
-assert(styleSrc.includes('--cursor-grab: url('), 'style.css must define high-DPI SVG open hand cursor');
-assert(styleSrc.includes('--cursor-grabbing: url('), 'style.css must define high-DPI SVG closed fist cursor');
-assert(styleSrc.includes('--cursor-crosshair: url('), 'style.css must define high-DPI SVG crosshair cursor');
+assert(styleSrc.includes('--cursor-grab: grab'), 'style.css must use the OS-native open hand cursor');
+assert(styleSrc.includes('--cursor-grabbing: grabbing'), 'style.css must use the OS-native closed hand cursor');
+assert(styleSrc.includes('--cursor-crosshair: crosshair'), 'style.css must use the OS-native crosshair cursor');
 
 // 离线状态单一圆点与语义状态断言 (彻底解决双重绿点 Bug)
 assert(styleSrc.includes('.prov-status-dot'), 'style.css must define .prov-status-dot');
@@ -164,8 +164,8 @@ app.whenReady().then(async () => {
         hasBtnFabImport: !!btnFabImport,
         hasTrackInput: !!trackInput,
         cacheStatText: cacheStat ? cacheStat.innerText : null,
-        hasSvgGrab: grabCursor.includes('data:image/svg+xml'),
-        hasSvgGrabbing: grabbingCursor.includes('data:image/svg+xml'),
+        hasNativeGrab: grabCursor.trim() === 'grab',
+        hasNativeGrabbing: grabbingCursor.trim() === 'grabbing',
         locHefei,
         locMengyin,
         layerNames
@@ -183,8 +183,8 @@ app.whenReady().then(async () => {
   assert(domCheck.hasBtnFabLayers, 'btn-fab-layers must exist');
   assert(domCheck.hasBtnFabImport, 'btn-fab-import must exist');
   assert(domCheck.hasTrackInput, 'track-file-import-input must exist');
-  assert(domCheck.hasSvgGrab, 'Must have high-DPI SVG grab cursor');
-  assert(domCheck.hasSvgGrabbing, 'Must have high-DPI SVG grabbing cursor');
+  assert(domCheck.hasNativeGrab, 'Must use the operating system grab cursor');
+  assert(domCheck.hasNativeGrabbing, 'Must use the operating system grabbing cursor');
   assert(!domCheck.locHefei.includes('安徽省') || domCheck.locHefei.includes('合肥'), 'Context menu must not be only province');
   assert(domCheck.layerNames[0].includes('3D地貌效果'), 'Top layer must be 3D地貌效果');
 

@@ -63,6 +63,10 @@
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
     const target = maplibregl.LngLat.convert(coords);
+    // Snapshot the visual target once. Panels can animate closed while the map
+    // is flying; recomputing their geometry on the final frame caused a second
+    // endpoint and made the first favorite flight visibly pull back.
+    const desiredAnchor = anchor(map, options.centered);
 
     function endpoint(targetZoom, targetPitch, targetBearing) {
       const tr = map.transform.clone();
@@ -73,7 +77,7 @@
       tr.setCenter(target);
       const elevation = (Number.isFinite(options.elevation) ? options.elevation : null) ?? (map.queryTerrainElevation ? map.queryTerrainElevation(coords) : null);
       if (Number.isFinite(elevation)) tr.setElevation(elevation);
-      tr.setLocationAtPoint(target, anchor(map, options.centered));
+      tr.setLocationAtPoint(target, desiredAnchor);
       return { center: tr.center, elevation: tr.elevation };
     }
 
@@ -97,8 +101,8 @@
     function refine() {
       frame = 0;
       if (disposed || !arrived || map.isMoving() || refineCount >= 1) return;
-      const p = map.project(coords), desired = anchor(map, options.centered);
-      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2) return;
+      const p = map.project(coords);
+      if (Math.hypot(p.x - desiredAnchor.x, p.y - desiredAnchor.y) < 2) return;
       refineCount++;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
@@ -133,20 +137,17 @@
     const solved = endpoint(zoom, pitch, bearing);
     const center = map.getCenter();
     const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
-    const nearby = distDeg < 0.6;
+    const nearby = distDeg < 0.25;
     internal = true;
     // Short hops interpolate monotonically; distant flights retain the native arc.
     const method = nearby ? 'easeTo' : 'flyTo';
     if (duration === 0) progress = 1;
     map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
-      padding: zeroPadding, duration, curve: 1.42, easing, essential: false });
+      padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
     internal = false;
     // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);
   }
 
-  function globalEndpoint(zoom, pitch, bearing) {
-    return { zoom, pitch, bearing };
-  }
-  global.OutmapLocationCamera = { fly, cancel, anchor, endpoint: globalEndpoint };
+  global.OutmapLocationCamera = { fly, cancel, anchor };
 })(window);

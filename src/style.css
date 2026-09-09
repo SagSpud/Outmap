@@ -18,10 +18,10 @@
   --status-text: #94a3b8;
   --font-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Cascadia Code", "Consolas", monospace;
-  /* macOS / Figma 原生级高质感微倾斜手型光标 (高清视网膜抗锯齿 + 柔和阴影 + 真实五指抓地) */
-  --cursor-grab: url('data:image/svg+xml;utf8,%3Csvg%20height%3D%2732%27%20width%3D%2732%27%20viewBox%3D%270%200%2032%2032%27%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20style%3D%27color%3A%20black%3B%27%3E%3Cdefs%3E%3Cfilter%20id%3D%27shadow%27%20y%3D%27-40%25%27%20x%3D%27-40%25%27%20width%3D%27180%25%27%20height%3D%27180%25%27%20color-interpolation-filters%3D%27sRGB%27%3E%3CfeDropShadow%20dx%3D%271%27%20dy%3D%271%27%20stdDeviation%3D%271.2%27%20flood-opacity%3D%27.4%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Cg%20fill%3D%27none%27%20transform%3D%27rotate(0%2016%2016)%27%20filter%3D%27url(%23shadow)%27%3E%3Cpath%20d%3D%27m13.5557%2017.5742c-.098-.375-.196-.847-.406-1.552-.167-.557-.342-.859-.47-1.233-.155-.455-.303-.721-.496-1.181-.139-.329-.364-1.048-.457-1.44-.119-.509.033-.924.244-1.206.253-.339.962-.49%201.357-.351.371.13.744.512.916.788.288.46.357.632.717%201.542.393.992.564%201.918.611%202.231l.085.452c-.001-.04-.043-1.122-.044-1.162-.035-1.029-.06-1.823-.038-2.939.002-.126.064-.587.084-.715.078-.5.305-.8.673-.979.412-.201.926-.215%201.401-.017.423.173.626.55.687%201.022.014.109.094.987.093%201.107-.013%201.025.006%201.641.015%202.174.004.231.003%201.625.017%201.469.061-.656.094-3.189.344-3.942.144-.433.405-.746.794-.929.431-.203%201.113-.07%201.404.243.285.305.446.692.482%201.153.032.405-.019.897-.02%201.245%200%20.867-.021%201.324-.037%202.121-.001.038-.015.298.023.182.094-.28.188-.542.266-.745.049-.125.241-.614.359-.859.114-.234.211-.369.415-.688.2-.313.415-.448.668-.561.54-.235%201.109.112%201.301.591.086.215.009.713-.028%201.105-.061.647-.254%201.306-.352%201.648-.128.447-.274%201.235-.34%201.601-.072.394-.234%201.382-.359%201.82-.086.301-.371.978-.652%201.384%200%200-1.074%201.25-1.192%201.812-.117.563-.078.567-.101.965-.024.399.121.923.121.923s-.802.104-1.234.034c-.391-.062-.875-.841-1-1.078-.172-.328-.539-.265-.682-.023-.225.383-.709%201.07-1.051%201.113-.668.084-2.054.03-3.139.02%200%200%20.185-1.011-.227-1.358-.305-.26-.83-.784-1.144-1.06l-.832-.921c-.284-.36-.629-1.093-1.243-1.985-.348-.504-1.027-1.085-1.284-1.579-.223-.425-.331-.954-.19-1.325.225-.594.675-.897%201.362-.832.519.05.848.206%201.238.537.225.19.573.534.75.748.163.195.203.276.377.509.23.307.302.459.214.121%27%20fill%3D%27white%27%2F%3E%3Cg%20stroke%3D%27black%27%20stroke-linecap%3D%27round%27%20stroke-width%3D%27.75%27%3E%3Cpath%20d%3D%27m13.5557%2017.5742c-.098-.375-.196-.847-.406-1.552-.167-.557-.342-.859-.47-1.233-.155-.455-.303-.721-.496-1.181-.139-.329-.364-1.048-.457-1.44-.119-.509.033-.924.244-1.206.253-.339.962-.49%201.357-.351.371.13.744.512.916.788.288.46.357.632.717%201.542.393.992.564%201.918.611%202.231l.085.452c-.001-.04-.043-1.122-.044-1.162-.035-1.029-.06-1.823-.038-2.939.002-.126.064-.587.084-.715.078-.5.305-.8.673-.979.412-.201.926-.215%201.401-.017.423.173.626.55.687%201.022.014.109.094.987.093%201.107-.013%201.025.006%201.641.015%202.174.004.231.003%201.625.017%201.469.061-.656.094-3.189.344-3.942.144-.433.405-.746.794-.929.431-.203%201.113-.07%201.404.243.285.305.446.692.482%201.153.032.405-.019.897-.02%201.245%200%20.867-.021%201.324-.037%202.121-.001.038-.015.298.023.182.094-.28.188-.542.266-.745.049-.125.241-.614.359-.859.114-.234.211-.369.415-.688.2-.313.415-.448.668-.561.54-.235%201.109.112%201.301.591.086.215.009.713-.028%201.105-.061.647-.254%201.306-.352%201.648-.128.447-.274%201.235-.34%201.601-.072.394-.234%201.382-.359%201.82-.086.301-.371.978-.652%201.384%200%200-1.074%201.25-1.192%201.812-.117.563-.078.567-.101.965-.024.399.121.923.121.923s-.802.104-1.234.034c-.391-.062-.875-.841-1-1.078-.172-.328-.539-.265-.682-.023-.225.383-.709%201.07-1.051%201.113-.668.084-2.054.03-3.139.02%200%200%20.185-1.011-.227-1.358-.305-.26-.83-.784-1.144-1.06l-.832-.921c-.284-.36-.629-1.093-1.243-1.985-.348-.504-1.027-1.085-1.284-1.579-.223-.425-.331-.954-.19-1.325.225-.594.675-.897%201.362-.832.519.05.848.206%201.238.537.225.19.573.534.75.748.163.195.203.276.377.509.23.307.302.459.214.121%27%20stroke-linejoin%3D%27round%27%2F%3E%3Cpath%20d%3D%27m20.5664%2021.7344v-3.459%27%2F%3E%3Cpath%20d%3D%27m18.5508%2021.7461-.016-3.473%27%2F%3E%3Cpath%20d%3D%27m16.5547%2018.3047.021%203.426%27%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E') 16 16, grab;
-  --cursor-grabbing: url('data:image/svg+xml;utf8,%3Csvg%20height%3D%2732%27%20width%3D%2732%27%20viewBox%3D%270%200%2032%2032%27%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20style%3D%27color%3A%20black%3B%27%3E%3Cdefs%3E%3Cfilter%20id%3D%27shadow%27%20y%3D%27-40%25%27%20x%3D%27-40%25%27%20width%3D%27180%25%27%20height%3D%27180%25%27%20color-interpolation-filters%3D%27sRGB%27%3E%3CfeDropShadow%20dx%3D%271%27%20dy%3D%271%27%20stdDeviation%3D%271.2%27%20flood-opacity%3D%27.4%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Cg%20fill%3D%27none%27%20transform%3D%27rotate(0%2016%2016)%27%20filter%3D%27url(%23shadow)%27%3E%3Cpath%20d%3D%27m13.5732%2012.0361c.48-.178%201.427-.069%201.677.473.213.462.396%201.241.406%201.075.024-.369-.024-1.167.137-1.584.117-.304.347-.59.686-.691.285-.086.62-.116.916-.055.313.064.642.287.765.499.362.623.368%201.899.385%201.831.064-.272.07-1.229.283-1.584.141-.235.497-.445.687-.479.294-.052.656-.068.964-.008.249.049.586.344.677.487.219.344.342%201.316.379%201.658.016.141.074-.393.293-.736.406-.639%201.844-.763%201.898.639.026.654.02.624.02%201.064%200%20.516-.012.828-.04%201.202-.03.399-.116%201.304-.241%201.742-.086.301-.371.978-.653%201.384%200%200-1.074%201.25-1.191%201.812-.117.563-.078.567-.102.965-.023.399.121.923.121.923s-.801.104-1.234.034c-.391-.062-.875-.84-1-1.078-.172-.328-.539-.265-.682-.023-.224.383-.709%201.07-1.05%201.113-.669.084-2.055.03-3.14.02%200%200%20.185-1.011-.227-1.358-.305-.26-.83-.784-1.144-1.06l-.832-.921c-.283-.36-1.002-.929-1.243-1.985-.213-.936-.192-1.395.037-1.77.232-.381.67-.589.854-.625.208-.042.692-.039.875.062.223.123.313.159.488.391.23.307.312.456.213.121-.076-.262-.322-.595-.434-.97-.109-.361-.401-.943-.38-1.526.008-.221.103-.771.832-1.042%27%20fill%3D%27white%27%2F%3E%3Cg%20stroke%3D%27black%27%20stroke-width%3D%27.75%27%3E%3Cpath%20d%3D%27m13.5732%2012.0361c.48-.178%201.427-.069%201.677.473.213.462.396%201.241.406%201.075.024-.369-.024-1.167.137-1.584.117-.304.347-.59.686-.691.285-.086.62-.116.916-.055.313.064.642.287.765.499.362.623.368%201.899.385%201.831.064-.272.07-1.229.283-1.584.141-.235.497-.445.687-.479.294-.052.656-.068.964-.008.249.049.586.344.677.487.219.344.342%201.316.379%201.658.016.141.074-.393.293-.736.406-.639%201.844-.763%201.898.639.026.654.02.624.02%201.064%200%20.516-.012.828-.04%201.202-.03.399-.116%201.304-.241%201.742-.086.301-.371.978-.653%201.384%200%200-1.074%201.25-1.191%201.812-.117.563-.078.567-.102.965-.023.399.121.923.121.923s-.801.104-1.234.034c-.391-.062-.875-.84-1-1.078-.172-.328-.539-.265-.682-.023-.224.383-.709%201.07-1.05%201.113-.669.084-2.055.03-3.14.02%200%200%20.185-1.011-.227-1.358-.305-.26-.83-.784-1.144-1.06l-.832-.921c-.283-.36-1.002-.929-1.243-1.985-.213-.936-.192-1.395.037-1.77.232-.381.67-.589.854-.625.208-.042.692-.039.875.062.223.123.313.159.488.391.23.307.312.456.213.121-.076-.262-.322-.595-.434-.97-.109-.361-.401-.943-.38-1.526.008-.221.103-.771.832-1.042z%27%20stroke-linejoin%3D%27round%27%2F%3E%3Cpath%20d%3D%27m20.5664%2019.7344v-3.459%27%20stroke-linecap%3D%27round%27%2F%3E%3Cpath%20d%3D%27m18.5508%2019.7461-.016-3.473%27%20stroke-linecap%3D%27round%27%2F%3E%3Cpath%20d%3D%27m16.5547%2016.3047.021%203.426%27%20stroke-linecap%3D%27round%27%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E') 16 16, grabbing;
-  --cursor-crosshair: url('data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%225%22%20fill%3D%22none%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%223%22%20opacity%3D%220.9%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%225%22%20fill%3D%22none%22%20stroke%3D%22%230284c7%22%20stroke-width%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M12%202v4M12%2018v4M2%2012h4M18%2012h4%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.9%22%2F%3E%3Cpath%20d%3D%22M12%202v4M12%2018v4M2%2012h4M18%2012h4%22%20stroke%3D%22%230f172a%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%221.5%22%20fill%3D%22%230284c7%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%220.8%22%2F%3E%3C%2Fsvg%3E') 12 12, crosshair;
+  /* 使用系统原生指针；Windows/macOS 会自动选择正确 DPI 与平台样式。 */
+  --cursor-grab: grab;
+  --cursor-grabbing: grabbing;
+  --cursor-crosshair: crosshair;
   --cursor-pointer: pointer;
 }
 
@@ -209,7 +209,7 @@ button:active,
   cursor: pointer;
   padding: 3px 6px;
   border-radius: 6px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   margin-right: 4px;
 }
 
@@ -301,7 +301,7 @@ button:active,
   padding: 1px 6px;
   transform: rotateX(180deg);
   box-shadow: 0 1px 3px rgba(2, 132, 199, 0.15);
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
   position: relative;
   overflow: hidden;
   display: inline-flex;
@@ -458,7 +458,7 @@ button:active,
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   white-space: nowrap;
 }
 
@@ -484,7 +484,7 @@ button:active,
   border-radius: 5px;
   padding: 4px 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   white-space: nowrap;
 }
 
@@ -667,7 +667,7 @@ body.web-mode #manage-modal {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   -webkit-app-region: no-drag;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -793,7 +793,7 @@ body.web-mode #manage-modal {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   white-space: nowrap;
 }
 
@@ -838,7 +838,7 @@ body.web-mode #manage-modal {
   cursor: pointer;
   padding: 1px 6px;
   border-radius: 3px;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .btn-clear-history:hover {
@@ -956,7 +956,7 @@ body.web-mode #manage-modal {
   border-radius: 6px;
   color: #475569;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .map-dock-btn:hover {
@@ -1112,7 +1112,7 @@ body.web-mode #manage-modal {
   padding: 0 3px;
   line-height: 1;
   border-radius: 4px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .landing-card-close:hover {
@@ -1150,7 +1150,7 @@ body.web-mode #manage-modal {
   color: #334155;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .landing-act-btn:active {
@@ -1219,7 +1219,7 @@ body.web-mode #manage-modal {
   height: 28px;
   outline: none;
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
@@ -1343,7 +1343,7 @@ body.web-mode #manage-modal {
   font-weight: 700;
   color: #475569;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   padding: 0;
 }
 
@@ -1373,7 +1373,7 @@ body.web-mode #manage-modal {
   border-radius: 7px;
   cursor: pointer;
   margin-bottom: 10px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   text-align: left;
 }
 
@@ -1437,7 +1437,7 @@ body.web-mode #manage-modal {
   font-size: 11.5px;
   font-weight: 600;
   color: #334155;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   text-align: left;
   outline: none;
 }
@@ -1485,7 +1485,7 @@ body.web-mode #manage-modal {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
 .prov-status-line.pending {
@@ -1600,7 +1600,7 @@ body.web-mode #manage-modal {
   padding: 3px 8px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
 }
 
@@ -1621,7 +1621,7 @@ body.web-mode #manage-modal {
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .cache-badge:hover {
@@ -1931,7 +1931,7 @@ body.web-mode #manage-modal {
   gap: 14px;
   min-height: 56px;
   box-sizing: border-box;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
 .stat-info-col {
@@ -2077,7 +2077,7 @@ body.web-mode #manage-modal {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .modal-btn.primary {
@@ -2226,7 +2226,7 @@ body.web-mode #manage-modal {
   color: #334155;
   padding: 3px 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 #pyramid-modal .btn-check-tile-update:hover {
@@ -2570,7 +2570,7 @@ body.web-mode #manage-modal {
   cursor: pointer;
   text-align: center;
   white-space: nowrap;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .type-pill.active {
@@ -2889,7 +2889,7 @@ body.web-mode #manage-modal {
   color: #64748b;
   cursor: var(--cursor-grab) !important;
   flex-shrink: 0;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -3040,7 +3040,7 @@ body.web-mode #manage-modal {
   padding: 2px 4px;
   border-radius: 3px;
   line-height: 1;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .btn-via-del:hover {
@@ -3071,7 +3071,7 @@ body.web-mode #manage-modal {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.16s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.16s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
 }
 
@@ -3114,7 +3114,7 @@ body.web-mode #manage-modal {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.16s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.16s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
 }
 
@@ -3254,7 +3254,7 @@ body.web-mode #manage-modal {
   cursor: pointer;
   border-width: 1px;
   border-style: solid;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .route-actions-row .modal-btn:active,
@@ -3324,7 +3324,7 @@ body.web-mode #manage-modal {
   align-items: center;
   gap: 6px;
   width: 100%;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .route-export-menu-item:hover {
@@ -3353,7 +3353,7 @@ body.web-mode #manage-modal {
 
 .stat-card-clickable {
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .stat-card-clickable:hover {
@@ -3373,7 +3373,7 @@ body.web-mode #manage-modal {
   border-radius: 5px;
   padding: 5px 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .stat-chart-hint:hover {
@@ -3439,7 +3439,7 @@ body.web-mode #manage-modal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .chart-close-btn:hover {
@@ -3517,7 +3517,7 @@ body.web-mode #manage-modal {
   border-radius: 5px;
   padding: 6px 10px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .fav-item-card:hover {
@@ -3577,7 +3577,7 @@ body.web-mode #manage-modal {
   color: #64748b;
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   text-align: center;
 }
 
@@ -3606,7 +3606,7 @@ body.web-mode #manage-modal {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
@@ -3690,7 +3690,7 @@ body.web-mode #manage-modal {
   padding: 2px 8px;
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .fav-route-btn.primary {
@@ -3832,7 +3832,7 @@ body.web-mode #manage-modal {
   font-weight: 600 !important;
   border: none !important;
   box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .update-btn-pulse:hover {
@@ -3974,7 +3974,7 @@ body.web-mode #manage-modal {
   color: #334155;
   padding: 2px 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .prov-act-btn:hover {
@@ -4009,7 +4009,7 @@ body.web-mode #manage-modal {
   color: #0f172a;
   cursor: pointer;
   outline: none;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   user-select: none;
 }
 
@@ -4113,7 +4113,7 @@ body.web-mode #manage-modal {
   white-space: nowrap; /* 禁止折行 */
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   min-width: 0;
 }
 
@@ -4180,7 +4180,7 @@ body.web-mode #manage-modal {
   white-space: nowrap;
   letter-spacing: 0.2px;
   user-select: none;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .prov-chip-badge.full {
@@ -4275,7 +4275,7 @@ body.web-mode #manage-modal {
 .zoom-pill-dot {
   font-size: 11px;
   color: #cbd5e1;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
 .zoom-pill-dot.ready {
@@ -4441,7 +4441,7 @@ body.web-mode #manage-modal {
   border-radius: 7px;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.15s;
 }
 
 .sync-logout-btn:hover {
@@ -4986,7 +4986,7 @@ body.web-mode .office-prov-group {
     color: #475569;
     cursor: pointer;
     text-align: center;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   }
 
   .mobile-ele-preset-btn.active {
@@ -5160,7 +5160,7 @@ body.web-mode .office-prov-group {
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .fluent-alert-close:hover {
@@ -5193,7 +5193,7 @@ body.web-mode .office-prov-group {
   letter-spacing: 0.5px;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(52, 199, 89, 0.28);
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .fluent-alert-btn-primary:hover {
@@ -5275,7 +5275,7 @@ body.web-mode .office-prov-group {
   padding: 10px 12px 8px 12px;
   margin-top: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   animation: iosViaSlideIn 0.25s cubic-bezier(0.34, 1.45, 0.64, 1) both;
 }
 
@@ -5302,7 +5302,7 @@ body.web-mode .office-prov-group {
   border-radius: 4px;
   border: 1px solid #ffedd5;
   font-variant-numeric: tabular-nums;
-  transition: all 0.12s ease;
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
 .chart-canvas-wrap {
@@ -5388,7 +5388,7 @@ body.web-mode .office-prov-group {
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .layers-popover-panel .card-close:hover {
@@ -5630,4 +5630,53 @@ body.web-mode .office-prov-group {
 }
 .fav-marker-wrap:hover .fav-marker-pin {
   transform: scale(1.22);
+}
+
+/* Production compositor budget: keep one acrylic surface per panel. Nested
+   backdrop filters repeatedly sample the WebGL map and were the main source of
+   frame drops in 1.6.8-1.7.5. Translucent fills preserve the visual depth. */
+#pyramid-modal .prov-act-btn,
+#pyramid-modal .prov-dropdown-trigger,
+#pyramid-modal .prov-dropdown-panel,
+#pyramid-modal .zoom-pill-group.inline-pills .zoom-pill,
+#pyramid-modal .btn-check-tile-update,
+#pyramid-modal .stat-summary-box.dl-unified-box,
+.floating-card .card-header,
+.floating-card .card-body,
+.floating-panel .panel-header,
+.floating-panel .panel-body {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.map-is-moving .search-popover,
+body.map-is-moving .fluent-context-menu,
+body.map-is-moving .floating-card,
+body.map-is-moving .floating-panel,
+body.map-is-moving .modal-card,
+body.map-is-moving .fluent-alert-box {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  .search-popover,
+  .fluent-context-menu,
+  .floating-card,
+  .floating-panel,
+  .fluent-alert-box,
+  #pyramid-modal .modal-card,
+  #sync-modal .modal-card,
+  #update-modal .modal-card {
+    backdrop-filter: blur(11px) saturate(140%) !important;
+    -webkit-backdrop-filter: blur(11px) saturate(140%) !important;
+  }
+
+  body.map-is-moving #pyramid-modal .modal-card,
+  body.map-is-moving #sync-modal .modal-card,
+  body.map-is-moving #update-modal .modal-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }

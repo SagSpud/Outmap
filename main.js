@@ -970,7 +970,7 @@ app.whenReady().then(async () => {
         },
         { type: 'separator' },
         {
-          label: '⭐ 收藏此地点为地标',
+          label: '收藏',
           click: () => resolve({ action: 'add-fav' })
         },
         {
@@ -1124,6 +1124,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('start-pyramid-download', async (event, { bbox, minZ, maxZ, downloadDem, downloadVec, provinceKey, provinces, isVerify, isIncrementalUpdate }) => {
     if (offlineDownloadRunning) return { success: false, message: '已有下载或校验正在进行，请先取消并等待结束' };
     offlineDownloadRunning = true;
+    // These counters are also read by finally after every early return.
+    let newlySavedCount = 0;
+    let newlyAddedCount = 0;
     try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
@@ -1184,10 +1187,8 @@ app.whenReady().then(async () => {
     let savedCount = 0;
     let failedCount = 0;
     let totalBytes = 0;
-    let newlySavedCount = 0;
     let unchangedCount = 0;
     let updatedCount = 0;
-    let newlyAddedCount = 0;
     const startTime = Date.now();
     const concurrency = 32;
     const createdDirs = new Set();

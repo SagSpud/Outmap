@@ -2,7 +2,7 @@
 // Validates:
 // 1. Version consistency 1.6.8 across package.json, index.html, app.js
 // 2. Camera flight centering default, jitter-free arrival (anti-pull), and smooth transitions
-// 3. fadeDuration reduced to 30ms to slash symbol Alpha blending overhead
+// 3. Keep a short native fade so labels do not hard-cut during movement
 // 4. Waypoint marker click stops propagation and specifies centered: true
 // 5. Unified frosted acrylic cards (0.89), transparent headers and footers across all dialogs/panels
 // 6. Modal overlay background unblurred (backdrop-filter: none) with crisp 3D map visibility
@@ -27,25 +27,26 @@ const indexHtml = fs.readFileSync(path.resolve(__dirname, '../src/index.html'), 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
 // 1.1 Version consistency
-assert(['1.6.8', '1.6.9', '1.7.0', '1.7.1', '1.7.2', '1.7.3', '1.7.4', '1.7.5'].includes(packageJson.version), 'package.json version must be valid');
-assert(appJs.includes("const APP_VERSION = '1.6.8'") || appJs.includes("const APP_VERSION = '1.6.9'") || appJs.includes("const APP_VERSION = '1.7.0'") || appJs.includes("const APP_VERSION = '1.7.1'") || appJs.includes("const APP_VERSION = '1.7.2'") || appJs.includes("const APP_VERSION = '1.7.3'") || appJs.includes("const APP_VERSION = '1.7.4', '1.7.5'"), 'app.js must declare APP_VERSION');
-assert(indexHtml.includes('style.css?v=1.6.8') || indexHtml.includes('style.css?v=1.6.9') || indexHtml.includes('style.css?v=1.7.0') || indexHtml.includes('style.css?v=1.7.1') || indexHtml.includes('style.css?v=1.7.2') || indexHtml.includes('style.css?v=1.7.3') || indexHtml.includes('style.css?v=1.7.4'), 'index.html must reference style.css');
-assert(indexHtml.includes('location-camera.js?v=1.6.8') || indexHtml.includes('location-camera.js?v=1.6.9') || indexHtml.includes('location-camera.js?v=1.7.0') || indexHtml.includes('location-camera.js?v=1.7.1') || indexHtml.includes('location-camera.js?v=1.7.2') || indexHtml.includes('location-camera.js?v=1.7.3') || indexHtml.includes('location-camera.js?v=1.7.4'), 'index.html must reference location-camera.js');
-assert(indexHtml.includes('app.js?v=1.6.8') || indexHtml.includes('app.js?v=1.6.9') || indexHtml.includes('app.js?v=1.7.0') || indexHtml.includes('app.js?v=1.7.1') || indexHtml.includes('app.js?v=1.7.2') || indexHtml.includes('app.js?v=1.7.3') || indexHtml.includes('app.js?v=1.7.4'), 'index.html must reference app.js');
-assert(indexHtml.includes('v1.6.8') || indexHtml.includes('v1.6.9') || indexHtml.includes('v1.7.0') || indexHtml.includes('v1.7.1') || indexHtml.includes('v1.7.2') || indexHtml.includes('v1.7.3') || indexHtml.includes('v1.7.4', 'v1.7.5'), 'index.html must display version badge');
+assert(/^\d+\.\d+\.\d+$/.test(packageJson.version), 'package.json version must be valid');
+assert(/const APP_VERSION = '\d+\.\d+\.\d+'/.test(appJs), 'app.js must declare APP_VERSION');
+assert(indexHtml.includes(`style.css?v=${packageJson.version}`), 'index.html must reference current style.css');
+assert(indexHtml.includes(`location-camera.js?v=${packageJson.version}`), 'index.html must reference current location-camera.js');
+assert(indexHtml.includes(`app.js?v=${packageJson.version}`), 'index.html must reference current app.js');
+assert(indexHtml.includes(`v${packageJson.version}`), 'index.html must display current version badge');
 console.log('  [PASS] 1. Version declared consistently across all configuration and source files');
 
 // 1.2 Location Camera & Centering Defaults
 assert(appJs.includes('const flyOpts = { centered: true, ...options }') || appJs.includes('const flyOpts = { centered: false, ...options }'), 'flyToLocationPrecisely camera options valid');
-assert(locCamJs.includes('const nearby = distDeg < 0.6'), 'Short hop threshold set to 0.6 deg for easeTo monotonic interpolation');
-assert(locCamJs.includes('curve: 1.42'), 'Long flyTo flights use smooth 1.42 curve');
+assert(locCamJs.includes('const desiredAnchor = anchor(map, options.centered)'), 'Flight must snapshot one stable visual anchor');
+assert(locCamJs.includes('const nearby = distDeg < 0.25'), 'Short hops must use the proven monotonic threshold');
+assert(locCamJs.includes('curve: 1.0'), 'Long flights must use the stable native arc');
 console.log('  [PASS] 2. Location camera centering defaults and jitter-free arrival verified');
 
 // 1.3 MapLibre Initialization & Waypoint Pin Event Handling
-assert(appJs.includes('fadeDuration: 30'), 'mapInstance fadeDuration must be reduced to 30ms for smooth tile symbol transitions');
+assert(appJs.includes('fadeDuration: 180'), 'mapInstance must preserve smooth native symbol fading');
 assert(appJs.includes("wrapper.addEventListener('click', (e) => {"), 'Waypoint pin must capture click event');
 assert(appJs.includes('e.stopPropagation()'), 'Waypoint pin click must stop propagation to map container');
-console.log('  [PASS] 3. fadeDuration set to 30ms and pin click event stopPropagation verified');
+console.log('  [PASS] 3. fadeDuration preserves smooth native symbol fading and pin click stopPropagation verified');
 
 // 1.4 Unified Frosted Acrylic Cards & Transparent Headers/Footers
 assert(styleCss.includes('.modal-overlay {') && styleCss.includes('rgba(15, 23, 42, 0.12) !important'), 'modal-overlay must use light 12% tint');
@@ -140,7 +141,7 @@ app.whenReady().then(async () => {
   assert(results.modalDomPassed, 'Offline modal DOM elements must all exist and be structured properly');
   console.log('  [PASS] Offline download modal DOM structure passed');
 
-  assert(['v1.6.8', 'v1.6.9', 'v1.7.0', 'v1.7.1', 'v1.7.2', 'v1.7.3', 'v1.7.4', 'v1.7.5'].includes(results.badgeText), 'Brand badge must display valid version');
+  assert.strictEqual(results.badgeText, `v${packageJson.version}`, 'Brand badge must display current version');
   console.log(`  [PASS] Brand badge displays ${results.badgeText}`);
 
   console.log('✅ ALL v1.6.8 VERIFICATION CHECKS PASSED SUCCESSFULLY!');

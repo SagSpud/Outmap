@@ -20,6 +20,9 @@ ipcMain.handle('get-tile-server-info', () => ({ port: 28795, totalTiles: 0, tota
 ipcMain.handle('get-offline-manifest', () => ({ inventoryVersion: 3, provinces: {} }));
 ipcMain.handle('save-offline-manifest', () => ({ success: true }));
 ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false, syncKey: 'default' }));
+ipcMain.handle('save-cloud-sync-config', () => ({ success: true }));
+ipcMain.handle('upload-cloud-sync-data', () => ({ success: true }));
+ipcMain.handle('pull-cloud-sync-data', () => ({ success: true, data: null }));
 ipcMain.handle('check-tile-updates', () => ({ updatesAvailable: false }));
 ipcMain.handle('search-location', () => []);
 

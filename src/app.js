@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.5';
+const APP_VERSION = '1.7.6';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -662,53 +662,9 @@ async function initApplication() {
       }
     } catch (e) {}
 
-    try {
-      await syncOfflineManifest();
-    } catch (e) {}
-
-    // 启动时静默检查并智能双向合并 R2 云端漫游数据
-    try {
-      if (window.electronAPI && window.electronAPI.pullCloudSyncData) {
-        let syncKey = null;
-        const loggedUser = (typeof getLoggedInUser === 'function') ? getLoggedInUser() : null;
-        if (loggedUser) {
-          syncKey = loggedUser.syncKey || ('user_' + encodeURIComponent(loggedUser.username.toLowerCase()));
-        } else if (window.electronAPI.getCloudSyncConfig) {
-          const syncCfg = await window.electronAPI.getCloudSyncConfig();
-          if (syncCfg && syncCfg.autoSync !== false && syncCfg.syncKey) {
-            syncKey = syncCfg.syncKey;
-          }
-        }
-        if (syncKey) {
-          const syncRes = await window.electronAPI.pullCloudSyncData({ syncKey });
-          if (syncRes && syncRes.success && syncRes.data) {
-            const d = syncRes.data;
-            const localFavs = JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]');
-            const localRoutes = JSON.parse(localStorage.getItem('outmap_saved_routes') || '[]');
-            const localFolders = JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]');
-
-            const mergedFavs = mergeWaypoints(localFavs, d.favorites);
-            const mergedRoutes = mergeRoutes(localRoutes, d.routes);
-            const mergedFolders = mergeFolders(localFolders, d.folders);
-
-            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
-            localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
-            localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
-
-            if (d.settings && d.settings.pitchLocked !== undefined) {
-              localStorage.setItem('outmap_pitch_locked', d.settings.pitchLocked ? '1' : '0');
-              if (d.settings.lockedPitchVal) {
-                localStorage.setItem('outmap_locked_pitch_val', String(d.settings.lockedPitchVal));
-              }
-            }
-            if (typeof window.reloadFavoritesData === 'function') {
-              window.reloadFavoritesData();
-            }
-            console.log('[CloudSync] 启动自动双向合并云端漫游数据成功');
-          }
-        }
-      }
-    } catch (e) {}
+    // 地图首屏不等待全国离线清单扫描。磁盘清单在后台成为权威快照，
+    // 云同步则由 setupCloudSync 在地图与收藏系统就绪后仅执行一次。
+    syncOfflineManifest().catch(() => {});
   }
 
   const isWebMode = !window.electronAPI;
@@ -743,9 +699,8 @@ async function initApplication() {
           }
           if (data && data.provinces) {
             offlineProvCache = data.provinces;
-            if (typeof renderProvinceGrid === 'function') {
-              try { renderProvinceGrid(); } catch (e) {}
-            }
+            try { localStorage.setItem('outmap_offline_provinces', JSON.stringify(data.provinces)); } catch (e) {}
+            window.refreshOfflineProvinceGrid?.();
           }
         });
       }
@@ -846,7 +801,7 @@ async function initApplication() {
     maxZoom: 18, // 限制最大缩放层级为 18 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
-    fadeDuration: 30, // 标签跨瓦片层级快速平滑交接，削减高速漫游与飞掠时的全屏 Alpha 混合计算开销
+    fadeDuration: 180, // 保留 MapLibre 原生符号淡入淡出，避免整数层级标签硬切闪烁
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
     renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
@@ -2081,8 +2036,9 @@ function setupOfficeHeaderInteractions(map) {
         if (isPitchLocked) {
           updatePitchLockState(false);
         }
+        // 保持 Terrain 实例挂载，避免再次进入 3D 时在动画首帧重建 DEM
+        // 网格与着色器。2D 只隐藏山影并归零俯仰，交给 MapLibre 原生相机过渡。
         try {
-          map.setTerrain(null);
           if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'none');
         } catch (e) {}
         map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
@@ -2794,12 +2750,13 @@ function setupOfficeHeaderInteractions(map) {
 let offlineProvCache = null;
 
 async function syncOfflineManifest() {
+  let diskManifest = null;
   let diskProvinces = {};
   if (window.electronAPI && window.electronAPI.getOfflineManifest) {
     try {
-      const manifest = await window.electronAPI.getOfflineManifest();
-      if (manifest && typeof manifest.provinces === 'object') {
-        diskProvinces = manifest.provinces || {};
+      diskManifest = await window.electronAPI.getOfflineManifest();
+      if (diskManifest && typeof diskManifest.provinces === 'object') {
+        diskProvinces = diskManifest.provinces || {};
       }
     } catch (e) {}
   }
@@ -2809,23 +2766,16 @@ async function syncOfflineManifest() {
     localProvinces = JSON.parse(localStorage.getItem('outmap_offline_provinces') || '{}');
   } catch (e) {}
 
-  // 严密合并磁盘清单与本地持久化记录，双方下载状态均完整保留，取最高层级
-  const merged = { ...localProvinces };
-  for (const [k, v] of Object.entries(diskProvinces)) {
-    if (!v) continue;
-    if (!merged[k] || (v.maxZ && (!merged[k].maxZ || v.maxZ > merged[k].maxZ))) {
-      merged[k] = { ...(merged[k] || {}), ...v };
-    }
-  }
+  // inventoryVersion 3 来自 worker 对真实文件的扫描，必须覆盖旧的浏览器快照；
+  // 否则已删除/未完成的瓦片会被 localStorage 再次“复活”为绿色完成状态。
+  const hasAuthoritativeInventory = diskManifest?.inventoryVersion === 3;
+  const merged = hasAuthoritativeInventory ? diskProvinces : { ...localProvinces, ...diskProvinces };
 
   offlineProvCache = merged;
   try {
     localStorage.setItem('outmap_offline_provinces', JSON.stringify(merged));
   } catch (e) {}
 
-  if (window.electronAPI && window.electronAPI.saveOfflineManifest) {
-    window.electronAPI.saveOfflineManifest({ provinces: merged }).catch(() => {});
-  }
   return offlineProvCache;
 }
 
@@ -3334,18 +3284,12 @@ function setupPyramidModal(map) {
         return (pa.pinyin || pa.name).localeCompare(pb.pinyin || pb.name, 'zh-Hans-CN');
       });
 
-    const isLevelComplete = (s, z) => {
-      if (!s) return false;
-      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
-        return Boolean(s.layers.vector.levels[z].complete);
-      }
-      return (s.maxZ || 0) >= z;
-    };
+    const isLayerLevelComplete = (s, layer, z) => Boolean(s?.layers?.[layer]?.levels?.[z]?.complete);
+    const isLevelComplete = (s, z) => isLayerLevelComplete(s, 'dem', z) && isLayerLevelComplete(s, 'vector', z);
     const isLevelPartial = (s, z) => {
       if (!s) return false;
-      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
-        return (s.layers.vector.levels[z].present || 0) > 0;
-      }
+      const layerStates = ['dem', 'vector'].map(layer => s.layers?.[layer]?.levels?.[z]).filter(Boolean);
+      if (layerStates.length > 0) return layerStates.some(level => (level.present || 0) > 0);
       return (s.partialZ || s.maxZ || 0) >= z;
     };
 
@@ -3353,7 +3297,7 @@ function setupPyramidModal(map) {
       const p = PROVINCES_DATA[k];
       const saved = offlineState[k];
       const maxZ = saved ? (saved.maxZ || 0) : 0;
-      const isFull = (maxZ >= 14) || [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z));
+      const isFull = [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z));
       const isPartial = !isFull && ((saved?.partialZ >= 10) || (maxZ >= 10) || [10, 11, 12, 13, 14].some(z => isLevelPartial(saved, z)));
       const isChecked = selectedKeySet.has(k);
 
@@ -3398,6 +3342,10 @@ function setupPyramidModal(map) {
     });
 
     updateCounter();
+  };
+  window.refreshOfflineProvinceGrid = () => {
+    renderProvinceGrid();
+    updateEstimation();
   };
 
   // 快捷按钮：全选、反选、清空
@@ -3450,19 +3398,19 @@ function setupPyramidModal(map) {
     const selectedKeys = getSelectedKeys();
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
     const offlineState = getOfflineProvState();
+    const requestedLayers = [];
+    if (chkDem?.checked) requestedLayers.push('dem');
+    if (chkVec?.checked) requestedLayers.push('vector');
 
     const isLevelComplete = (s, z) => {
       if (!s) return false;
-      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
-        return Boolean(s.layers.vector.levels[z].complete);
-      }
-      return (s.maxZ || 0) >= z;
+      if (requestedLayers.length === 0) return false;
+      return requestedLayers.every(layer => Boolean(s.layers?.[layer]?.levels?.[z]?.complete));
     };
     const isLevelPartial = (s, z) => {
       if (!s) return false;
-      if (s.layers && s.layers.vector && s.layers.vector.levels && s.layers.vector.levels[z]) {
-        return (s.layers.vector.levels[z].present || 0) > 0;
-      }
+      const layerStates = requestedLayers.map(layer => s.layers?.[layer]?.levels?.[z]).filter(Boolean);
+      if (layerStates.length > 0) return layerStates.some(level => (level.present || 0) > 0);
       return (s.partialZ || s.maxZ || 0) >= z;
     };
 
@@ -3503,52 +3451,44 @@ function setupPyramidModal(map) {
     let minSavedZ = Infinity;
     let hasAnySaved = false;
 
-    const downloadDem = Boolean(chkDem?.checked);
-    const downloadVec = Boolean(chkVec?.checked);
+    const downloadDem = requestedLayers.includes('dem');
+    const downloadVec = requestedLayers.includes('vector');
 
     selectedKeys.forEach(k => {
       const prov = PROVINCES_DATA[k];
       if (!prov || !prov.bbox) return;
       const saved = offlineState[k];
-      const savedMaxZ = saved ? (saved.maxZ || 0) : 0;
+      let contiguousReadyZ = 9;
+      for (let z = 10; z <= maxZ; z++) {
+        if (!isLevelComplete(saved, z)) break;
+        contiguousReadyZ = z;
+      }
+      if (contiguousReadyZ < maxZ) allReady = false;
+      minSavedZ = Math.min(minSavedZ, contiguousReadyZ);
+      if ([10, 11, 12, 13, 14].some(z => z <= maxZ && isLevelPartial(saved, z))) hasAnySaved = true;
 
-      const demSavedMaxZ = saved && saved.layers && saved.layers.dem
-        ? (saved.layers.dem.maxZ || 0)
-        : (saved && saved.dem ? savedMaxZ : 0);
-      const vectorSavedMaxZ = saved && saved.layers && saved.layers.vector
-        ? (saved.layers.vector.maxZ || 0)
-        : (saved && saved.vec ? savedMaxZ : 0);
-      const requestedLayerLevels = [];
-      if (downloadDem) requestedLayerLevels.push(demSavedMaxZ);
-      if (downloadVec) requestedLayerLevels.push(vectorSavedMaxZ);
-      const requestedSavedMaxZ = requestedLayerLevels.length > 0 ? Math.min(...requestedLayerLevels) : 0;
-
-      if (requestedSavedMaxZ >= 10) hasAnySaved = true;
-      if (requestedSavedMaxZ < minSavedZ) minSavedZ = requestedSavedMaxZ;
-
-      if (requestedSavedMaxZ < maxZ) {
-        allReady = false;
-        const [minLon, maxLon, minLat, maxLat] = prov.bbox;
-        const startZ = requestedSavedMaxZ >= 10 ? requestedSavedMaxZ + 1 : 0;
-        for (let z = startZ; z <= maxZ; z++) {
-          const n = 1 << z;
-          const x1 = Math.max(0, Math.floor((minLon + 180) / 360 * n));
-          const x2 = Math.min(n - 1, Math.floor((maxLon + 180) / 360 * n));
-          const latRad1 = Math.min(85.0511, maxLat) * Math.PI / 180;
-          const latRad2 = Math.max(-85.0511, minLat) * Math.PI / 180;
-          const y1 = Math.max(0, Math.floor((1 - Math.log(Math.tan(latRad1) + 1 / Math.cos(latRad1)) / Math.PI) / 2 * n));
-          const y2 = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latRad2) + 1 / Math.cos(latRad2)) / Math.PI) / 2 * n));
-          totalIncrementalTiles += (x2 - x1 + 1) * (y2 - y1 + 1);
+      // Count holes from the worker's authoritative per-layer inventory. A
+      // partially present high level is never treated as a complete pyramid.
+      const [minLon, maxLon, minLat, maxLat] = prov.bbox;
+      for (let z = 0; z <= maxZ; z++) {
+        const n = 1 << z;
+        const x1 = Math.max(0, Math.floor((minLon + 180) / 360 * n));
+        const x2 = Math.min(n - 1, Math.floor((maxLon + 180) / 360 * n));
+        const latRad1 = Math.min(85.0511, maxLat) * Math.PI / 180;
+        const latRad2 = Math.max(-85.0511, minLat) * Math.PI / 180;
+        const y1 = Math.max(0, Math.floor((1 - Math.log(Math.tan(latRad1) + 1 / Math.cos(latRad1)) / Math.PI) / 2 * n));
+        const y2 = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latRad2) + 1 / Math.cos(latRad2)) / Math.PI) / 2 * n));
+        const geometricExpected = (x2 - x1 + 1) * (y2 - y1 + 1);
+        for (const layer of requestedLayers) {
+          const level = saved?.layers?.[layer]?.levels?.[z];
+          const expected = Number.isFinite(Number(level?.expected)) ? Number(level.expected) : geometricExpected;
+          const present = Number.isFinite(Number(level?.present)) ? Number(level.present) : 0;
+          totalIncrementalTiles += Math.max(0, expected - present);
         }
       }
     });
 
-    let multiplier = 0;
-    if (chkDem?.checked) multiplier += 1;
-    if (chkVec?.checked) multiplier += 1;
-    if (multiplier === 0) multiplier = 1;
-
-    const totalTiles = totalIncrementalTiles * multiplier;
+    const totalTiles = totalIncrementalTiles;
 
     const isDownloading = downloadDotState === 'downloading' || Boolean(activeDownloadSession);
     const activeKeys = activeDownloadSession?.keys || [];
@@ -3853,34 +3793,45 @@ function setupPyramidModal(map) {
       }
 
       if (data.done) {
-        setDownloadDotState('completed');
+        const completedCleanly = !data.aborted && !(data.failedCount > 0);
+        setDownloadDotState(completedCleanly ? 'completed' : 'idle');
         if (progressTask) {
-          progressTask.innerText = data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪';
+          progressTask.innerText = data.aborted
+            ? '下载已中止，已完成的切片继续保留'
+            : (data.failedCount > 0
+              ? `下载结束，${formatTileCount(data.failedCount)} 块失败，可继续补齐`
+              : (data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪'));
         }
         progressSpeed.innerText = '';
-        const selectedKeys = getSelectedKeys();
-        selectedKeys.forEach(k => {
-          saveOfflineProvState(k, maxZ, { dem: chkDem.checked, vec: chkVec.checked });
-        });
 
-        btnStart.style.display = 'none';
+        btnStart.style.display = completedCleanly ? 'none' : 'inline-block';
+        btnStart.disabled = false;
+        btnStart.innerText = completedCleanly ? '开始下载' : '继续补齐';
         btnCancel.style.display = 'none';
-        if (btnDone) btnDone.style.display = 'inline-block';
-        if (btnRetry) btnRetry.style.display = 'inline-block';
-        if (btnUpdate) btnUpdate.style.display = 'inline-block';
+        if (btnDone) btnDone.style.display = completedCleanly ? 'inline-block' : 'none';
+        if (btnRetry) btnRetry.style.display = completedCleanly ? 'inline-block' : 'none';
+        if (btnUpdate) btnUpdate.style.display = completedCleanly ? 'inline-block' : 'none';
 
         if (provStatusTag) {
-          provStatusTag.className = 'prov-status-line ready';
+          provStatusTag.className = completedCleanly ? 'prov-status-line ready' : 'prov-status-line partial';
           provStatusTag.style.display = 'inline-flex';
-          if (data.isIncrementalUpdate) {
+          if (!completedCleanly) {
+            provStatusTag.innerHTML = '<span class="prov-status-dot partial"></span> 部分切片已保留，尚未全部就绪';
+          } else if (data.isIncrementalUpdate) {
             provStatusTag.innerHTML = '<span class="prov-status-dot ready"></span> 增量更新已完成 · 旧切片完好保留';
           } else {
             provStatusTag.innerHTML = `<span class="prov-status-dot ready"></span> 所选省份在 L${maxZ} 已全部就绪`;
           }
         }
 
-        renderProvinceGrid();
-        updateEstimation();
+        // 后台已经完成真实文件扫描；重新读取权威清单再刷新绿/蓝状态。
+        syncOfflineManifest().then(() => {
+          renderProvinceGrid();
+          updateEstimation();
+        }).catch(() => {
+          renderProvinceGrid();
+          updateEstimation();
+        });
 
         if (data.isIncrementalUpdate) {
           if (typeof showFluentAlert === 'function') {
@@ -4095,6 +4046,8 @@ function setupAppUpdate() {
 
 /// 全局实时云端漫游同步引擎 (用户登录后，标记增删改、路线、视角与偏好变动全自动持久化到 R2)
 let cloudSyncDebounceTimer = null;
+let cloudSyncUploading = false;
+let cloudSyncPending = false;
 const USER_ACCOUNT_STORAGE_KEY = 'outmap_user_account';
 
 function getLoggedInUser() {
@@ -4115,6 +4068,11 @@ async function triggerRealtimeCloudSync(reason = 'change') {
 
   clearTimeout(cloudSyncDebounceTimer);
   cloudSyncDebounceTimer = setTimeout(async () => {
+    if (cloudSyncUploading) {
+      cloudSyncPending = true;
+      return;
+    }
+    cloudSyncUploading = true;
     try {
       const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
       const payload = {
@@ -4165,6 +4123,12 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       }
     } catch (e) {
       console.warn('[CloudSync] 实时自动同步后台提示:', e.message);
+    } finally {
+      cloudSyncUploading = false;
+      if (cloudSyncPending) {
+        cloudSyncPending = false;
+        triggerRealtimeCloudSync('queued_change');
+      }
     }
   }, 1200);
 }
@@ -4285,8 +4249,6 @@ function setupCloudSync(map) {
       if (typeof window.reloadFavoritesData === 'function') {
         window.reloadFavoritesData();
       }
-
-      window.dispatchEvent(new Event('storage'));
 
       // 5. 上传合并后的全量数据至云端
       const nowTime = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -4912,7 +4874,8 @@ function setupWaypointAndFavoritesSystem(map) {
           zoom: 14.8,
           pitch: curPitch,
           duration: flightDuration,
-          centered: false
+          centered: false,
+          elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
         });
       });
 
@@ -5105,18 +5068,28 @@ function setupWaypointAndFavoritesSystem(map) {
       `;
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
-        const curCenter = map.getCenter();
-        const curZoom = map.getZoom();
-        const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
-        const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
-        const flightDuration = isLongFlight ? 1100 : 500;
-        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-        flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-          zoom: 14.8,
-          pitch: curPitch,
-          duration: flightDuration,
-          centered: false
-        });
+        const startFavoriteFlight = () => {
+          const curCenter = map.getCenter();
+          const curZoom = map.getZoom();
+          const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
+          const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
+          const flightDuration = isLongFlight ? 1100 : 500;
+          const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
+          flyToLocationPrecisely(map, [wp.lng, wp.lat], {
+            zoom: 14.8,
+            pitch: curPitch,
+            duration: flightDuration,
+            centered: false,
+            elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+          });
+        };
+        // 手机抽屉会遮挡大半地图；先完成原生式收起，再按稳定的完整
+        // viewport 解算一次相机终点，避免抽屉动画中途改变落点。
+        if (window.innerWidth <= 768 && favDrawer?.style.display !== 'none') {
+          smoothClosePanel(favDrawer, startFavoriteFlight);
+        } else {
+          startFavoriteFlight();
+        }
       });
 
       item.querySelector('.fav-item-del').addEventListener('click', (e) => {
@@ -5541,7 +5514,9 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       }
     }
 
-    if (item.coords) {
+    // 起点、终点 setter 已经负责唯一一次飞行；途径点编辑在这里飞行。
+    // 过去的无条件第二次 fly 会立即取消第一次，是首个路线点跳动的来源。
+    if (item.coords && pointType === 'via') {
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
       flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650 });
     }
@@ -6404,7 +6379,7 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#0f7135',
+        'line-color': '#0a4fa3',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4, 18, 18.0],
         'line-opacity': 1.0
       }
@@ -6420,7 +6395,7 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#32d15f',
+        'line-color': '#2f8bff',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8, 18, 14.0],
         'line-opacity': 1.0
       }
@@ -8119,7 +8094,7 @@ function displayImportedTrack(map, trackData) {
       source: 'imported-track-source',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#0369a1',
+        'line-color': '#4a48a8',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.0, 10, 8.5, 14, 11.5],
         'line-opacity': 1.0
       }
@@ -8131,7 +8106,7 @@ function displayImportedTrack(map, trackData) {
       source: 'imported-track-source',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#0284c7',
+        'line-color': '#7775e7',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.0, 10, 6.0, 14, 8.5],
         'line-opacity': 1.0
       }

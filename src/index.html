@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:*; font-src 'self' data: http://127.0.0.1:* https:; connect-src 'self' http://127.0.0.1:* https:; worker-src 'self' blob:;" />
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.7.5" />
+  <link rel="stylesheet" href="style.css?v=1.7.6" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.7.5</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.7.6</span>
                 </div>
               </div>
             </div>
@@ -216,7 +217,7 @@
         <div class="ctx-divider"></div>
         <button class="ctx-item primary" id="ctx-btn-add-fav">
           <span class="ctx-icon">⭐</span>
-          <span class="ctx-text">收藏此地点</span>
+          <span class="ctx-text">收藏</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-via">
           <span class="ctx-icon">➕</span>
@@ -777,8 +778,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.7.5"></script>
-  <script src="app.js?v=1.7.5"></script>
+  <script src="location-camera.js?v=1.7.6"></script>
+  <script src="app.js?v=1.7.6"></script>
 </body>
 </html>
 

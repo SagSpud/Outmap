@@ -24,12 +24,12 @@ const indexHtml = fs.readFileSync(path.resolve(__dirname, '../src/index.html'), 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
 // 1.1 Version consistency
-assert(['1.6.9', '1.7.0', '1.7.1', '1.7.2', '1.7.3', '1.7.4', '1.7.5'].includes(packageJson.version), 'package.json version must be valid');
-assert(appJs.includes("const APP_VERSION = '1.6.9'") || appJs.includes("const APP_VERSION = '1.7.0'") || appJs.includes("const APP_VERSION = '1.7.1'") || appJs.includes("const APP_VERSION = '1.7.2'") || appJs.includes("const APP_VERSION = '1.7.3'") || appJs.includes("const APP_VERSION = '1.7.4', '1.7.5'"), 'app.js must declare APP_VERSION');
-assert(indexHtml.includes('style.css?v=1.6.9') || indexHtml.includes('style.css?v=1.7.0') || indexHtml.includes('style.css?v=1.7.1') || indexHtml.includes('style.css?v=1.7.2') || indexHtml.includes('style.css?v=1.7.3') || indexHtml.includes('style.css?v=1.7.4'), 'index.html must reference style.css');
-assert(indexHtml.includes('location-camera.js?v=1.6.9') || indexHtml.includes('location-camera.js?v=1.7.0') || indexHtml.includes('location-camera.js?v=1.7.1') || indexHtml.includes('location-camera.js?v=1.7.2') || indexHtml.includes('location-camera.js?v=1.7.3') || indexHtml.includes('location-camera.js?v=1.7.4'), 'index.html must reference location-camera.js');
-assert(indexHtml.includes('app.js?v=1.6.9') || indexHtml.includes('app.js?v=1.7.0') || indexHtml.includes('app.js?v=1.7.1') || indexHtml.includes('app.js?v=1.7.2') || indexHtml.includes('app.js?v=1.7.3') || indexHtml.includes('app.js?v=1.7.4'), 'index.html must reference app.js');
-assert(indexHtml.includes('v1.6.9') || indexHtml.includes('v1.7.0') || indexHtml.includes('v1.7.1') || indexHtml.includes('v1.7.2') || indexHtml.includes('v1.7.3') || indexHtml.includes('v1.7.4', 'v1.7.5'), 'index.html must display version badge');
+assert(/^\d+\.\d+\.\d+$/.test(packageJson.version), 'package.json version must be valid');
+assert(/const APP_VERSION = '\d+\.\d+\.\d+'/.test(appJs), 'app.js must declare APP_VERSION');
+assert(indexHtml.includes(`style.css?v=${packageJson.version}`), 'index.html must reference current style.css');
+assert(indexHtml.includes(`location-camera.js?v=${packageJson.version}`), 'index.html must reference current location-camera.js');
+assert(indexHtml.includes(`app.js?v=${packageJson.version}`), 'index.html must reference current app.js');
+assert(indexHtml.includes(`v${packageJson.version}`), 'index.html must display current version badge');
 console.log('  [PASS] 1. Version declared consistently across all configuration and source files');
 
 // 1.2 Unified Favorite Location Flight Logic
@@ -56,8 +56,9 @@ console.log('  [PASS] 3. Streamlined login form and clean user profile (no avata
 
 // 1.4 Offline Manifest Persistence (Never wipe on startup)
 assert(!appJs.includes('hasSuspiciousL14'), 'app.js must not contain destructive hasSuspiciousL14 wipe logic');
-assert(appJs.includes('const merged = { ...localProvinces }'), 'syncOfflineManifest must merge local and disk manifests');
-console.log('  [PASS] 4. Offline manifest non-destructive persistence verified');
+assert(appJs.includes('const hasAuthoritativeInventory = diskManifest?.inventoryVersion === 3'), 'worker inventory must be authoritative over stale UI state');
+assert(appJs.includes('hasAuthoritativeInventory ? diskProvinces'), 'disk scan must clear false completed states without deleting tiles');
+console.log('  [PASS] 4. Offline manifest authority and non-destructive persistence verified');
 
 // 1.5 Elevation-Aware Location Camera
 assert(locCamJs.includes('options.elevation'), 'location-camera.js must support options.elevation fallback');
@@ -136,7 +137,7 @@ app.whenReady().then(async () => {
   })()`);
 
   console.log('Runtime verification results:');
-  assert(['v1.6.9', 'v1.7.0', 'v1.7.1', 'v1.7.2', 'v1.7.3', 'v1.7.4', 'v1.7.5'].includes(results.badgeText), 'Brand badge must display valid version');
+  assert.strictEqual(results.badgeText, `v${packageJson.version}`, 'Brand badge must display current version');
   console.log('  [PASS] Brand badge displays ' + results.badgeText);
 
   assert(results.hasOpenSyncModal, 'window.openSyncModal must be exposed as a function');

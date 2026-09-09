@@ -13,6 +13,9 @@ ipcMain.handle('search-location', () => ({ type: 'FeatureCollection', features: 
 ipcMain.handle('rescan-offline-tiles', () => ({ totalTiles: 0, totalBytes: 0 }));
 ipcMain.handle('get-power-state', () => ({ powerSource: 'ac', isLowPower: false }));
 ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false, key: 'default' }));
+ipcMain.handle('save-cloud-sync-config', () => ({ success: true }));
+ipcMain.handle('upload-cloud-sync-data', () => ({ success: true }));
+ipcMain.handle('pull-cloud-sync-data', () => ({ success: true, data: null }));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
