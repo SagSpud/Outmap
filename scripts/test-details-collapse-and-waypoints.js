@@ -28,6 +28,7 @@ app.whenReady().then(async () => {
 
   const result = await win.webContents.executeJavaScript(`(async () => {
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    while (!window.mapInstance) await sleep(50);
     const m = window.mapInstance;
 
     // 1. 打开路线规划面板

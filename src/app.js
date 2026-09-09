@@ -836,6 +836,7 @@ async function initApplication() {
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxZoom: 18, // 限制最大缩放层级为 18 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
+    maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 30, // 标签跨瓦片层级快速平滑交接，削减高速漫游与飞掠时的全屏 Alpha 混合计算开销
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
@@ -862,6 +863,31 @@ async function initApplication() {
   if (typeof map.setPrefetchZoomDelta === 'function') {
     map.setPrefetchZoomDelta(mapPerformance.prefetch);
   }
+
+  // MapLibre 原生滚轮缩放灵敏度与阻尼调优：如丝般顺滑细腻，杜绝滚轮阶跃卡顿
+  if (map.scrollZoom) {
+    try {
+      map.scrollZoom.setWheelZoomRate(1 / 450);
+      map.scrollZoom.setZoomRate(1 / 100);
+    } catch (e) {}
+  }
+
+  // MapLibre 原生拖拽惯性与物理模拟
+  if (map.dragPan) {
+    try {
+      map.dragPan.enable({
+        linearity: 0.3,
+        maxSpeed: 1400,
+        deceleration: 2500
+      });
+    } catch (e) {}
+  }
+
+  // MapLibre 原生高精度动态物理比例尺控件 (随纬度动态计算真实米制标尺)
+  try {
+    const scaleCtrl = new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' });
+    map.addControl(scaleCtrl, 'bottom-left');
+  } catch (e) {}
 
   // 鼠标按压拖拽地图时实时切换为紧握拳头手型，松手恢复平展打开手掌 (0 毫秒延迟，无缝跟随)
   map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });
@@ -1931,108 +1957,37 @@ window.refreshRouteElevationProfile = refreshRouteElevationProfile;
 // 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const flyOpts = { centered: false, ...options };
-  options = flyOpts;
   if (!map || !targetCoords || targetCoords.length < 2) return;
   const lng = Number(targetCoords[0]);
   const lat = Number(targetCoords[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-  const zoom = Number.isFinite(options.zoom) ? options.zoom : 14.8;
-  const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() ?? 50);
-  const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() ?? 0);
-  const centered = Boolean(options.centered);
-  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-
-  // 检测移动端底部抽屉 (路线规划抽屉 / 收藏夹抽屉 / 高程起伏抽屉) 展开高度
-  let bottomCover = 0;
-  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-    const routePanel = document.getElementById('route-panel');
-    const favDrawer = document.getElementById('favorites-drawer');
-    const eleSheet = document.getElementById('mobile-ele-sheet');
-    if (routePanel && routePanel.style.display !== 'none') {
-      bottomCover = Math.max(bottomCover, routePanel.getBoundingClientRect().height);
-    }
-    if (favDrawer && favDrawer.style.display !== 'none') {
-      bottomCover = Math.max(bottomCover, favDrawer.getBoundingClientRect().height);
-    }
-    if (eleSheet && eleSheet.style.display !== 'none') {
-      bottomCover = Math.max(bottomCover, eleSheet.getBoundingClientRect().height);
-    }
-  }
-
-  // 视口安全内边距配置 (Padding 系统：让目标点在整个飞行过程中始终稳居黄金视觉中心，图层随之平滑旋转缩放，彻底消除中途漂移与落地跳动)
-  let topPadding = 46;
-  let bottomPadding = 46;
-  if (bottomCover > 0) {
-    bottomPadding = Math.min(Math.round(window.innerHeight * 0.65), Math.round(bottomCover) + 20);
-  } else if (!centered && typeof window !== 'undefined') {
-    topPadding = Math.round(window.innerHeight * 0.24) + 46;
-  }
-
-  const cameraPadding = {
-    top: topPadding,
-    bottom: bottomPadding,
-    left: 20,
-    right: 20
-  };
-
-  // 智能航程判定与极速平滑动画调度
-  const curCenter = map.getCenter() || { lng, lat };
-  const curZoom = map.getZoom() || 10;
-  const distKm = calculateDistanceKm([curCenter.lng, curCenter.lat], [lng, lat]);
-  const zoomDiff = Math.abs(curZoom - zoom);
-
-  // 近距离或同城跳转 (25km 内且层级差 <= 3.5)：使用极速平滑 easeTo (450~550ms)，不产生多层级瓦片下发与GC抖动，极致 60fps
-  const isNearbyHop = distKm < 25 && zoomDiff <= 3.5;
-  const defaultDuration = reducedMotion ? 0 : (isNearbyHop ? 480 : (distKm > 500 ? 1100 : 850));
-  const duration = reducedMotion ? 0 : (options.duration !== undefined ? options.duration : defaultDuration);
-
-  map.stop();
-
-  if (isNearbyHop) {
-    map.easeTo({
-      center: [lng, lat],
-      zoom,
-      pitch: curPitch,
-      bearing: curBearing,
-      padding: cameraPadding,
-      duration,
-      essential: true
+  if (window.OutmapLocationCamera?.fly) {
+    window.OutmapLocationCamera.fly(map, [lng, lat], {
+      ...flyOpts,
+      onArrival: () => {
+        if (typeof refreshAllRouteMarkersElevation === 'function') {
+          refreshAllRouteMarkersElevation(map);
+        }
+        if (typeof refreshRouteElevationProfile === 'function') {
+          refreshRouteElevationProfile(map);
+        }
+        flyOpts.onArrival?.();
+      }
     });
-  } else {
-    map.flyTo({
-      center: [lng, lat],
-      zoom,
-      pitch: curPitch,
-      bearing: curBearing,
-      padding: cameraPadding,
-      curve: 1.42,
-      speed: 1.2,
-      duration,
-      essential: true
-    });
+    return;
   }
 
-  let arrivalTriggered = false;
-  const handleArrival = () => {
-    if (arrivalTriggered) return;
-    arrivalTriggered = true;
-
-    // 落地后分批次通知所有标记点贴合最新 DEM 真实海拔
-    if (typeof refreshAllRouteMarkersElevation === 'function') {
-      refreshAllRouteMarkersElevation(map);
-    }
-    if (typeof refreshRouteElevationProfile === 'function') {
-      refreshRouteElevationProfile(map);
-    }
-
-    if (typeof options.onArrival === 'function') {
-      options.onArrival();
-    }
-  };
-
-  map.once('moveend', handleArrival);
-  setTimeout(handleArrival, duration + 80);
+  // 基础兜底飞行
+  const cameraPadding = { top: 0, bottom: 0, left: 0, right: 0 };
+  map.flyTo({
+    center: [lng, lat],
+    zoom: flyOpts.zoom || 14.8,
+    pitch: flyOpts.pitch !== undefined ? flyOpts.pitch : (map.getPitch() ?? 50),
+    bearing: flyOpts.bearing !== undefined ? flyOpts.bearing : (map.getBearing() ?? 0),
+    padding: cameraPadding,
+    duration: flyOpts.duration || 850
+  });
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
 
@@ -2068,10 +2023,16 @@ function setupOfficeHeaderInteractions(map) {
       } catch (e) {}
       map.setMinPitch(currentPitch);
       map.setMaxPitch(currentPitch);
+      if (map.touchPitch) {
+        try { map.touchPitch.disable(); } catch (e) {}
+      }
       if (statusPitchLock) statusPitchLock.innerText = `[高度锁定 ${currentPitch}° · 右键仅水平旋转]`;
     } else {
       map.setMinPitch(0);
       map.setMaxPitch(85);
+      if (map.touchPitch) {
+        try { map.touchPitch.enable(); } catch (e) {}
+      }
       if (statusPitchLock) statusPitchLock.innerText = '';
     }
 
@@ -2119,28 +2080,48 @@ function setupOfficeHeaderInteractions(map) {
              <line x1="16" y1="6" x2="16" y2="22"></line>
            </svg>`;
       if (is3DView) {
-        // 2D 切到 3D 视图：视角 50 度锁定！
+        // 2D 切到 3D 视图：恢复 50 度视角并重新挂载 DEM 地形网格与山体立体阴影
         map.setMinPitch(0);
         map.setMaxPitch(85);
+        try {
+          map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5 });
+          if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
+        } catch (e) {}
         map.easeTo({ pitch: 50, duration: 800 });
         pitchLockTimer = setTimeout(() => {
           if (is3DView) updatePitchLockState(true, map.getPitch());
         }, 820);
       } else {
-        // 切到 2D 视图：解除锁定并平俯至 0 度
+        // 切到 2D 视图：解除锁定并平俯至 0 度，正北回正，智能卸载 3D DEM 顶点计算节省 30% 显存功耗
         if (isPitchLocked) {
           updatePitchLockState(false);
         }
-        map.easeTo({ pitch: 0, duration: 800 });
+        try {
+          map.setTerrain(null);
+          if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'none');
+        } catch (e) {}
+        map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
       }
     });
   }
 
-  // 校准正北
+  // 校准正北与动态罗盘针指示 (罗盘红针始终实时指向地磁正北，点击丝滑回正)
   const btnNorth = document.getElementById('btn-reset-north');
   if (btnNorth) {
+    const northSvg = btnNorth.querySelector('svg');
+    map.on('rotate', () => {
+      const b = map.getBearing();
+      if (northSvg) {
+        northSvg.style.transform = `rotate(${-b}deg)`;
+      }
+    });
+
     btnNorth.addEventListener('click', () => {
-      map.easeTo({ bearing: 0, duration: 800 });
+      if (isPitchLocked) {
+        map.easeTo({ bearing: 0, duration: 600 });
+      } else {
+        map.resetNorth({ duration: 600 });
+      }
     });
   }
 

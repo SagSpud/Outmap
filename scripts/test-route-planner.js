@@ -26,6 +26,7 @@ app.whenReady().then(async () => {
 
   const result = await win.webContents.executeJavaScript(`(async () => {
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    while (!window.mapInstance) await sleep(50);
     const m = window.mapInstance;
     const state = { calls: [], active: 0, maxActive: 0, aborts: 0, dense: true };
     const originalFetch = window.fetch;

@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const assert = require('assert');
 
@@ -26,6 +26,7 @@ app.whenReady().then(async () => {
 
   const result = await win.webContents.executeJavaScript(`(async () => {
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    while (!window.mapInstance) await sleep(50);
     const m = window.mapInstance;
 
     // Open route panel

@@ -970,6 +970,32 @@ body.web-mode #manage-modal {
   box-shadow: inset 0 0 0 1px #38bdf8;
 }
 
+#btn-reset-north svg {
+  transition: transform 0.08s cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform;
+  transform-origin: center;
+}
+
+.maplibregl-ctrl-bottom-left {
+  bottom: 8px;
+  left: 12px;
+  z-index: 10;
+}
+
+.maplibregl-ctrl-scale {
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid #334155;
+  border-top: none;
+  border-radius: 0 0 3px 3px;
+  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
 /* 飞跃定位着陆标记与高质感操作卡片 (保证硬件加速合成置顶，杜绝 WebGL 画布叠盖) */
 .landing-pulse-marker {
   position: relative;
