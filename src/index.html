@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.6.8" />
+  <link rel="stylesheet" href="style.css?v=1.6.9" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.8</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.9</span>
                 </div>
               </div>
             </div>
@@ -625,44 +625,57 @@
     </div>
   </div>
 
-  <!-- 云端数据多设备同步设置面板 (挂载在 body 顶层) -->
+  <!-- 用户登录与全量云端漫游同步面板 (挂载在 body 顶层) -->
   <div id="sync-modal" class="modal-overlay" style="display: none;">
     <div class="modal-card sync-modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <span class="m-icon">☁️</span>
-          <span>云端同步</span>
+          <span class="m-icon" id="sync-modal-icon">☁️</span>
+          <span id="sync-modal-title">用户登录 / 云端同步</span>
         </div>
         <button class="modal-close-btn" id="btn-close-sync-modal">✕</button>
       </div>
       <div class="modal-body">
-        <div class="sync-auto-switch-row">
-          <div class="sync-auto-switch-info">
-            <span class="sync-switch-title">自动实时同步</span>
-            <span class="sync-switch-sub">地标、路线与视角变动自动与云端双向同步</span>
+        <!-- 未登录视图: 极简注册与登录表单 -->
+        <div id="sync-login-view" class="sync-form-container">
+          <div class="sync-form-group">
+            <label class="sync-input-label" for="sync-username">用户名</label>
+            <div class="sync-input-wrapper">
+              <span class="sync-input-icon">👤</span>
+              <input type="text" id="sync-username" class="form-control sync-input" placeholder="请输入用户名" autocomplete="username" />
+            </div>
           </div>
-          <label class="fluent-switch">
-            <input type="checkbox" id="chk-auto-sync-toggle" checked />
-            <span class="fluent-slider"></span>
-          </label>
+          <div class="sync-form-group">
+            <label class="sync-input-label" for="sync-password">密码</label>
+            <div class="sync-input-wrapper">
+              <span class="sync-input-icon">🔒</span>
+              <input type="password" id="sync-password" class="form-control sync-input" placeholder="请输入密码" autocomplete="current-password" />
+            </div>
+          </div>
+          <div class="sync-action-row">
+            <button class="modal-btn primary sync-submit-btn" id="btn-sync-login">登录 / 注册</button>
+          </div>
+          <div class="sync-login-hint">新用户首次登录将自动创建云端同步存档，全量实时同步</div>
         </div>
 
-        <div class="form-row">
-          <label class="form-lbl">同步内容项:</label>
-          <div class="sync-check-grid">
-            <label><input type="checkbox" id="chk-sync-favorites" checked /> 收藏夹与地点标记</label>
-            <label><input type="checkbox" id="chk-sync-routes" checked /> 规划路线与历史轨迹</label>
-            <label><input type="checkbox" id="chk-sync-views" checked /> 默认中心点、仰角与视图设置</label>
+        <!-- 已登录视图: 显示当前账号与全量同步状态 -->
+        <div id="sync-user-view" class="sync-user-container" style="display: none;">
+          <div class="sync-user-profile-card">
+            <div class="sync-user-avatar">👤</div>
+            <div class="sync-user-meta">
+              <div class="sync-user-name" id="sync-user-name-display">用户</div>
+              <div class="sync-user-sync-badge">🟢 实时全量云端同步中</div>
+            </div>
+          </div>
+          <div class="sync-user-desc">
+            收藏地标、规划路线、自定义文件夹与默认视角均已自动双向同步至云端。
+          </div>
+          <div class="sync-logout-row">
+            <button class="modal-btn secondary sync-logout-btn" id="btn-sync-logout">退出登录 / 切换账号</button>
           </div>
         </div>
 
-        <details class="sync-advanced-details">
-          <summary class="sync-advanced-summary">⚙️ 高级选项: 同步标识 (默认无需修改)</summary>
-          <div class="sync-advanced-content">
-            <input type="text" id="sync-account-key" class="form-control" value="default" placeholder="default" />
-          </div>
-        </details>
-
+        <!-- 底部状态指示器 -->
         <div class="sync-status-row" id="sync-status-indicator">
           <span class="sync-dot-live">●</span>
           <span id="sync-status-text">就绪</span>
@@ -670,7 +683,6 @@
       </div>
       <div class="modal-footer">
         <button class="modal-btn secondary" id="btn-close-sync-btn">关闭</button>
-        <button class="modal-btn primary" id="btn-do-sync-now">⚡ 立即同步</button>
       </div>
     </div>
   </div>
@@ -772,8 +784,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.6.8"></script>
-  <script src="app.js?v=1.6.8"></script>
+  <script src="location-camera.js?v=1.6.9"></script>
+  <script src="app.js?v=1.6.9"></script>
 </body>
 </html>
 

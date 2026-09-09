@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.8';
+const APP_VERSION = '1.6.9';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -1929,7 +1929,7 @@ window.refreshRouteElevationProfile = refreshRouteElevationProfile;
 
 // Search, favourites and route points share one cancellable camera transaction.
 function flyToLocationPrecisely(map, coords, options = {}) {
-  const flyOpts = { centered: true, ...options };
+  const flyOpts = { centered: false, ...options };
   window.OutmapLocationCamera.fly(map, coords, {
     ...flyOpts,
     onArrival: () => {
@@ -3849,8 +3849,26 @@ function setupAppUpdate() {
     isReadyToInstall = false;
   };
 
-  // 左键点击 Logo 区域触发原地 3D 翻转微交互
+  // 左键点击 Logo 区域：浏览器/手机端点击直接登录，桌面端点击图标登录，点击文本翻转更新
   brandBtn.addEventListener('click', async (e) => {
+    // 浏览器端或移动触控设备：点击 Logo 直接呼出登录与云端漫游弹窗
+    if (!window.electronAPI || window.innerWidth <= 768 || ('ontouchstart' in window && window.innerWidth <= 1024)) {
+      e.stopPropagation();
+      if (typeof window.openSyncModal === 'function') {
+        window.openSyncModal();
+      }
+      return;
+    }
+
+    // 桌面客户端点击左侧 Logo 图标直接打开登录弹窗，点击右侧文本执行翻转检查更新
+    if (e.target.closest('.header-brand-logo')) {
+      e.stopPropagation();
+      if (typeof window.openSyncModal === 'function') {
+        window.openSyncModal();
+      }
+      return;
+    }
+
     // 1. 若已下载完毕，提示“覆盖安装”，再点击一下此标签即执行覆盖安装
     if (isReadyToInstall) {
       e.stopPropagation();
@@ -4001,28 +4019,36 @@ function setupAppUpdate() {
   });
 }
 
-/// 全局实时云端漫游同步引擎 (支持标记增删改、路线保存与删除、视角与配置变动的后台秒级自动持久化到 R2)
+/// 全局实时云端漫游同步引擎 (用户登录后，标记增删改、路线、视角与偏好变动全自动持久化到 R2)
 let cloudSyncDebounceTimer = null;
+const USER_ACCOUNT_STORAGE_KEY = 'outmap_user_account';
+
+function getLoggedInUser() {
+  try {
+    const raw = localStorage.getItem(USER_ACCOUNT_STORAGE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    return (obj && obj.loggedIn && obj.username) ? obj : null;
+  } catch (e) {
+    return null;
+  }
+}
+window.getLoggedInUser = getLoggedInUser;
 
 async function triggerRealtimeCloudSync(reason = 'change') {
-  if (!window.electronAPI || !window.electronAPI.uploadCloudSyncData) return;
+  const user = getLoggedInUser();
+  if (!user) return; // 只要登录即全量实时漫游，未登录则不上传
 
   clearTimeout(cloudSyncDebounceTimer);
   cloudSyncDebounceTimer = setTimeout(async () => {
     try {
-      let syncKey = 'default';
-      if (window.electronAPI.getCloudSyncConfig) {
-        const cfg = await window.electronAPI.getCloudSyncConfig();
-        if (cfg) {
-          if (cfg.autoSync === false) return; // 自动漫游已关闭
-          if (cfg.syncKey) syncKey = cfg.syncKey.trim();
-        }
-      }
-
+      const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
       const payload = {
-        syncKey: syncKey || 'default',
+        syncKey,
         data: {
           version: APP_VERSION,
+          username: user.username,
+          password: user.password || '',
           syncedAt: new Date().toISOString(),
           favorites: JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]'),
           folders: JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]'),
@@ -4040,13 +4066,17 @@ async function triggerRealtimeCloudSync(reason = 'change') {
         }
       };
 
-      const res = await window.electronAPI.uploadCloudSyncData(payload);
-      if (res && res.success) {
-        console.log(`[CloudSync] 实时自动同步成功 (${reason})`);
-        const statusText = document.getElementById('sync-status-text');
-        if (statusText) {
+      if (window.electronAPI && window.electronAPI.uploadCloudSyncData) {
+        const res = await window.electronAPI.uploadCloudSyncData(payload);
+        if (res && res.success) {
+          console.log(`[CloudSync] 实时自动漫游同步成功 (${reason})`);
           const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-          statusText.innerText = `上次同步: ${nowStr}`;
+          user.lastSyncTime = nowStr;
+          try { localStorage.setItem(USER_ACCOUNT_STORAGE_KEY, JSON.stringify(user)); } catch (e) {}
+          const statusText = document.getElementById('sync-status-text');
+          if (statusText) {
+            statusText.innerText = `上次同步: ${nowStr}`;
+          }
         }
       }
     } catch (e) {
@@ -4056,26 +4086,27 @@ async function triggerRealtimeCloudSync(reason = 'change') {
 }
 window.triggerRealtimeCloudSync = triggerRealtimeCloudSync;
 
-// 多设备云端漫游同步系统 (右键 Logo 呼出)
+// 用户极简登录与全量云端漫游同步系统
 function setupCloudSync(map) {
   const brandBtn = document.getElementById('header-brand-logo-btn');
   const syncModal = document.getElementById('sync-modal');
-  const btnClose = document.getElementById('btn-close-sync-modal');
-  const btnCloseBtn = document.getElementById('btn-close-sync-btn');
-  const keyInput = document.getElementById('sync-account-key');
-  const chkAutoSync = document.getElementById('chk-auto-sync-toggle');
-  const chkFav = document.getElementById('chk-sync-favorites');
-  const chkRoutes = document.getElementById('chk-sync-routes');
-  const chkViews = document.getElementById('chk-sync-views');
+  const loginView = document.getElementById('sync-login-view');
+  const userView = document.getElementById('sync-user-view');
+  const usernameInput = document.getElementById('sync-username');
+  const passwordInput = document.getElementById('sync-password');
+  const btnLogin = document.getElementById('btn-sync-login');
+  const btnLogout = document.getElementById('btn-sync-logout');
+  const userNameDisplay = document.getElementById('sync-user-name-display');
   const statusIndicator = document.getElementById('sync-status-indicator');
   const statusText = document.getElementById('sync-status-text');
-  const btnSyncNow = document.getElementById('btn-do-sync-now');
+  const btnClose = document.getElementById('btn-close-sync-modal');
+  const btnCloseBtn = document.getElementById('btn-close-sync-btn');
 
-  if (!brandBtn || !syncModal) return;
+  if (!syncModal) return;
 
   const showStatus = (msg, isErr = false) => {
     if (!statusText) return;
-    statusText.innerHTML = msg;
+    statusText.innerText = msg;
     const dot = statusIndicator?.querySelector('.sync-dot-live');
     if (dot) {
       dot.style.color = isErr ? '#ef4444' : '#16a34a';
@@ -4088,9 +4119,33 @@ function setupCloudSync(map) {
     }
   };
 
-  // 监听地图视口停止拖动/平移，节流自动同步当前中心点与仰角 (5s 节流，杜绝每次拖动都阻塞 IPC)
+  const updateSyncModalView = () => {
+    const user = getLoggedInUser();
+    if (user) {
+      if (loginView) loginView.style.display = 'none';
+      if (userView) userView.style.display = 'flex';
+      if (userNameDisplay) userNameDisplay.innerText = user.username;
+      showStatus(user.lastSyncTime ? `上次同步: ${user.lastSyncTime}` : '实时全量同步中');
+    } else {
+      if (loginView) loginView.style.display = 'flex';
+      if (userView) userView.style.display = 'none';
+      showStatus('未登录 (当前使用本地浏览器存储)');
+    }
+  };
+
+  const openSyncModal = () => {
+    updateSyncModalView();
+    showElement(syncModal, 'flex');
+    if (!getLoggedInUser()) {
+      setTimeout(() => usernameInput?.focus(), 80);
+    }
+  };
+  window.openSyncModal = openSyncModal;
+
+  // 监听地图视口停止拖动/平移，节流自动同步当前中心点与仰角 (5s 节流)
   let moveSyncThrottleTimer = null;
   map.on('moveend', () => {
+    if (!getLoggedInUser()) return;
     if (moveSyncThrottleTimer) return;
     moveSyncThrottleTimer = setTimeout(() => {
       moveSyncThrottleTimer = null;
@@ -4098,21 +4153,29 @@ function setupCloudSync(map) {
     }, 5000);
   });
 
-  // 执行双向智能合并同步
-  const doBidirectionalSync = async () => {
-    let key = (keyInput ? keyInput.value : 'default').trim() || 'default';
-
-    showStatus('正在同步...');
-    if (btnSyncNow) btnSyncNow.disabled = true;
+  // 执行全量双向智能合并与云端同步
+  const executeFullSync = async (user) => {
+    const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
+    showStatus('正在同步云端数据...');
 
     try {
-      // 1. 先从云端拉取数据
+      // 1. 从云端拉取存档
       let cloudData = null;
       if (window.electronAPI && window.electronAPI.pullCloudSyncData) {
-        const pullRes = await window.electronAPI.pullCloudSyncData({ syncKey: key });
+        const pullRes = await window.electronAPI.pullCloudSyncData({ syncKey });
         if (pullRes && pullRes.success && pullRes.data) {
           cloudData = pullRes.data;
         }
+      } else {
+        try {
+          const r = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`);
+          if (r.ok) cloudData = await r.json();
+        } catch (e) {}
+      }
+
+      // 密码核验 (若云端已有且设置了密码)
+      if (cloudData && cloudData.password && user.password && cloudData.password !== user.password) {
+        throw new Error('密码不正确，请重新输入');
       }
 
       // 2. 读取本地数据
@@ -4120,20 +4183,20 @@ function setupCloudSync(map) {
       const localRoutes = JSON.parse(localStorage.getItem('outmap_saved_routes') || '[]');
       const localFolders = JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]');
 
-      // 3. 智能双向求并集合并 (Merge: 双方新数据均保留)
-      const mergedFavs = (chkFav && chkFav.checked && cloudData) ? mergeWaypoints(localFavs, cloudData.favorites) : localFavs;
-      const mergedRoutes = (chkRoutes && chkRoutes.checked && cloudData) ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
-      const mergedFolders = cloudData ? mergeFolders(localFolders, cloudData.folders) : localFolders;
+      // 3. 全量智能双向合并 (双方新数据均保留)
+      const mergedFavs = cloudData?.favorites ? mergeWaypoints(localFavs, cloudData.favorites) : localFavs;
+      const mergedRoutes = cloudData?.routes ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
+      const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
 
       // 4. 写回本地并刷新界面标记与列表
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
       localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
       localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
 
-      if (chkViews && chkViews.checked && cloudData && cloudData.views && cloudData.views.center) {
+      if (cloudData?.views?.center) {
         map.flyTo({
           center: cloudData.views.center,
-          zoom: cloudData.views.zoom || 4.0,
+          zoom: cloudData.views.zoom || 4.45,
           pitch: cloudData.views.pitch ?? 50,
           bearing: cloudData.views.bearing || 0
         });
@@ -4141,11 +4204,14 @@ function setupCloudSync(map) {
 
       window.dispatchEvent(new Event('storage'));
 
-      // 5. 将合并后的最新全量数据推送回云端
+      // 5. 上传合并后的全量数据至云端
+      const nowTime = new Date().toLocaleTimeString('zh-CN', { hour12: false });
       const payload = {
-        syncKey: key,
+        syncKey,
         data: {
           version: APP_VERSION,
+          username: user.username,
+          password: user.password || '',
           syncedAt: new Date().toISOString(),
           favorites: mergedFavs,
           folders: mergedFolders,
@@ -4170,65 +4236,82 @@ function setupCloudSync(map) {
         }
       }
 
-      const nowTime = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      user.lastSyncTime = nowTime;
+      localStorage.setItem(USER_ACCOUNT_STORAGE_KEY, JSON.stringify(user));
+
       if (window.electronAPI && window.electronAPI.saveCloudSyncConfig) {
         await window.electronAPI.saveCloudSyncConfig({
-          syncKey: key,
-          autoSync: chkAutoSync ? chkAutoSync.checked : true,
+          syncKey,
+          username: user.username,
+          autoSync: true,
           lastSyncTime: nowTime
         });
       }
 
       showStatus(`同步完成 (${nowTime})`);
+      return true;
     } catch (err) {
-      showStatus(`同步失败: ${err.message}`, true);
-    } finally {
-      if (btnSyncNow) btnSyncNow.disabled = false;
+      showStatus(`同步提示: ${err.message}`, true);
+      return false;
     }
   };
 
-  btnSyncNow?.addEventListener('click', doBidirectionalSync);
+  // 登录 / 注册按钮点击
+  btnLogin?.addEventListener('click', async () => {
+    const username = usernameInput ? usernameInput.value.trim() : '';
+    const password = passwordInput ? passwordInput.value.trim() : '';
 
-  // 自动同步开关切换
-  chkAutoSync?.addEventListener('change', async () => {
-    const isAuto = chkAutoSync.checked;
-    const key = (keyInput ? keyInput.value : 'default').trim() || 'default';
+    if (!username) {
+      showStatus('请输入用户名', true);
+      usernameInput?.focus();
+      return;
+    }
+    if (!password) {
+      showStatus('请输入密码', true);
+      passwordInput?.focus();
+      return;
+    }
+
+    const syncKey = 'user_' + encodeURIComponent(username.toLowerCase());
+    const userObj = {
+      username,
+      password,
+      syncKey,
+      loggedIn: true,
+      lastSyncTime: ''
+    };
+
+    btnLogin.disabled = true;
+    try {
+      const ok = await executeFullSync(userObj);
+      if (ok) {
+        localStorage.setItem(USER_ACCOUNT_STORAGE_KEY, JSON.stringify(userObj));
+        if (passwordInput) passwordInput.value = '';
+        updateSyncModalView();
+      }
+    } finally {
+      btnLogin.disabled = false;
+    }
+  });
+
+  // 退出登录按钮点击
+  btnLogout?.addEventListener('click', async () => {
+    localStorage.removeItem(USER_ACCOUNT_STORAGE_KEY);
     if (window.electronAPI && window.electronAPI.saveCloudSyncConfig) {
-      await window.electronAPI.saveCloudSyncConfig({ syncKey: key, autoSync: isAuto });
+      await window.electronAPI.saveCloudSyncConfig({ autoSync: false, loggedIn: false });
     }
-    if (isAuto) {
-      showStatus('已开启');
-      triggerRealtimeCloudSync('switch_on');
-    } else {
-      showStatus('已暂停');
-    }
+    updateSyncModalView();
+    showStatus('已退出登录');
   });
 
-  // 右键 Logo 呼出云同步面板
-  brandBtn.addEventListener('contextmenu', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    let lastTime = '';
-    if (window.electronAPI && window.electronAPI.getCloudSyncConfig) {
-      try {
-        const cfg = await window.electronAPI.getCloudSyncConfig();
-        if (cfg) {
-          if (keyInput) keyInput.value = cfg.syncKey || 'default';
-          if (chkAutoSync) chkAutoSync.checked = cfg.autoSync !== false;
-          if (cfg.lastSyncTime) lastTime = cfg.lastSyncTime;
-        }
-      } catch (err) {}
-    }
-
-    if (chkAutoSync && chkAutoSync.checked) {
-      showStatus(lastTime ? `上次同步: ${lastTime}` : '就绪');
-    } else {
-      showStatus('已暂停');
-    }
-
-    showElement(syncModal, 'flex');
-  });
+  // 右键 Logo 呼出登录与云端同步面板
+  if (brandBtn) {
+    brandBtn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSyncModal();
+    });
+  }
 
   const closeSync = () => {
     smoothCloseModal(syncModal);
@@ -4242,6 +4325,14 @@ function setupCloudSync(map) {
       closeSync();
     }
   });
+
+  // 页面启动时：如果浏览器端已记住登录状态，自动执行一次后台全量漫游同步
+  const currentUser = getLoggedInUser();
+  if (currentUser) {
+    setTimeout(() => {
+      executeFullSync(currentUser);
+    }, 1500);
+  }
 }
 
 function flyToProvince(map, key) {
@@ -4692,8 +4783,18 @@ function setupWaypointAndFavoritesSystem(map) {
 
       wrapper.addEventListener('click', (e) => {
         e.stopPropagation();
+        const curCenter = map.getCenter();
+        const curZoom = map.getZoom();
+        const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
+        const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
+        const flightDuration = isLongFlight ? 1100 : 500;
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.5, pitch: curPitch, duration: 850, centered: true });
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], {
+          zoom: 14.8,
+          pitch: curPitch,
+          duration: flightDuration,
+          centered: false
+        });
       });
 
       const marker = new maplibregl.Marker({ element: wrapper, anchor: 'center' })
@@ -4885,8 +4986,18 @@ function setupWaypointAndFavoritesSystem(map) {
       `;
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
+        const curCenter = map.getCenter();
+        const curZoom = map.getZoom();
+        const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
+        const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
+        const flightDuration = isLongFlight ? 1100 : 500;
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.2, pitch: curPitch, duration: 850, centered: true });
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], {
+          zoom: 14.8,
+          pitch: curPitch,
+          duration: flightDuration,
+          centered: false
+        });
       });
 
       item.querySelector('.fav-item-del').addEventListener('click', (e) => {
