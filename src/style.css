@@ -2342,22 +2342,22 @@ body.web-mode #manage-modal {
 }
 
 .fluent-context-menu.ctx-opening {
-  animation: ctxFadeIn 0.08s cubic-bezier(0, 0, 0.2, 1) both;
+  animation: ctxFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .fluent-context-menu.ctx-closing {
-  animation: ctxFadeOut 0.08s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+  animation: ctxFadeOut 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
   pointer-events: none !important;
 }
 
 @keyframes ctxFadeIn {
-  0% { opacity: 0.85; transform: scale(0.98); }
-  100% { opacity: 1; transform: scale(1.0); }
+  0% { opacity: 0; transform: scale(0.92) translateY(-4px); }
+  100% { opacity: 1; transform: scale(1.0) translateY(0); }
 }
 
 @keyframes ctxFadeOut {
-  0% { opacity: 1; transform: scale(1.0); }
-  100% { opacity: 0; transform: scale(0.98); }
+  0% { opacity: 1; transform: scale(1.0) translateY(0); }
+  100% { opacity: 0; transform: scale(0.92) translateY(-4px); }
 }
 
 .ctx-header {
@@ -2554,13 +2554,14 @@ body.web-mode #manage-modal {
 }
 
 .type-pill-group {
-  display: flex;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
   width: 100%;
 }
 
 .type-pill {
-  flex: 1;
+  padding: 6px 2px;
   background: #f1f5f9;
   border: 1px solid #cbd5e1;
   border-radius: 4px;

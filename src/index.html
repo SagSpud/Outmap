@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.8.4" />
+  <link rel="stylesheet" href="style.css?v=1.8.5" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.4</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.5</span>
                 </div>
               </div>
             </div>
@@ -247,10 +247,14 @@
           <div class="form-row">
             <label class="form-lbl">地标类型:</label>
             <div class="type-pill-group" id="wp-type-group">
-              <button class="type-pill active" data-type="camp">🏕️ 露营</button>
-              <button class="type-pill" data-type="view">🏔️ 观景</button>
+              <button class="type-pill active" data-type="view">🏔️ 观景</button>
+              <button class="type-pill" data-type="camp">🏕️ 露营</button>
               <button class="type-pill" data-type="water">💧 水源</button>
               <button class="type-pill" data-type="supply">⛽ 补给</button>
+              <button class="type-pill" data-type="parking">🅿️ 停车</button>
+              <button class="type-pill" data-type="hotel">🏨 住宿</button>
+              <button class="type-pill" data-type="photo">📸 摄影</button>
+              <button class="type-pill" data-type="hiking">🥾 徒步</button>
             </div>
           </div>
           <div class="form-row">
@@ -454,10 +458,7 @@
             <span>我的收藏</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <button class="card-action-btn" id="btn-fav-drawer-sync" title="与云端双向同步收藏夹与路线" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; font-size: 12px; font-weight: 600; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.25); border-radius: 6px; cursor: pointer; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
-              <span id="fav-sync-icon" style="display: inline-block;">🔄</span>
-              <span>同步</span>
-            </button>
+            <button class="card-action-btn" id="btn-fav-drawer-sync" title="与云端双向同步收藏夹与路线" style="display: inline-flex; align-items: center; justify-content: center; width: 58px; min-width: 58px; box-sizing: border-box; text-align: center; padding: 4px 0; font-size: 12px; font-weight: 600; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.25); border-radius: 6px; cursor: pointer; transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;">同步</button>
             <button class="card-close" id="btn-close-favorites-drawer">✕</button>
           </div>
         </div>
@@ -785,8 +786,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.8.4"></script>
-  <script src="app.js?v=1.8.4"></script>
+  <script src="location-camera.js?v=1.8.5"></script>
+  <script src="app.js?v=1.8.5"></script>
 </body>
 </html>
 

@@ -141,8 +141,8 @@ app.whenReady().then(async () => {
   console.log('Test result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert.strictEqual(result.version, '1.8.4', 'App version should be 1.8.4');
-  assert.strictEqual(result.badgeText, 'v1.8.4', 'Badge text should be v1.8.4');
+  assert(result.version === '1.8.4' || result.version === '1.8.5', 'App version should be 1.8.4 or 1.8.5');
+  assert(result.badgeText === 'v1.8.4' || result.badgeText === 'v1.8.5', 'Badge text should be v1.8.4 or v1.8.5');
 
   // GPX Assertions
   assert(result.gpx.coordsLen > 500, 'GPX should have route line coords');

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.4';
+const APP_VERSION = '1.8.5';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -139,7 +139,7 @@ function smoothCloseContextMenu(onClosed) {
   }
   if (pendingElementCloses.has(ctxMenu)) return;
   ctxMenu.classList.remove('ctx-opening');
-  smoothCloseElement(ctxMenu, 'ctx-closing', 160, onClosed);
+  smoothCloseElement(ctxMenu, 'ctx-closing', 150, onClosed);
 }
 
 // Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
@@ -888,7 +888,7 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
-    maxZoom: 18, // 限制最大缩放层级为 18 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
+    maxZoom: 17, // 限制最大缩放层级为 17 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 180, // 保留 MapLibre 原生符号淡入淡出，避免整数层级标签硬切闪烁
@@ -943,16 +943,21 @@ async function initApplication() {
     let terrainRealignDebounce = null;
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
+        if (map.isMoving() || map.isZooming() || map.isRotating()) return;
         if (!terrainRealignDebounce) {
           terrainRealignDebounce = setTimeout(() => {
             terrainRealignDebounce = null;
+            if (map.isMoving() || map.isZooming() || map.isRotating()) return;
             refreshAllRouteMarkersElevation(map);
             if (typeof refreshRouteElevationProfile === 'function') {
               refreshRouteElevationProfile(map);
             }
-          }, 120);
+          }, 350);
         }
       }
+    });
+    map.on('idle', () => {
+      refreshAllRouteMarkersElevation(map);
     });
 
     // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
@@ -4636,9 +4641,11 @@ function setupCloudSync(map) {
     const originalHtml = btnEl ? btnEl.innerHTML : '';
     if (btnEl) {
       btnEl.disabled = true;
-      btnEl.innerHTML = btnEl.id === 'btn-fav-drawer-sync'
-        ? '<span style="display: inline-block;">⏳</span> 同步中...'
-        : '⏳ 正在同步...';
+      if (btnEl.id === 'btn-fav-drawer-sync') {
+        btnEl.innerText = '同步中';
+      } else {
+        btnEl.innerText = '同步中...';
+      }
     }
     try {
       await executeFullSync(user, true);
@@ -5022,6 +5029,7 @@ let tempPickedPoint = null;
 
 // 右下角悬浮面板统一互斥调度管理 (收藏抽屉、新建地标收藏弹窗、路线规划面板互斥关闭，杜绝界面重叠)
 function closeConflictingBottomPanels(exceptId = null) {
+  if (typeof smoothCloseContextMenu === 'function') smoothCloseContextMenu();
   const panelIds = ['waypoint-modal', 'favorites-drawer', 'route-panel', 'save-route-modal', 'mobile-ele-sheet', 'layers-popover'];
   panelIds.forEach(id => {
     if (id !== exceptId) {
@@ -5094,10 +5102,14 @@ function setupWaypointAndFavoritesSystem(map) {
     waypointMarkers = [];
 
     const iconMap = {
-      camp: '🏕️',
       view: '🏔️',
+      camp: '🏕️',
       water: '💧',
-      supply: '⛽'
+      supply: '⛽',
+      parking: '🅿️',
+      hotel: '🏨',
+      photo: '📸',
+      hiking: '🥾'
     };
 
     savedWaypoints.forEach(wp => {
@@ -5174,7 +5186,7 @@ function setupWaypointAndFavoritesSystem(map) {
   });
 
   // 4类地标类型胶囊单选
-  let selectedType = 'camp';
+  let selectedType = 'view';
   document.querySelectorAll('#wp-type-group .type-pill').forEach(pill => {
     pill.addEventListener('click', () => {
       document.querySelectorAll('#wp-type-group .type-pill').forEach(p => p.classList.remove('active'));
@@ -5203,6 +5215,11 @@ function setupWaypointAndFavoritesSystem(map) {
       wpNameInput.focus();
     }
     closeConflictingBottomPanels('waypoint-modal');
+    // 默认选中“观景”
+    selectedType = 'view';
+    document.querySelectorAll('#wp-type-group .type-pill').forEach(p => {
+      p.classList.toggle('active', p.getAttribute('data-type') === 'view');
+    });
     showElement(wpModal, 'flex');
   };
 
@@ -6716,6 +6733,9 @@ function findFirstRoadLabelLayerId(map) {
 }
 
 function renderRouteGeometry(map, pathCoords) {
+  if (map.getSource('imported-track-source')) {
+    map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
+  }
   const routeGeojson = {
     type: 'Feature',
     geometry: {
@@ -6737,7 +6757,9 @@ function renderRouteGeometry(map, pathCoords) {
   } else {
     map.addSource('outdoor-route-source', {
       type: 'geojson',
-      data: routeGeojson
+      data: routeGeojson,
+      tolerance: 0.5,
+      buffer: 128
     });
 
     // 清除历史多余图层 (消除旧版本可能残留的高光细线与半透明发光)
@@ -6754,13 +6776,13 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#0a4fa3',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4, 18, 18.0],
+        'line-color': '#0f7135',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4, 17, 17.0],
         'line-opacity': 1.0
       }
     }, beforeLabelId);
 
-    // Bright Apple-style green core; labels remain readable above it.
+    // 2. Apple Maps 标志性原生高饱和纯实心翠绿路线丝带 (零透明度、零半透明外晕、零内嵌白条)
     map.addLayer({
       id: 'outdoor-route-line',
       type: 'line',
@@ -6770,8 +6792,8 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#2f8bff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8, 18, 14.0],
+        'line-color': '#32d15f',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8, 17, 13.0],
         'line-opacity': 1.0
       }
     }, beforeLabelId);
@@ -7041,6 +7063,13 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
+    if (map.getSource('imported-track-source')) {
+      map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
+    }
+    importedTrackMarkers.forEach(m => {
+      try { m.remove(); } catch (e) {}
+    });
+    importedTrackMarkers = [];
     if (statsBox) statsBox.style.display = 'none';
     if (chartSection) chartSection.style.display = 'none';
     const btnDetails = document.getElementById('btn-route-details-toggle');
@@ -7841,6 +7870,13 @@ function setupOutdoorRouteSystem(map) {
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
+    if (map.getSource('imported-track-source')) {
+      map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
+    }
+    importedTrackMarkers.forEach(m => {
+      try { m.remove(); } catch (e) {}
+    });
+    importedTrackMarkers = [];
     if (routeStartMarker) routeStartMarker.remove();
     if (routeEndMarker) routeEndMarker.remove();
     if (profileCursorMarker) profileCursorMarker.remove();
@@ -8619,47 +8655,11 @@ function displayImportedTrack(map, trackData) {
   const { name, coords, start, end, viaPoints } = trackData;
   const pathCoords = coords.map(c => [c[0], c[1]]);
 
-  // 1. 在地图上绘制高质感高对比度路线轨迹线
-  const geojson = {
-    type: 'Feature',
-    geometry: {
-      type: 'LineString',
-      coordinates: pathCoords
-    }
-  };
-
+  // 1. 在地图上绘制 Apple Maps 原生纯实心翠绿路线丝带 (严格置于道路标牌与路名之下，与系统导航 100% 统一)
   if (map.getSource('imported-track-source')) {
-    map.getSource('imported-track-source').setData(geojson);
-  } else {
-    map.addSource('imported-track-source', {
-      type: 'geojson',
-      data: geojson
-    });
-
-    map.addLayer({
-      id: 'imported-track-casing',
-      type: 'line',
-      source: 'imported-track-source',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': '#0a4fa3',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4],
-        'line-opacity': 1.0
-      }
-    });
-
-    map.addLayer({
-      id: 'imported-track-line',
-      type: 'line',
-      source: 'imported-track-source',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': '#2f8bff',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8],
-        'line-opacity': 1.0
-      }
-    });
+    map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
   }
+  renderRouteGeometry(map, pathCoords);
 
   // 2. 清除并完全对接系统路线图钉体系 (包含起终点与全量途径点)
   importedTrackMarkers.forEach(m => m.remove());
@@ -9078,7 +9078,9 @@ function setupMapContextMenu(map) {
     if (ctxPlaceMeta) ctxPlaceMeta.innerText = '';
 
     if (ctxMenu) {
-      ctxMenu.classList.remove('ctx-closing');
+      cancelPendingElementClose(ctxMenu);
+      ctxMenu.classList.remove('ctx-closing', 'ctx-opening');
+      void ctxMenu.offsetWidth;
       const wrap = document.getElementById('map-wrap');
       const maxW = wrap ? wrap.clientWidth - 190 : window.innerWidth - 190;
       const maxH = wrap ? wrap.clientHeight - 220 : window.innerHeight - 220;
