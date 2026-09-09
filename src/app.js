@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.5.8';
+const APP_VERSION = '1.5.9';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -56,6 +56,19 @@ function escapeHtml(str) {
     "'": '&#39;'
   }[m]));
 }
+
+// 原生与 Web 剪贴板安全写入
+function copyTextToClipboard(text) {
+  if (typeof text !== 'string') return;
+  if (window.electronAPI?.writeClipboardText) {
+    window.electronAPI.writeClipboardText(text);
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+}
+window.copyTextToClipboard = copyTextToClipboard;
 
 // 现代流体平滑退出动效工具函数：杜绝瞬间切断的生硬视觉体验
 function smoothClosePanel(el, onClosed) {
@@ -6954,6 +6967,27 @@ function exportRouteToGpx(routeData, map) {
   gpx += `</gpx>`;
 
   const cleanFilename = `${name.replace(/[\\/:*?"<>|]/g, '_')}.gpx`;
+
+  // 优先接入操作系统原生“另存为”对话框 (免除浏览器下载提示栏)
+  if (window.electronAPI?.saveFileDialog) {
+    window.electronAPI.saveFileDialog({
+      title: '导出路线轨迹 (GPX)',
+      defaultPath: cleanFilename,
+      filters: [
+        { name: 'GPS Exchange Format (*.gpx)', extensions: ['gpx'] },
+        { name: 'All Files (*.*)', extensions: ['*'] }
+      ],
+      content: gpx
+    }).then(res => {
+      if (res && res.success && res.filePath) {
+        showToast(`路线已成功导出至: ${res.filePath}`);
+      }
+    }).catch(err => {
+      console.warn('[Save GPX Native Dialog Error]', err);
+    });
+    return;
+  }
+
   const blob = new Blob([gpx], { type: 'application/gpx+xml;charset=utf-8' });
   const downloadUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -7420,7 +7454,32 @@ function setupTrackImport(map) {
   const fileInput = document.getElementById('track-file-import-input');
   if (!btnFabImport || !fileInput) return;
 
-  btnFabImport.addEventListener('click', () => {
+  btnFabImport.addEventListener('click', async () => {
+    // 优先接入操作系统原生文件打开对话框
+    if (window.electronAPI?.openFileDialog) {
+      try {
+        const res = await window.electronAPI.openFileDialog({
+          title: '选择路线轨迹文件',
+          filters: [
+            { name: '轨迹路线文件 (*.gpx;*.kml;*.geojson;*.json;*.tcx)', extensions: ['gpx', 'kml', 'geojson', 'json', 'tcx'] },
+            { name: 'All Files (*.*)', extensions: ['*'] }
+          ]
+        });
+        if (res && res.success && res.content) {
+          const trackData = parseTrackFile(res.content, res.filename);
+          if (!trackData || !trackData.coords || trackData.coords.length < 2) {
+            alert('未能解析到有效的路线轨迹，请确认文件为标准的 GPX / KML / GeoJSON / TCX 格式！');
+            return;
+          }
+          displayImportedTrack(map, trackData);
+          showToast(`已成功导入轨迹: ${res.filename}`);
+        }
+      } catch (err) {
+        alert(`导入轨迹失败: ${err.message}`);
+      }
+      return;
+    }
+
     fileInput.value = '';
     fileInput.click();
   });
@@ -7544,6 +7603,33 @@ function setupMapContextMenu(map) {
     if (ctxMenu) ctxMenu.style.display = 'none';
   };
 
+  const handleContextMenuSelection = (action, point) => {
+    if (!point || !action) return;
+    if (action === 'add-fav') {
+      tempPickedPoint = {
+        lng: point.lng,
+        lat: point.lat,
+        ele: point.ele
+      };
+      if (wpCoordsVal) wpCoordsVal.innerText = `${point.lng.toFixed(4)}°E, ${point.lat.toFixed(4)}°N`;
+      if (wpEleVal) wpEleVal.innerText = `${point.ele} m`;
+      if (wpNameInput) {
+        wpNameInput.value = point.placeName;
+        wpNameInput.focus();
+      }
+      closeConflictingBottomPanels('waypoint-modal');
+      if (wpModal) wpModal.style.display = 'flex';
+    } else if (action === 'route-start') {
+      setRouteStartPoint(map, [point.lng, point.lat], point.placeName);
+    } else if (action === 'route-via') {
+      addViaPoint(map, [point.lng, point.lat], point.placeName);
+    } else if (action === 'route-end') {
+      setRouteEndPoint(map, [point.lng, point.lat], point.placeName);
+    } else if (action === 'copy-coords') {
+      showToast(`已复制坐标: ${point.lng.toFixed(6)}, ${point.lat.toFixed(6)}`);
+    }
+  };
+
   // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 交互卡片)
   const showContextMenuAtPoint = (lngLat, point, customName = null) => {
     const { lng, lat } = lngLat;
@@ -7561,6 +7647,23 @@ function setupMapContextMenu(map) {
       ele,
       placeName: cleanLocation || '地点'
     };
+
+    // 桌面端优先接入操作系统原生右键菜单 (Windows 11 Fluent / macOS 原生系统级上下文菜单)
+    if (window.electronAPI?.showMapContextMenu) {
+      window.electronAPI.showMapContextMenu({
+        lng: currentContextPoint.lng,
+        lat: currentContextPoint.lat,
+        ele: currentContextPoint.ele,
+        placeName: currentContextPoint.placeName
+      }).then(res => {
+        if (res && res.action) {
+          handleContextMenuSelection(res.action, currentContextPoint);
+        }
+      }).catch(err => {
+        console.warn('[Native Context Menu Error]', err);
+      });
+      return;
+    }
 
     if (ctxPlaceName) ctxPlaceName.innerText = currentContextPoint.placeName;
     if (ctxPlaceMeta) ctxPlaceMeta.innerText = `${lng.toFixed(4)}°E, ${lat.toFixed(4)}°N · ${ele}m`;
@@ -7630,43 +7733,25 @@ function setupMapContextMenu(map) {
   // 1. 右键菜单：添加地点到收藏夹
   btnAddFav?.addEventListener('click', () => {
     hideContextMenu();
-    if (!currentContextPoint) return;
-
-    tempPickedPoint = {
-      lng: currentContextPoint.lng,
-      lat: currentContextPoint.lat,
-      ele: currentContextPoint.ele
-    };
-
-    if (wpCoordsVal) wpCoordsVal.innerText = `${currentContextPoint.lng.toFixed(4)}°E, ${currentContextPoint.lat.toFixed(4)}°N`;
-    if (wpEleVal) wpEleVal.innerText = `${currentContextPoint.ele} m`;
-    if (wpNameInput) {
-      wpNameInput.value = currentContextPoint.placeName;
-      wpNameInput.focus();
-    }
-    closeConflictingBottomPanels('waypoint-modal');
-    if (wpModal) wpModal.style.display = 'flex';
+    handleContextMenuSelection('add-fav', currentContextPoint);
   });
 
   // 2. 右键菜单：设为路线起点
   btnRouteStart?.addEventListener('click', () => {
     hideContextMenu();
-    if (!currentContextPoint) return;
-    setRouteStartPoint(map, [currentContextPoint.lng, currentContextPoint.lat], currentContextPoint.placeName);
+    handleContextMenuSelection('route-start', currentContextPoint);
   });
 
   // 3. 右键菜单：添加为路线途径点
   btnRouteVia?.addEventListener('click', () => {
     hideContextMenu();
-    if (!currentContextPoint) return;
-    addViaPoint(map, [currentContextPoint.lng, currentContextPoint.lat], currentContextPoint.placeName);
+    handleContextMenuSelection('route-via', currentContextPoint);
   });
 
   // 4. 右键菜单：设为路线终点
   btnRouteEnd?.addEventListener('click', () => {
     hideContextMenu();
-    if (!currentContextPoint) return;
-    setRouteEndPoint(map, [currentContextPoint.lng, currentContextPoint.lat], currentContextPoint.placeName);
+    handleContextMenuSelection('route-end', currentContextPoint);
   });
 
   // 隐藏右键菜单触发机制

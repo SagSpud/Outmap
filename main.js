@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -934,6 +934,108 @@ app.whenReady().then(async () => {
     return { success: true };
   });
 
+  // 操作系统原生上下文菜单系统 (Windows 11 Fluent / macOS 原生系统级弹出)
+  ipcMain.handle('show-map-context-menu', async (event, { lng, lat, ele, placeName }) => {
+    return new Promise((resolve) => {
+      const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+      const cleanName = (placeName || '选定地点').trim();
+      const eleTxt = (typeof ele === 'number' && !isNaN(ele)) ? ` · ${Math.round(ele)}m` : '';
+      const template = [
+        {
+          label: `📍 ${cleanName}${eleTxt}`,
+          enabled: false
+        },
+        { type: 'separator' },
+        {
+          label: '⭐ 收藏此地点为地标',
+          click: () => resolve({ action: 'add-fav' })
+        },
+        {
+          label: '➕ 添加为路线途径点',
+          click: () => resolve({ action: 'route-via' })
+        },
+        {
+          label: '🚩 设为路线起点',
+          click: () => resolve({ action: 'route-start' })
+        },
+        {
+          label: '🏁 设为路线终点',
+          click: () => resolve({ action: 'route-end' })
+        },
+        { type: 'separator' },
+        {
+          label: '📋 复制经纬度坐标 (WGS84)',
+          click: () => {
+            const text = `${lng.toFixed(6)}, ${lat.toFixed(6)}`;
+            clipboard.writeText(text);
+            resolve({ action: 'copy-coords', text });
+          }
+        }
+      ];
+
+      const menu = Menu.buildFromTemplate(template);
+      menu.popup({
+        window: win,
+        callback: () => {
+          setTimeout(() => resolve({ action: null }), 50);
+        }
+      });
+    });
+  });
+
+  // 操作系统原生文件保存对话框 (GPX 导出等)
+  ipcMain.handle('save-file-dialog', async (event, { defaultPath, title, filters, content }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: title || '导出路线轨迹 (GPX)',
+        defaultPath: defaultPath || 'route.gpx',
+        filters: filters || [
+          { name: 'GPS Exchange Format (*.gpx)', extensions: ['gpx'] },
+          { name: 'All Files (*.*)', extensions: ['*'] }
+        ]
+      });
+      if (canceled || !filePath) return { success: false, canceled: true };
+      await fs.promises.writeFile(filePath, content, 'utf8');
+      return { success: true, filePath };
+    } catch (err) {
+      console.error('[save-file-dialog error]', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // 操作系统原生文件打开对话框 (外部轨迹 GPX/KML/GeoJSON/TCX 导入)
+  ipcMain.handle('open-file-dialog', async (event, { title, filters }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: title || '选择路线轨迹文件',
+        properties: ['openFile'],
+        filters: filters || [
+          { name: '轨迹路线文件 (*.gpx;*.kml;*.geojson;*.json;*.tcx)', extensions: ['gpx', 'kml', 'geojson', 'json', 'tcx'] },
+          { name: 'All Files (*.*)', extensions: ['*'] }
+        ]
+      });
+      if (canceled || !filePaths || filePaths.length === 0) return { success: false, canceled: true };
+      const filePath = filePaths[0];
+      const content = await fs.promises.readFile(filePath, 'utf8');
+      const filename = path.basename(filePath);
+      return { success: true, filePath, filename, content };
+    } catch (err) {
+      console.error('[open-file-dialog error]', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // 操作系统原生剪贴板通道
+  ipcMain.handle('write-clipboard-text', (event, text) => {
+    if (typeof text === 'string') {
+      clipboard.writeText(text);
+      return { success: true };
+    }
+    return { success: false };
+  });
+
   // 在线中国专属高精地理编码检索 (IPC 直通，免除渲染进程网络限制与端口依赖)
   ipcMain.handle('search-location', async (event, query) => {
     const q = (query || '').trim();
@@ -1213,6 +1315,8 @@ app.whenReady().then(async () => {
           // cancellations and failures. Never promote a whole province here.
 
           if (mainWindow && !mainWindow.isDestroyed()) {
+            const ratio = total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
+            mainWindow.setProgressBar(ratio);
             const curTiles = (baselineStats.totalTiles || 0) + newlySavedCount + newlyAddedCount;
             const curBytes = (baselineStats.totalBytes || 0) + totalBytes;
             mainWindow.webContents.send('download-progress', {
@@ -1250,12 +1354,15 @@ app.whenReady().then(async () => {
     // Discard any in-flight scan snapshot from before the last tile write.
     if (inventoryScan) await inventoryScan;
     const finalStats = await refreshOfflineInventory();
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('download-progress', {
-      completed, total, savedCount, failedCount, unchangedCount, updatedCount, newlyAddedCount,
-      percent: total ? Math.round(completed / total * 100) : 100,
-      speed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
-      isVerify, isIncrementalUpdate, ...finalStats
-    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(-1);
+      mainWindow.webContents.send('download-progress', {
+        completed, total, savedCount, failedCount, unchangedCount, updatedCount, newlyAddedCount,
+        percent: total ? Math.round(completed / total * 100) : 100,
+        speed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
+        isVerify, isIncrementalUpdate, ...finalStats
+      });
+    }
 
     return {
       success: !signal.aborted && failedCount === 0,
@@ -1266,6 +1373,9 @@ app.whenReady().then(async () => {
       failedCount
     };
     } finally {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setProgressBar(-1);
+      }
       offlineDownloadRunning = false;
       activeDownloadAbort = null;
       if (newlySavedCount > 0 || newlyAddedCount > 0) {
@@ -1275,6 +1385,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('cancel-pyramid-download', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(-1);
+    }
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
       activeDownloadAbort = null;
@@ -1396,6 +1509,7 @@ app.whenReady().then(async () => {
           const percent = contentLength > 0 ? Math.min(100, Math.round(receivedBytes / contentLength * 100)) : 50;
 
           if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setProgressBar(Math.min(1, Math.max(0, percent / 100)));
             mainWindow.webContents.send('update-download-progress', {
               percent,
               speed: `${speed} KB/s`,
@@ -1428,6 +1542,7 @@ app.whenReady().then(async () => {
     }
 
     if (!downloadSuccess || downloadedSize === 0) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(1, { mode: 'error' });
       try { if (originalFs.existsSync(tempPatchPath)) originalFs.unlinkSync(tempPatchPath); } catch (e) {}
       return { success: false, message: '下载更新文件失败，请检查网络后重试' };
     }
@@ -1444,6 +1559,7 @@ app.whenReady().then(async () => {
     pendingTargetAsarPath = targetAsarPath;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(-1);
       mainWindow.webContents.send('update-download-progress', {
         percent: 100,
         speed: '已就绪',

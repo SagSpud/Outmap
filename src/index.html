@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.5.8" />
+  <link rel="stylesheet" href="style.css?v=1.5.9" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.5.8</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.5.9</span>
                 </div>
               </div>
             </div>
@@ -476,247 +476,7 @@
         </div>
       </div>
 
-      <!-- 离线地图下载对话框 -->
-      <div id="pyramid-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-card">
-          <div class="modal-header">
-            <div class="modal-title">
-              <span class="m-icon">📦</span>
-              <span>离线地图下载</span>
-            </div>
-            <button class="modal-close-btn" id="btn-close-pyramid-modal">✕</button>
-          </div>
-
-          <div class="modal-body">
-            <div class="form-row prov-selection-row">
-              <div class="prov-selection-header">
-                <label class="form-lbl">目标省份:</label>
-                <div class="prov-quick-actions">
-                  <button type="button" class="prov-act-btn" id="btn-prov-select-all">全选</button>
-                  <button type="button" class="prov-act-btn" id="btn-prov-select-invert">反选</button>
-                  <button type="button" class="prov-act-btn" id="btn-prov-select-none">清空</button>
-                  <span class="prov-selected-badge" id="prov-selected-counter">已选 0 省</span>
-                </div>
-              </div>
-              <div class="prov-dropdown-wrapper" id="pyramid-prov-dropdown-wrapper">
-                <div class="prov-dropdown-trigger" id="pyramid-prov-dropdown-trigger" tabindex="0">
-                  <div class="prov-dropdown-summary" id="pyramid-prov-dropdown-summary">
-                    <span class="prov-summary-text" id="prov-selected-names-summary">正在加载省份...</span>
-                  </div>
-                  <svg class="prov-dropdown-caret" viewBox="0 0 20 20" width="13" height="13" fill="currentColor">
-                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                  </svg>
-                </div>
-                <div class="prov-dropdown-panel" id="pyramid-prov-dropdown-panel" style="display: none;">
-                  <div class="prov-dropdown-panel-tip">
-                    <span>勾选目标省份 (支持多选，已就绪带发光绿点)：</span>
-                  </div>
-                  <div class="prov-multi-grid" id="pyramid-prov-multi-grid">
-                    <!-- 由 app.js 动态生成全部 34 省份多选复选框，去除字母前缀，就绪带绿点 -->
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="form-row form-row-inline">
-              <label class="form-lbl">离线层级:</label>
-              <div class="zoom-pill-group inline-pills" id="pyramid-zoom-pills">
-                <div class="zoom-pill active" data-value="10" title="L1-L10 基础地势">
-                  <span class="zoom-pill-title">L10</span>
-                  <span class="zoom-pill-dot" id="zoom-dot-10">●</span>
-                </div>
-                <div class="zoom-pill" data-value="11" title="L1-L11 清晰山脊">
-                  <span class="zoom-pill-title">L11</span>
-                  <span class="zoom-pill-dot" id="zoom-dot-11">●</span>
-                </div>
-                <div class="zoom-pill" data-value="12" title="L1-L12 户外自驾">
-                  <span class="zoom-pill-title">L12</span>
-                  <span class="zoom-pill-dot" id="zoom-dot-12">●</span>
-                </div>
-                <div class="zoom-pill" data-value="13" title="L1-L13 精细等高线">
-                  <span class="zoom-pill-title">L13</span>
-                  <span class="zoom-pill-dot" id="zoom-dot-13">●</span>
-                </div>
-                <div class="zoom-pill" data-value="14" title="L1-L14 全路网与POI">
-                  <span class="zoom-pill-title">L14</span>
-                  <span class="zoom-pill-dot" id="zoom-dot-14">●</span>
-                </div>
-              </div>
-              <input type="hidden" id="pyramid-zoom-select" value="10" />
-            </div>
-
-            <div class="form-row form-row-inline">
-              <label class="form-lbl">下载图层:</label>
-              <div class="check-group inline-checks">
-                <label><input type="checkbox" id="chk-dl-dem" checked /> DEM高程图</label>
-                <label><input type="checkbox" id="chk-dl-vec" checked /> OSM矢量图</label>
-                <button type="button" class="btn-check-tile-update" id="btn-check-tile-update" title="检测云端最新路网版本与本地差异">🔍 检查图层更新</button>
-              </div>
-            </div>
-
-            <div class="stat-summary-box">
-              <div class="stat-info-col">
-                <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
-                <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
-              </div>
-              <div class="stat-status-col">
-                <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
-              </div>
-            </div>
-
-            <!-- 实时下载进度条与状态 (清晰三段式：任务与百分比/进度条/瓦片明细与速率) -->
-            <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
-              <div class="dl-progress-header">
-                <span class="dl-progress-task" id="dl-progress-task">准备中...</span>
-                <span class="dl-progress-pct" id="dl-progress-pct">0%</span>
-              </div>
-              <div class="progress-bar-wrap">
-                <div class="progress-bar-fill" id="dl-progress-fill" style="width: 0%;"></div>
-              </div>
-              <div class="dl-progress-footer">
-                <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
-                <span class="dl-progress-speed" id="dl-progress-speed">0 片/秒</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="modal-footer">
-            <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
-            <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>
-            <button class="modal-btn accent" id="btn-update-dl" style="display: none;" title="方案 A：通过 If-Modified-Since 仅拉取云端变动切片，旧数据完好保留">⚡ 增量更新</button>
-            <button class="modal-btn primary" id="btn-start-dl">开始下载</button>
-            <button class="modal-btn success" id="btn-done-dl" style="display: none;">完成</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 右键呼出云端数据多设备同步设置面板 -->
-      <div id="sync-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-card sync-modal-card">
-          <div class="modal-header">
-            <div class="modal-title">
-              <span class="m-icon">☁️</span>
-              <span>云端同步</span>
-            </div>
-            <button class="modal-close-btn" id="btn-close-sync-modal">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="sync-auto-switch-row">
-              <div class="sync-auto-switch-info">
-                <span class="sync-switch-title">自动实时同步</span>
-                <span class="sync-switch-sub">地标、路线与视角变动自动与云端双向同步</span>
-              </div>
-              <label class="fluent-switch">
-                <input type="checkbox" id="chk-auto-sync-toggle" checked />
-                <span class="fluent-slider"></span>
-              </label>
-            </div>
-
-            <div class="form-row">
-              <label class="form-lbl">同步内容项:</label>
-              <div class="sync-check-grid">
-                <label><input type="checkbox" id="chk-sync-favorites" checked /> 收藏夹与地点标记</label>
-                <label><input type="checkbox" id="chk-sync-routes" checked /> 规划路线与历史轨迹</label>
-                <label><input type="checkbox" id="chk-sync-views" checked /> 默认中心点、仰角与视图设置</label>
-              </div>
-            </div>
-
-            <details class="sync-advanced-details">
-              <summary class="sync-advanced-summary">⚙️ 高级选项: 同步标识 (默认无需修改)</summary>
-              <div class="sync-advanced-content">
-                <input type="text" id="sync-account-key" class="form-control" value="default" placeholder="default" />
-              </div>
-            </details>
-
-            <div class="sync-status-row" id="sync-status-indicator">
-              <span class="sync-dot-live">●</span>
-              <span id="sync-status-text">就绪</span>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="modal-btn secondary" id="btn-close-sync-btn">关闭</button>
-            <button class="modal-btn primary" id="btn-do-sync-now">⚡ 立即同步</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 软件版本更新检测与升级弹窗 -->
-      <div id="update-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-card update-modal-card">
-          <div class="modal-header">
-            <div class="modal-title">
-              <span class="m-icon" id="update-modal-icon">🚀</span>
-              <span id="update-modal-title-text">软件版本与在线更新</span>
-            </div>
-            <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
-          </div>
-
-          <div class="modal-body">
-            <!-- 1. 正在检查中状态 -->
-            <div id="update-checking-box" class="update-info-state-box" style="display: none;">
-              <div class="update-spinner"></div>
-              <div class="update-checking-text">正在连接云端检查最新版本...</div>
-              <div class="update-checking-ver" id="update-checking-ver">当前安装版本: v1.1.0</div>
-            </div>
-
-            <!-- 2. 已是最新版本状态 -->
-            <div id="update-uptodate-box" class="update-info-state-box" style="display: none;">
-              <div class="update-state-icon uptodate">✓</div>
-              <div class="update-state-title">当前已是最新版本</div>
-              <div class="update-state-badge" id="update-uptodate-ver">v1.1.0</div>
-              <div class="update-state-desc">DEM高程图、OSM矢量图与三维地形数据引擎均处于最佳状态。</div>
-            </div>
-
-            <!-- 3. 检查失败/离线状态 -->
-            <div id="update-offline-box" class="update-info-state-box" style="display: none;">
-              <div class="update-state-icon offline">🌐</div>
-              <div class="update-state-title">当前版本就绪 (离线模式)</div>
-              <div class="update-state-badge" id="update-offline-ver">v1.1.0</div>
-              <div class="update-state-desc">网络连接超时或当前处于无网络离线环境。Outmap 内置完整离线渲染引擎，可完全离线顺畅运行。</div>
-            </div>
-
-            <!-- 4. 发现新版本状态 -->
-            <div id="update-available-box" style="display: none;">
-              <div class="update-version-row">
-                <div class="version-badge-group">
-                  <span class="version-label">当前版本:</span>
-                  <span class="version-val current" id="update-curr-version">v1.1.0</span>
-                  <span class="version-arrow">➔</span>
-                  <span class="version-label">最新版本:</span>
-                  <span class="version-val latest" id="update-new-version">v1.1.0</span>
-                </div>
-                <div class="update-meta-info" id="update-size-info">更新体积: 约 3.8 MB</div>
-              </div>
-
-              <div class="update-notes-wrapper" style="margin-top: 14px;">
-                <div class="update-notes-title">更新日志 & 优化内容:</div>
-                <div class="update-notes-content" id="update-notes-text">
-                  <!-- 动态填充 -->
-                </div>
-              </div>
-            </div>
-
-            <!-- 流式下载与自动安装覆盖进度条 -->
-            <div class="dl-progress-section" id="update-progress-box" style="display: none;">
-              <div class="progress-bar-wrap">
-                <div class="progress-bar-fill" id="update-progress-fill" style="width: 0%;"></div>
-              </div>
-              <div class="progress-text-row">
-                <span id="update-progress-status">正在连接云端存储...</span>
-                <span id="update-progress-speed">0 KB/s</span>
-                <span id="update-progress-pct">0%</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="modal-footer" id="update-modal-footer">
-            <button class="modal-btn secondary" id="btn-cancel-update" style="display: none;">稍后再说</button>
-            <button class="modal-btn primary update-btn-pulse" id="btn-start-update" style="display: none;">⚡ 立即更新并重启</button>
-            <button class="modal-btn primary" id="btn-done-update" style="display: none;">我知道了</button>
-            <button class="modal-btn secondary" id="btn-retry-update" style="display: none;">🔄 重新检查</button>
-          </div>
-        </div>
-      </div>
+      <!-- 离线/同步/更新等全屏对话框已重构移至 body 根节点，实现真正 100% 视口无缝亚克力毛玻璃覆盖 -->
     </main>
 
     <!-- 底部状态栏 -->
@@ -747,6 +507,248 @@
   <!-- 全局高层级共享路线浮动联想下拉框 (挂载在 body 顶层，绝不被任何滚动容器遮挡) -->
   <div id="route-floating-dropdown" class="route-floating-dropdown" style="display: none;"></div>
 
+  <!-- 离线地图下载对话框 (挂载在 body 顶层，全屏 100% 深度亚克力毛玻璃覆盖) -->
+  <div id="pyramid-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="m-icon">📦</span>
+          <span>离线地图下载</span>
+        </div>
+        <button class="modal-close-btn" id="btn-close-pyramid-modal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-row prov-selection-row">
+          <div class="prov-selection-header">
+            <label class="form-lbl">目标省份:</label>
+            <div class="prov-quick-actions">
+              <button type="button" class="prov-act-btn" id="btn-prov-select-all">全选</button>
+              <button type="button" class="prov-act-btn" id="btn-prov-select-invert">反选</button>
+              <button type="button" class="prov-act-btn" id="btn-prov-select-none">清空</button>
+              <span class="prov-selected-badge" id="prov-selected-counter">已选 0 省</span>
+            </div>
+          </div>
+          <div class="prov-dropdown-wrapper" id="pyramid-prov-dropdown-wrapper">
+            <div class="prov-dropdown-trigger" id="pyramid-prov-dropdown-trigger" tabindex="0">
+              <div class="prov-dropdown-summary" id="pyramid-prov-dropdown-summary">
+                <span class="prov-summary-text" id="prov-selected-names-summary">正在加载省份...</span>
+              </div>
+              <svg class="prov-dropdown-caret" viewBox="0 0 20 20" width="13" height="13" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </div>
+            <div class="prov-dropdown-panel" id="pyramid-prov-dropdown-panel" style="display: none;">
+              <div class="prov-dropdown-panel-tip">
+                <span>勾选目标省份 (支持多选，已就绪带发光绿点)：</span>
+              </div>
+              <div class="prov-multi-grid" id="pyramid-prov-multi-grid">
+                <!-- 由 app.js 动态生成全部 34 省份多选复选框，去除字母前缀，就绪带绿点 -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row form-row-inline">
+          <label class="form-lbl">离线层级:</label>
+          <div class="zoom-pill-group inline-pills" id="pyramid-zoom-pills">
+            <div class="zoom-pill active" data-value="10" title="L1-L10 基础地势">
+              <span class="zoom-pill-title">L10</span>
+              <span class="zoom-pill-dot" id="zoom-dot-10">●</span>
+            </div>
+            <div class="zoom-pill" data-value="11" title="L1-L11 清晰山脊">
+              <span class="zoom-pill-title">L11</span>
+              <span class="zoom-pill-dot" id="zoom-dot-11">●</span>
+            </div>
+            <div class="zoom-pill" data-value="12" title="L1-L12 户外自驾">
+              <span class="zoom-pill-title">L12</span>
+              <span class="zoom-pill-dot" id="zoom-dot-12">●</span>
+            </div>
+            <div class="zoom-pill" data-value="13" title="L1-L13 精细等高线">
+              <span class="zoom-pill-title">L13</span>
+              <span class="zoom-pill-dot" id="zoom-dot-13">●</span>
+            </div>
+            <div class="zoom-pill" data-value="14" title="L1-L14 全路网与POI">
+              <span class="zoom-pill-title">L14</span>
+              <span class="zoom-pill-dot" id="zoom-dot-14">●</span>
+            </div>
+          </div>
+          <input type="hidden" id="pyramid-zoom-select" value="10" />
+        </div>
+
+        <div class="form-row form-row-inline">
+          <label class="form-lbl">下载图层:</label>
+          <div class="check-group inline-checks">
+            <label><input type="checkbox" id="chk-dl-dem" checked /> DEM高程图</label>
+            <label><input type="checkbox" id="chk-dl-vec" checked /> OSM矢量图</label>
+            <button type="button" class="btn-check-tile-update" id="btn-check-tile-update" title="检测云端最新路网版本与本地差异">🔍 检查图层更新</button>
+          </div>
+        </div>
+
+        <div class="stat-summary-box">
+          <div class="stat-info-col">
+            <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
+            <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
+          </div>
+          <div class="stat-status-col">
+            <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
+          </div>
+        </div>
+
+        <!-- 实时下载进度条与状态 (清晰三段式：任务与百分比/进度条/瓦片明细与速率) -->
+        <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
+          <div class="dl-progress-header">
+            <span class="dl-progress-task" id="dl-progress-task">准备中...</span>
+            <span class="dl-progress-pct" id="dl-progress-pct">0%</span>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="dl-progress-fill" style="width: 0%;"></div>
+          </div>
+          <div class="dl-progress-footer">
+            <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
+            <span class="dl-progress-speed" id="dl-progress-speed">0 片/秒</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
+        <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>
+        <button class="modal-btn accent" id="btn-update-dl" style="display: none;" title="方案 A：通过 If-Modified-Since 仅拉取云端变动切片，旧数据完好保留">⚡ 增量更新</button>
+        <button class="modal-btn primary" id="btn-start-dl">开始下载</button>
+        <button class="modal-btn success" id="btn-done-dl" style="display: none;">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 云端数据多设备同步设置面板 (挂载在 body 顶层) -->
+  <div id="sync-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card sync-modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="m-icon">☁️</span>
+          <span>云端同步</span>
+        </div>
+        <button class="modal-close-btn" id="btn-close-sync-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sync-auto-switch-row">
+          <div class="sync-auto-switch-info">
+            <span class="sync-switch-title">自动实时同步</span>
+            <span class="sync-switch-sub">地标、路线与视角变动自动与云端双向同步</span>
+          </div>
+          <label class="fluent-switch">
+            <input type="checkbox" id="chk-auto-sync-toggle" checked />
+            <span class="fluent-slider"></span>
+          </label>
+        </div>
+
+        <div class="form-row">
+          <label class="form-lbl">同步内容项:</label>
+          <div class="sync-check-grid">
+            <label><input type="checkbox" id="chk-sync-favorites" checked /> 收藏夹与地点标记</label>
+            <label><input type="checkbox" id="chk-sync-routes" checked /> 规划路线与历史轨迹</label>
+            <label><input type="checkbox" id="chk-sync-views" checked /> 默认中心点、仰角与视图设置</label>
+          </div>
+        </div>
+
+        <details class="sync-advanced-details">
+          <summary class="sync-advanced-summary">⚙️ 高级选项: 同步标识 (默认无需修改)</summary>
+          <div class="sync-advanced-content">
+            <input type="text" id="sync-account-key" class="form-control" value="default" placeholder="default" />
+          </div>
+        </details>
+
+        <div class="sync-status-row" id="sync-status-indicator">
+          <span class="sync-dot-live">●</span>
+          <span id="sync-status-text">就绪</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn secondary" id="btn-close-sync-btn">关闭</button>
+        <button class="modal-btn primary" id="btn-do-sync-now">⚡ 立即同步</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 软件版本更新检测与升级弹窗 (挂载在 body 顶层) -->
+  <div id="update-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card update-modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="m-icon" id="update-modal-icon">🚀</span>
+          <span id="update-modal-title-text">软件版本与在线更新</span>
+        </div>
+        <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- 1. 正在检查中状态 -->
+        <div id="update-checking-box" class="update-info-state-box" style="display: none;">
+          <div class="update-spinner"></div>
+          <div class="update-checking-text">正在连接云端检查最新版本...</div>
+          <div class="update-checking-ver" id="update-checking-ver">当前安装版本: v1.1.0</div>
+        </div>
+
+        <!-- 2. 已是最新版本状态 -->
+        <div id="update-uptodate-box" class="update-info-state-box" style="display: none;">
+          <div class="update-state-icon uptodate">✓</div>
+          <div class="update-state-title">当前已是最新版本</div>
+          <div class="update-state-badge" id="update-uptodate-ver">v1.1.0</div>
+          <div class="update-state-desc">DEM高程图、OSM矢量图与三维地形数据引擎均处于最佳状态。</div>
+        </div>
+
+        <!-- 3. 检查失败/离线状态 -->
+        <div id="update-offline-box" class="update-info-state-box" style="display: none;">
+          <div class="update-state-icon offline">🌐</div>
+          <div class="update-state-title">当前版本就绪 (离线模式)</div>
+          <div class="update-state-badge" id="update-offline-ver">v1.1.0</div>
+          <div class="update-state-desc">网络连接超时或当前处于无网络离线环境。Outmap 内置完整离线渲染引擎，可完全离线顺畅运行。</div>
+        </div>
+
+        <!-- 4. 发现新版本状态 -->
+        <div id="update-available-box" style="display: none;">
+          <div class="update-version-row">
+            <div class="version-badge-group">
+              <span class="version-label">当前版本:</span>
+              <span class="version-val current" id="update-curr-version">v1.1.0</span>
+              <span class="version-arrow">➔</span>
+              <span class="version-label">最新版本:</span>
+              <span class="version-val latest" id="update-new-version">v1.1.0</span>
+            </div>
+            <div class="update-meta-info" id="update-size-info">更新体积: 约 3.8 MB</div>
+          </div>
+
+          <div class="update-notes-wrapper" style="margin-top: 14px;">
+            <div class="update-notes-title">更新日志 & 优化内容:</div>
+            <div class="update-notes-content" id="update-notes-text">
+              <!-- 动态填充 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 流式下载与自动安装覆盖进度条 -->
+        <div class="dl-progress-section" id="update-progress-box" style="display: none;">
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="update-progress-fill" style="width: 0%;"></div>
+          </div>
+          <div class="progress-text-row">
+            <span id="update-progress-status">正在连接云端存储...</span>
+            <span id="update-progress-speed">0 KB/s</span>
+            <span id="update-progress-pct">0%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" id="update-modal-footer">
+        <button class="modal-btn secondary" id="btn-cancel-update" style="display: none;">稍后再说</button>
+        <button class="modal-btn primary update-btn-pulse" id="btn-start-update" style="display: none;">⚡ 立即更新并重启</button>
+        <button class="modal-btn primary" id="btn-done-update" style="display: none;">我知道了</button>
+        <button class="modal-btn secondary" id="btn-retry-update" style="display: none;">🔄 重新检查</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Fluent / Apple 风格高质感全局弹窗 -->
   <div id="fluent-alert-overlay" class="fluent-modal-overlay" style="display: none;">
     <div class="fluent-alert-box">
@@ -766,8 +768,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.5.8"></script>
-  <script src="app.js?v=1.5.8"></script>
+  <script src="location-camera.js?v=1.5.9"></script>
+  <script src="app.js?v=1.5.9"></script>
 </body>
 </html>
 

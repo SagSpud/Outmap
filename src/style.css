@@ -1708,20 +1708,23 @@ body.web-mode #manage-modal {
    5. 瓦片金字塔多级离线下载器对话框 (Office 365 / Windows 11 Fluent 风格)
    ========================================================= */
 .modal-overlay {
-  position: absolute;
-  top: 44px;
+  position: fixed;
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 23, 42, 0.4);
-  backdrop-filter: blur(2.5px);
-  -webkit-backdrop-filter: blur(2.5px);
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30000 !important;
+  z-index: 99999 !important;
   padding: 16px;
   box-sizing: border-box;
+  animation: fluentOverlayFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .modal-card {
@@ -1729,20 +1732,21 @@ body.web-mode #manage-modal {
   max-width: 92vw;
   max-height: calc(100vh - 36px);
   background: #ffffff;
-  border-radius: 10px;
-  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.28);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid #cbd5e1;
   opacity: 1;
-  transform: none;
-  animation: modalFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  animation: modalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes modalFadeIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.96); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 
 
@@ -5042,5 +5046,51 @@ body.web-mode .office-prov-group {
   }
 }
 
+/* =========================================================
+   120FPS 硬件加速与触控按压微动效 (GPU Compositing & Micro-interactions)
+   ========================================================= */
+.office-btn-icon-capsule,
+.prov-act-btn,
+.modal-btn,
+.route-mode-btn,
+.type-pill,
+.zoom-pill,
+.fab-btn,
+.map-dock-btn,
+.card-close,
+.modal-close-btn,
+.btn-check-tile-update {
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  user-select: none;
+  -webkit-user-select: none;
+}
 
+.office-btn-icon-capsule:active,
+.prov-act-btn:active,
+.modal-btn:active,
+.route-mode-btn:active,
+.type-pill:active,
+.zoom-pill:active,
+.btn-check-tile-update:active {
+  transform: translate3d(0, 1px, 0) scale(0.96) !important;
+  transition: transform 0.08s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
 
+.fab-btn:active,
+.map-dock-btn:active,
+.card-close:active,
+.modal-close-btn:active {
+  transform: translate3d(0, 1px, 0) scale(0.92) !important;
+  transition: transform 0.08s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* 浮动卡片硬件层与深度亚克力毛玻璃 */
+.floating-card,
+.floating-panel,
+.fluent-context-menu {
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
