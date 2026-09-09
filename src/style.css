@@ -164,8 +164,7 @@ button:active,
 
 .search-result-item,
 .route-search-item,
-.fav-item-card,
-.route-via-item {
+.fav-item-card {
   transition: background-color 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease !important;
 }
 
@@ -2490,12 +2489,41 @@ body.web-mode #manage-modal {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scroll-behavior: smooth;
+  position: relative;
+}
+
+.route-points-box::-webkit-scrollbar {
+  width: 4px;
+}
+.route-points-box::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+.route-points-box::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
 }
 
 .route-point-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 6px;
+  position: relative;
+  user-select: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.route-point-row:hover {
+  background: #f0f9ff;
+  border-color: #bae6fd;
 }
 
 .pt-tag {
@@ -2678,9 +2706,7 @@ body.web-mode #manage-modal {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  max-height: 180px;
-  overflow-y: auto;
-  padding-right: 2px;
+  overflow: visible;
 }
 
 .route-via-item {
@@ -2716,7 +2742,18 @@ body.web-mode #manage-modal {
   border-color: #bae6fd;
 }
 
-.route-via-item.is-dragging {
+.is-route-reordering {
+  scroll-behavior: auto !important;
+}
+
+.is-route-reordering .route-via-item:not(.is-dragging),
+.is-route-reordering .route-point-row:not(.is-dragging) {
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1) !important;
+  pointer-events: none;
+}
+
+.route-via-item.is-dragging,
+.route-point-row.is-dragging {
   opacity: 0.98 !important;
   background: #ffffff !important;
   border-color: #0284c7 !important;
@@ -2724,6 +2761,7 @@ body.web-mode #manage-modal {
   z-index: 100 !important;
   transform: scale(1.02);
   transition: none !important;
+  cursor: var(--cursor-grabbing) !important;
 }
 
 .pt-tag.via {

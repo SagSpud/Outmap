@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -3495,9 +3495,7 @@ function setupPyramidModal(map) {
         if (btnUpdate) btnUpdate.style.display = 'none';
         if (btnRetry) btnRetry.style.display = 'none';
         if (provStatusTag) {
-          provStatusTag.className = 'prov-status-line downloading';
-          provStatusTag.style.display = 'inline-flex';
-          provStatusTag.innerHTML = `<span class="prov-status-dot downloading"></span> 正在高速下载此省份离线数据...`;
+          provStatusTag.style.display = 'none';
         }
       } else {
         const activeNames = activeDownloadSession?.provNames?.join('、') || '其他省份';
@@ -5484,55 +5482,374 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   });
 }
 
-// 同步更新地图上途径点与起终点的视觉表现 (若无终点，最后途径点自动显示红“终”)
+// 同步更新地图上途径点与起终点的视觉表现
 function syncRouteMarkersVisualState(mapInstance) {
   const m = mapInstance || (typeof currentOutdoorMap !== 'undefined' ? currentOutdoorMap : null);
-  const isLastViaActingAsEnd = !routeEndCoord && routeViaPoints.length > 0;
+  if (routeStartMarker && routeStartMarker.getElement()) {
+    const el = routeStartMarker.getElement();
+    el.style.background = '#16a34a';
+    el.innerText = '起';
+    el.title = `路线起点（${routeStartName || ''}）`;
+  }
+  if (routeEndMarker && routeEndMarker.getElement()) {
+    const el = routeEndMarker.getElement();
+    el.style.background = '#ef4444';
+    el.innerText = '终';
+    el.title = `路线终点（${routeEndName || ''}）`;
+  }
   routeViaPoints.forEach((v, idx) => {
     if (!v.marker) return;
     const el = v.marker.getElement();
     if (!el) return;
-    const isEnd = isLastViaActingAsEnd && idx === routeViaPoints.length - 1;
-    if (isEnd) {
-      el.style.background = '#ef4444';
-      el.innerText = '终';
-      el.title = `路线终点（${v.name || '最后一个途径点'}）`;
-    } else {
-      el.style.background = '#0284c7';
-      el.innerText = idx + 1;
-      el.title = `途径点 ${idx + 1}`;
-    }
+    el.style.background = '#0284c7';
+    el.innerText = idx + 1;
+    el.title = `途径点 ${idx + 1}（${v.name || ''}）`;
   });
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
-// 渲染途径点列表 (支持拼音/汉字回车搜索、地图定位、删除以及上下拖动手柄排序)
+// 全量站点拖拽与顺序调整调度器 (Apple Maps 风格：起、途、终统一拓扑重排)
+function reorderRouteStops(fromIndex, toIndex, mapInstance) {
+  const m = mapInstance || currentOutdoorMap;
+  if (fromIndex === toIndex) return;
+
+  // 1. 统一收集当前所有站点
+  const stops = [];
+  if (routeStartCoord || routeStartName) {
+    stops.push({
+      coords: routeStartCoord,
+      name: routeStartName,
+      zoom: routeStartZoom,
+      marker: routeStartMarker
+    });
+  }
+  routeViaPoints.forEach(v => {
+    stops.push({
+      coords: v.coords,
+      name: v.name,
+      zoom: v.zoom,
+      marker: v.marker,
+      id: v.id
+    });
+  });
+  if (routeEndCoord || routeEndName) {
+    stops.push({
+      coords: routeEndCoord,
+      name: routeEndName,
+      zoom: routeEndZoom,
+      marker: routeEndMarker
+    });
+  }
+
+  if (fromIndex < 0 || fromIndex >= stops.length || toIndex < 0 || toIndex >= stops.length) return;
+
+  // 2. 数组位移
+  const [moved] = stops.splice(fromIndex, 1);
+  stops.splice(toIndex, 0, moved);
+
+  // 3. 根据新位置重新赋予角色
+  if (stops.length === 1) {
+    routeStartCoord = stops[0].coords;
+    routeStartName = stops[0].name;
+    routeStartZoom = stops[0].zoom || 14.5;
+    routeStartMarker = stops[0].marker;
+    routeViaPoints = [];
+    routeEndCoord = null;
+    routeEndName = '';
+    routeEndMarker = null;
+  } else if (stops.length >= 2) {
+    // 首位始终为绿 [起]
+    routeStartCoord = stops[0].coords;
+    routeStartName = stops[0].name;
+    routeStartZoom = stops[0].zoom || 14.5;
+    routeStartMarker = stops[0].marker;
+
+    // 末位始终为红 [终]
+    const endStop = stops[stops.length - 1];
+    routeEndCoord = endStop.coords;
+    routeEndName = endStop.name;
+    routeEndZoom = endStop.zoom || 14.5;
+    routeEndMarker = endStop.marker;
+
+    // 中间项始终为蓝 [1..N-2]
+    routeViaPoints = stops.slice(1, -1).map(s => ({
+      id: s.id || ('via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
+      coords: s.coords,
+      name: s.name,
+      zoom: s.zoom || 14.5,
+      marker: s.marker
+    }));
+  }
+
+  // 4. 同步更新起终点输入框内容
+  const startInput = document.getElementById('route-start-input');
+  const endInput = document.getElementById('route-end-input');
+  if (startInput) startInput.value = routeStartName || '';
+  if (endInput) endInput.value = routeEndName || '';
+
+  // 5. 原生 Marker 增量状态更新 (复用 DOM，0ms 零闪烁)
+  if (routeStartMarker && routeStartMarker.getElement()) {
+    const el = routeStartMarker.getElement();
+    el.style.background = '#16a34a';
+    el.innerText = '起';
+    el.title = `路线起点（${routeStartName || ''}）`;
+  }
+  if (routeEndMarker && routeEndMarker.getElement()) {
+    const el = routeEndMarker.getElement();
+    el.style.background = '#ef4444';
+    el.innerText = '终';
+    el.title = `路线终点（${routeEndName || ''}）`;
+  }
+  routeViaPoints.forEach((v, idx) => {
+    if (v.marker && v.marker.getElement()) {
+      const el = v.marker.getElement();
+      el.style.background = '#0284c7';
+      el.innerText = idx + 1;
+      el.title = `途径点 ${idx + 1}（${v.name || ''}）`;
+    }
+  });
+
+  // 6. 重新渲染列表与即时规划
+  renderViaList(m);
+  if (m) autoPlanMultiPointRoute(m);
+}
+window.reorderRouteStops = reorderRouteStops;
+
+// 物理拖拽引擎与自适应边缘平滑滚屏 (Auto-Scroller)
+function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallback) {
+  if (!handleEl || !rowEl) return;
+  handleEl.style.touchAction = 'none';
+
+  if (handleEl._stopDragHandler) {
+    handleEl.removeEventListener('pointerdown', handleEl._stopDragHandler);
+  }
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    if (rowEl.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startY = e.clientY;
+    let isDragging = false;
+    let currentIndex = fromIndex;
+    let autoScrollRaf = null;
+    let pendingRaf = null;
+    let latestClientY = startY;
+
+    const scrollBox = document.querySelector('.route-points-box') || document.getElementById('route-panel');
+    let scrollBoxRect = null;
+    let startScrollTop = scrollBox ? scrollBox.scrollTop : 0;
+
+    const getActiveStopRows = () => {
+      const start = document.getElementById('route-start-row');
+      const vias = Array.from(document.querySelectorAll('#route-via-list .route-via-item'));
+      const end = document.getElementById('route-end-row');
+      const rows = [];
+      if (start) rows.push(start);
+      vias.forEach(v => rows.push(v));
+      if (end) rows.push(end);
+      return rows;
+    };
+
+    let allRows = getActiveStopRows();
+    if (allRows.length <= 1) {
+      if (typeof onClickFallback === 'function') onClickFallback();
+      return;
+    }
+
+    let step = 36;
+
+    const startAutoScroll = () => {
+      const stepScroll = () => {
+        if (!isDragging) return;
+        if (scrollBox && scrollBoxRect) {
+          const edgeThreshold = 36;
+          const topDist = latestClientY - scrollBoxRect.top;
+          const bottomDist = scrollBoxRect.bottom - latestClientY;
+
+          let scrollDelta = 0;
+          if (topDist < edgeThreshold) {
+            const factor = Math.max(0.2, (edgeThreshold - topDist) / edgeThreshold);
+            scrollDelta = -Math.round(factor * 10);
+          } else if (bottomDist < edgeThreshold) {
+            const factor = Math.max(0.2, (edgeThreshold - bottomDist) / edgeThreshold);
+            scrollDelta = Math.round(factor * 10);
+          }
+
+          if (scrollDelta !== 0) {
+            scrollBox.scrollTop += scrollDelta;
+            scheduleUpdate();
+          }
+        }
+        autoScrollRaf = requestAnimationFrame(stepScroll);
+      };
+      autoScrollRaf = requestAnimationFrame(stepScroll);
+    };
+
+    const scheduleUpdate = () => {
+      if (pendingRaf) return;
+      pendingRaf = requestAnimationFrame(() => {
+        pendingRaf = null;
+        if (!isDragging) return;
+
+        const currentScroll = scrollBox ? scrollBox.scrollTop : 0;
+        const scrollOffset = currentScroll - startScrollTop;
+        const deltaY = (latestClientY - startY) + scrollOffset;
+
+        rowEl.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+
+        const floatIndex = fromIndex + deltaY / step;
+        const targetIndex = Math.max(0, Math.min(allRows.length - 1, Math.round(floatIndex)));
+
+        if (targetIndex !== currentIndex) {
+          currentIndex = targetIndex;
+        }
+
+        allRows.forEach((r, i) => {
+          if (i === fromIndex) return;
+          if (fromIndex < currentIndex) {
+            if (i > fromIndex && i <= currentIndex) {
+              r.style.transform = `translate3d(0, -${step}px, 0)`;
+            } else {
+              r.style.transform = 'translate3d(0, 0, 0)';
+            }
+          } else if (fromIndex > currentIndex) {
+            if (i >= currentIndex && i < fromIndex) {
+              r.style.transform = `translate3d(0, ${step}px, 0)`;
+            } else {
+              r.style.transform = 'translate3d(0, 0, 0)';
+            }
+          } else {
+            r.style.transform = 'translate3d(0, 0, 0)';
+          }
+        });
+      });
+    };
+
+    const onPointerMove = (ev) => {
+      latestClientY = ev.clientY;
+      const rawDelta = ev.clientY - startY;
+
+      if (!isDragging) {
+        if (Math.abs(rawDelta) < 5) return;
+        isDragging = true;
+        scrollBox?.classList.add('is-route-reordering');
+        rowEl.classList.add('is-dragging');
+        try { handleEl.setPointerCapture(ev.pointerId); } catch (err) {}
+
+        allRows = getActiveStopRows();
+        scrollBoxRect = scrollBox ? scrollBox.getBoundingClientRect() : null;
+        startScrollTop = scrollBox ? scrollBox.scrollTop : 0;
+
+        const itemRects = allRows.map(r => r.getBoundingClientRect());
+        const h = itemRects[fromIndex]?.height || itemRects[0]?.height || 34;
+        const gap = itemRects.length > 1 ? Math.max(0, itemRects[1].top - itemRects[0].bottom) : 5;
+        step = h + gap;
+
+        startAutoScroll();
+      }
+
+      scheduleUpdate();
+    };
+
+    const onPointerUp = (ev) => {
+      handleEl.removeEventListener('pointermove', onPointerMove);
+      handleEl.removeEventListener('pointerup', onPointerUp);
+      handleEl.removeEventListener('pointercancel', onPointerUp);
+      try { handleEl.releasePointerCapture(ev.pointerId); } catch (err) {}
+
+      if (autoScrollRaf) {
+        cancelAnimationFrame(autoScrollRaf);
+        autoScrollRaf = null;
+      }
+      if (pendingRaf) {
+        cancelAnimationFrame(pendingRaf);
+        pendingRaf = null;
+      }
+
+      if (!isDragging) {
+        if (typeof onClickFallback === 'function') {
+          onClickFallback();
+        }
+        return;
+      }
+
+      const finalOffset = (currentIndex - fromIndex) * step;
+      rowEl.style.transition = 'transform 0.16s cubic-bezier(0.2, 0, 0, 1)';
+      rowEl.style.transform = `translate3d(0, ${finalOffset}px, 0)`;
+
+      setTimeout(() => {
+        rowEl.classList.remove('is-dragging');
+        scrollBox?.classList.remove('is-route-reordering');
+        allRows.forEach(r => {
+          r.style.transform = '';
+          r.style.transition = '';
+        });
+
+        if (currentIndex !== fromIndex) {
+          reorderRouteStops(fromIndex, currentIndex, mapInstance);
+        }
+      }, 160);
+    };
+
+    handleEl.addEventListener('pointermove', onPointerMove);
+    handleEl.addEventListener('pointerup', onPointerUp);
+    handleEl.addEventListener('pointercancel', onPointerUp);
+  };
+
+  handleEl._stopDragHandler = onPointerDown;
+  handleEl.addEventListener('pointerdown', onPointerDown);
+}
+
+function bindStartAndEndRowsDrag(mapInstance) {
+  const m = mapInstance || currentOutdoorMap;
+  const startRow = document.getElementById('route-start-row');
+  const endRow = document.getElementById('route-end-row');
+  const btnSwapStart = document.getElementById('btn-swap-route-pts');
+  const btnSwapEnd = document.getElementById('btn-swap-route-pts-2');
+
+  const getSwapFn = () => (typeof window.swapStartAndEndRoutePoints === 'function' ? window.swapStartAndEndRoutePoints : null);
+
+  const totalStops = (routeStartCoord || routeStartName ? 1 : 0) +
+                     routeViaPoints.length +
+                     (routeEndCoord || routeEndName ? 1 : 0);
+
+  if (startRow && btnSwapStart) {
+    bindStopRowDrag(btnSwapStart, startRow, 0, m, () => {
+      const fn = getSwapFn();
+      if (fn) fn();
+    });
+  }
+  if (endRow && btnSwapEnd) {
+    const endIdx = totalStops > 0 ? totalStops - 1 : 1;
+    bindStopRowDrag(btnSwapEnd, endRow, endIdx, m, () => {
+      const fn = getSwapFn();
+      if (fn) fn();
+    });
+  }
+}
+
+// 渲染途径点列表 (支持拼音/汉字回车搜索、地图定位、删除以及全站点拖拽排序)
 function renderViaList(mapInstance) {
   const map = mapInstance || currentOutdoorMap;
   const container = document.getElementById('route-via-list');
   if (!container) return;
   container.innerHTML = '';
 
-  const isLastViaActingAsEnd = !routeEndCoord && routeViaPoints.length > 0;
-
   routeViaPoints.forEach((via, idx) => {
     const row = document.createElement('div');
     row.className = 'route-via-item';
     row.dataset.index = idx;
 
-    const isThisViaActingAsEnd = isLastViaActingAsEnd && idx === routeViaPoints.length - 1;
-    const tagHtml = isThisViaActingAsEnd
-      ? `<span class="pt-tag end" style="background:#ef4444;" title="终点（当前路线终点，点击定位）">终</span>`
-      : `<span class="pt-tag via" title="途径点 ${idx + 1}（点击定位）">${idx + 1}</span>`;
-
     row.innerHTML = `
-      ${tagHtml}
+      <span class="pt-tag via" title="途径点 ${idx + 1}（点击定位）">${idx + 1}</span>
       <div class="route-input-wrap">
         <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
         <div class="route-search-dropdown" style="display: none;"></div>
       </div>
       <button class="btn-via-del" title="删除该途径点">✕</button>
-      <div class="btn-drag-handle via-drag-handle" title="按住上下拖动调整顺序">⠿</div>
+      <div class="btn-drag-handle via-drag-handle" title="按住拖拽排序">⠿</div>
     `;
 
     const inputEl = row.querySelector('.via-name-input');
@@ -5550,107 +5867,19 @@ function renderViaList(mapInstance) {
       });
     }
 
-    // 绑定途径点输入框的实时联想搜索与回车直达
     bindRoutePointInput(inputEl, dropdownEl, 'via', idx, map);
 
-    // 删除该途径点
     delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       removeViaPoint(map, idx);
     });
 
-    // 苹果地图风格：丝滑物理位移拖拽手柄排序 (Pointer Events + Sibling translateY 缓动动画，彻底消除闪烁)
-    dragHandle.style.touchAction = 'none';
-    dragHandle.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      if (document.activeElement === inputEl) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      const startY = e.clientY;
-      const startIndex = idx;
-      let currentIndex = startIndex;
-
-      const items = Array.from(container.querySelectorAll('.route-via-item'));
-      if (items.length <= 1) return;
-
-      const itemRects = items.map(el => el.getBoundingClientRect());
-      const itemHeight = itemRects[0].height || 32;
-      const gap = itemRects.length > 1 ? Math.max(0, itemRects[1].top - itemRects[0].bottom) : 4;
-      const step = itemHeight + gap;
-
-      row.classList.add('is-dragging');
-      dragHandle.setPointerCapture(e.pointerId);
-
-      const onPointerMove = (ev) => {
-        const deltaY = ev.clientY - startY;
-        row.style.transform = `translate3d(0, ${deltaY}px, 0)`;
-
-        // 计算当前悬浮位置对应的目标索引
-        const floatIndex = startIndex + deltaY / step;
-        const targetIndex = Math.max(0, Math.min(items.length - 1, Math.round(floatIndex)));
-
-        if (targetIndex !== currentIndex) {
-          currentIndex = targetIndex;
-        }
-
-        // 让其他所有兄弟条目根据目标索引平滑位移，预留位置
-        items.forEach((item, i) => {
-          if (i === startIndex) return;
-          if (startIndex < currentIndex) {
-            if (i > startIndex && i <= currentIndex) {
-              item.style.transform = `translate3d(0, -${step}px, 0)`;
-            } else {
-              item.style.transform = 'translate3d(0, 0, 0)';
-            }
-          } else if (startIndex > currentIndex) {
-            if (i >= currentIndex && i < startIndex) {
-              item.style.transform = `translate3d(0, ${step}px, 0)`;
-            } else {
-              item.style.transform = 'translate3d(0, 0, 0)';
-            }
-          } else {
-            item.style.transform = 'translate3d(0, 0, 0)';
-          }
-        });
-      };
-
-      const onPointerUp = (ev) => {
-        dragHandle.removeEventListener('pointermove', onPointerMove);
-        dragHandle.removeEventListener('pointerup', onPointerUp);
-        dragHandle.removeEventListener('pointercancel', onPointerUp);
-        try { dragHandle.releasePointerCapture(ev.pointerId); } catch (err) {}
-
-        // 磁吸复位动画：平滑移动到目标槽位
-        const finalOffset = (currentIndex - startIndex) * step;
-        row.style.transition = 'transform 0.18s cubic-bezier(0.2, 0, 0, 1)';
-        row.style.transform = `translate3d(0, ${finalOffset}px, 0)`;
-
-        setTimeout(() => {
-          row.classList.remove('is-dragging');
-          items.forEach(item => {
-            item.style.transform = '';
-            item.style.transition = '';
-          });
-
-          if (currentIndex !== startIndex) {
-            const [moved] = routeViaPoints.splice(startIndex, 1);
-            routeViaPoints.splice(currentIndex, 0, moved);
-            syncRouteMarkersVisualState(map);
-            renderViaList(map);
-            autoPlanMultiPointRoute(map);
-          }
-        }, 180);
-      };
-
-      dragHandle.addEventListener('pointermove', onPointerMove);
-      dragHandle.addEventListener('pointerup', onPointerUp);
-      dragHandle.addEventListener('pointercancel', onPointerUp);
-    });
+    bindStopRowDrag(dragHandle, row, idx + 1, map, null);
 
     container.appendChild(row);
   });
 
+  bindStartAndEndRowsDrag(map);
   syncRouteMarkersVisualState(map);
 }
 
@@ -5692,10 +5921,10 @@ function addViaPoint(map, coords, label, zoom = null) {
   if (routePanel) routePanel.style.display = 'flex';
 
   // 自动平滑滚动到底部最新添加的途径点处，彻底免除多途径点时手动滚动翻找
-  const viaListContainer = document.getElementById('route-via-list');
-  if (viaListContainer) {
+  const pointsBox = document.querySelector('.route-points-box');
+  if (pointsBox) {
     requestAnimationFrame(() => {
-      viaListContainer.scrollTo({ top: viaListContainer.scrollHeight, behavior: 'smooth' });
+      pointsBox.scrollTo({ top: pointsBox.scrollHeight, behavior: 'smooth' });
     });
   }
 
@@ -5746,6 +5975,7 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
   }
   closeConflictingBottomPanels('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
+  bindStartAndEndRowsDrag(m);
   if (m) autoPlanMultiPointRoute(m);
 }
 
@@ -5778,6 +6008,7 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
   syncRouteMarkersVisualState(m);
   closeConflictingBottomPanels('route-panel');
   if (routePanel) routePanel.style.display = 'flex';
+  bindStartAndEndRowsDrag(m);
   if (m) autoPlanMultiPointRoute(m);
 }
 
@@ -6634,9 +6865,10 @@ function setupOutdoorRouteSystem(map) {
     map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
     btnPickViaInline?.classList.add('picking');
     if (btnPickViaInline) {
-      const countText = routeViaPoints.length > 0 ? ` (${routeViaPoints.length})` : '';
+      const totalCount = (routeStartCoord ? 1 : 0) + routeViaPoints.length + (routeEndCoord ? 1 : 0);
+      const countText = totalCount > 0 ? ` (${totalCount})` : '';
       btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点${countText}</span>`;
-      btnPickViaInline.title = '正在连续选点：点击地图添加途径点，再次点击此按钮、按 ESC 或右键完成';
+      btnPickViaInline.title = '正在连续选点：点击地图添加路线点，再次点击此按钮、按 ESC 或右键完成';
     }
   };
 
@@ -6697,6 +6929,8 @@ function setupOutdoorRouteSystem(map) {
     renderViaList(map);
     autoPlanMultiPointRoute(map);
   };
+  window.swapStartAndEndRoutePoints = swapStartAndEndRoutePoints;
+  bindStartAndEndRowsDrag(map);
 
   document.getElementById('btn-swap-route-pts')?.addEventListener('click', swapStartAndEndRoutePoints);
   document.getElementById('btn-swap-route-pts-2')?.addEventListener('click', swapStartAndEndRoutePoints);
@@ -6762,9 +6996,22 @@ function setupOutdoorRouteSystem(map) {
           autoPlanMultiPointRoute(map);
           exitRoutePickingMode();
         } else {
-          addViaPoint(map, [lng, lat], cleanLocation || `途径点 ${routeViaPoints.length + 1}`);
+          // 高德 / Apple Maps 模式：连续选点时自动递进，终点始终自动接替并填充在底栏终点输入框
+          if (!routeStartCoord) {
+            setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
+          } else if (!routeEndCoord) {
+            setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
+          } else {
+            // 已有起终点：将原终点顺延沉淀为途径点，新点击点接替成为终点！
+            const prevEndCoord = routeEndCoord;
+            const prevEndName = routeEndName;
+            const prevEndZoom = routeEndZoom;
+            addViaPoint(map, prevEndCoord, prevEndName, prevEndZoom);
+            setRouteEndPoint(map, [lng, lat], cleanLocation || '终点');
+          }
           if (btnPickViaInline) {
-            btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${routeViaPoints.length})</span>`;
+            const totalCount = (routeStartCoord ? 1 : 0) + routeViaPoints.length + (routeEndCoord ? 1 : 0);
+            btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${totalCount})</span>`;
           }
         }
       }

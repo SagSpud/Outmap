@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.6.1" />
+  <link rel="stylesheet" href="style.css?v=1.6.2" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.1</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.2</span>
                 </div>
               </div>
             </div>
@@ -300,13 +300,13 @@
 
           <!-- 起点终点及多途径点录入 -->
           <div class="route-points-box">
-            <div class="route-point-row">
+            <div class="route-point-row" id="route-start-row">
               <span class="pt-tag start">起</span>
               <div class="route-input-wrap">
                 <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入起点 (支持地名/城市/坐标)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-start-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-drag-handle" id="btn-swap-route-pts" title="点击与终点对调起终位置">⇅</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts" title="按住拖拽排序，点击与终点对调">⠿</button>
             </div>
 
             <!-- 中间动态途径点列表 (支持几十个点平滑衔接与上下拖拽排序) -->
@@ -324,13 +324,13 @@
               </button>
             </div>
 
-            <div class="route-point-row">
+            <div class="route-point-row" id="route-end-row">
               <span class="pt-tag end">终</span>
               <div class="route-input-wrap">
                 <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入终点 (支持地名/城市/坐标)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-end-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-drag-handle" id="btn-swap-route-pts-2" title="点击与起点对调起终位置">⇅</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts-2" title="按住拖拽排序，点击与起点对调">⠿</button>
             </div>
           </div>
 
@@ -769,8 +769,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.6.1"></script>
-  <script src="app.js?v=1.6.1"></script>
+  <script src="location-camera.js?v=1.6.2"></script>
+  <script src="app.js?v=1.6.2"></script>
 </body>
 </html>
 
