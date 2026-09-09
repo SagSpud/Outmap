@@ -1172,6 +1172,8 @@ app.whenReady().then(async () => {
     let activeProvName = '';
     let activeZ = 10;
 
+    const speedSamples = [{ time: startTime, bytes: 0 }];
+
     async function worker() {
       while (!signal.aborted) {
         const next = tileIterator.next();
@@ -1311,6 +1313,23 @@ app.whenReady().then(async () => {
           const speed = elapsed > 0 ? Math.round(completed / elapsed) : 0;
           const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
 
+          // 滑动时间窗口 (1.5秒) 计算实际网络实时下行字节速率 (B/s)
+          speedSamples.push({ time: now, bytes: totalBytes });
+          while (speedSamples.length > 2 && now - speedSamples[0].time > 1500) {
+            speedSamples.shift();
+          }
+          let byteSpeed = 0;
+          if (speedSamples.length >= 2) {
+            const dt = (now - speedSamples[0].time) / 1000;
+            const dBytes = totalBytes - speedSamples[0].bytes;
+            if (dt > 0.15) {
+              byteSpeed = Math.max(0, Math.round(dBytes / dt));
+            }
+          }
+          if (byteSpeed === 0 && totalBytes > 0 && elapsed > 0) {
+            byteSpeed = Math.round(totalBytes / elapsed);
+          }
+
           // Completion is derived from disk after all workers settle, including
           // cancellations and failures. Never promote a whole province here.
 
@@ -1330,6 +1349,7 @@ app.whenReady().then(async () => {
               updatedCount,
               newlyAddedCount,
               speed,
+              byteSpeed,
               percent,
               bytes: totalBytes,
               done: false,
@@ -1359,7 +1379,7 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send('download-progress', {
         completed, total, savedCount, failedCount, unchangedCount, updatedCount, newlyAddedCount,
         percent: total ? Math.round(completed / total * 100) : 100,
-        speed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
+        speed: 0, byteSpeed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
         isVerify, isIncrementalUpdate, ...finalStats
       });
     }

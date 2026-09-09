@@ -1460,6 +1460,18 @@ body.web-mode #manage-modal {
   background: #f0fdf4;
 }
 
+.prov-status-line.downloading {
+  color: #0284c7;
+  border: 1px solid #7dd3fc;
+  background: #f0f9ff;
+}
+
+.prov-status-line.busy {
+  color: #b45309;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+}
+
 .prov-status-dot {
   display: inline-block;
   width: 6.5px;
@@ -1481,6 +1493,23 @@ body.web-mode #manage-modal {
 .prov-status-dot.ready {
   background-color: #16a34a;
   box-shadow: 0 0 5px rgba(22, 163, 74, 0.5);
+}
+
+.prov-status-dot.downloading {
+  background-color: #0284c7;
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.8);
+  animation: dlDotPulse 1.4s infinite ease-in-out;
+}
+
+.prov-status-dot.busy {
+  background-color: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+  animation: dlDotPulse 1.4s infinite ease-in-out;
+}
+
+@keyframes dlDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.65; }
 }
 
 .modal-btn.success {

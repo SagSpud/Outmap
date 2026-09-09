@@ -2961,6 +2961,24 @@ function setupPyramidModal(map) {
 
   const dlBlueDot = document.getElementById('dl-live-blue-dot');
   let downloadDotState = 'idle'; // 'idle' (无标注) | 'downloading' (正在下载，蓝点) | 'completed' (下载完成，绿点)
+  let activeDownloadSession = null; // { keys: string[], provNames: string[], maxZ: number }
+  let lastProgressBytes = 0;
+  let lastProgressTime = 0;
+
+  const formatNetworkSpeed = (byteSpeed, isVerify = false) => {
+    if (isVerify) return '本地校验中';
+    if (!byteSpeed || byteSpeed <= 0) return '0 KB/s';
+    if (byteSpeed >= 1024 * 1024 * 1024) {
+      return `${(byteSpeed / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
+    }
+    if (byteSpeed >= 1024 * 1024) {
+      return `${(byteSpeed / (1024 * 1024)).toFixed(1)} MB/s`;
+    }
+    if (byteSpeed >= 1024) {
+      return `${(byteSpeed / 1024).toFixed(0)} KB/s`;
+    }
+    return `${Math.round(byteSpeed)} B/s`;
+  };
 
   const updateBtnTooltip = () => {
     const isExpanded = btnOpen.classList.contains('expanded');
@@ -3055,6 +3073,15 @@ function setupPyramidModal(map) {
       console.warn('[Offline Modal] renderProvinceGrid error:', e);
     }
 
+    // 若后台正在下载，同步激活对应的层级卡片高亮
+    if (activeDownloadSession?.maxZ) {
+      const activeZ = String(activeDownloadSession.maxZ);
+      if (zoomInput) zoomInput.value = activeZ;
+      zoomPills.forEach(p => {
+        p.classList.toggle('active', p.dataset.value === activeZ);
+      });
+    }
+
     try {
       updateEstimation();
     } catch (e) {
@@ -3119,6 +3146,10 @@ function setupPyramidModal(map) {
       }
     }
     if (dropdownSummary) {
+      const isDownloading = downloadDotState === 'downloading' || Boolean(activeDownloadSession);
+      const activeKeys = activeDownloadSession?.keys || [];
+      const isViewingActiveTask = isDownloading && activeKeys.length > 0 && keys.length === activeKeys.length && keys.every(k => activeKeys.includes(k));
+
       if (keys.length === 0) {
         dropdownSummary.innerText = '请点击展开选择目标省份...';
         dropdownSummary.style.color = '#94a3b8';
@@ -3130,28 +3161,34 @@ function setupPyramidModal(map) {
         const name = PROVINCES_DATA[k]?.name || k;
         const s = offlineState[k];
         const maxZ = s ? (s.maxZ || 0) : 0;
-        const statusText = maxZ >= 14 ? ' · 已全量就绪 (L14)' : (maxZ >= 10 ? ` · 已就绪 (L${maxZ})` : ' · 未下载');
+        let statusText = maxZ >= 14 ? ' · 已全量就绪 (L14)' : (maxZ >= 10 ? ` · 已就绪 (L${maxZ})` : ' · 未下载');
+        if (isViewingActiveTask) {
+          statusText = ' · 下载进行中';
+        }
         dropdownSummary.innerText = `${name}${statusText}`;
         dropdownSummary.style.color = '#1e293b';
       } else {
         const names = keys.map(k => PROVINCES_DATA[k]?.name || k).filter(Boolean);
-        if (names.length <= 4) {
-          dropdownSummary.innerText = names.join('、');
-        } else {
-          dropdownSummary.innerText = `${names.slice(0, 3).join('、')} 等 ${names.length} 个省份`;
+        let summaryText = names.length <= 4 ? names.join('、') : `${names.slice(0, 3).join('、')} 等 ${names.length} 个省份`;
+        if (isViewingActiveTask) {
+          summaryText += ' (下载进行中)';
         }
+        dropdownSummary.innerText = summaryText;
         dropdownSummary.style.color = '#1e293b';
       }
     }
   };
 
-  // 渲染全国省份网格 (使用显式 L14/L12/未下载 徽章替代模糊单点；默认仅勾选当前所在单个省份，绝不全选)
+  // 渲染全国省份网格 (使用显式 L14/L12/未下载 徽章替代模糊单点；下载进行中精准锁定当前任务省份，平常保持已勾选状态)
   const renderProvinceGrid = () => {
     if (!multiGrid) return;
     multiGrid.innerHTML = '';
     const offlineState = getOfflineProvState();
 
-    // 默认仅勾选当前地图视口所在省份，避免历史脏数据误勾选全国 33 省
+    // 确定选区：
+    // 1. 若后台正在下载，严禁选区偏移，精准选中当前正在下载的任务省份；
+    // 2. 若无下载但已有用户选区，完整保留用户的当前选区；
+    // 3. 仅在初始未选时，按地图视口定位单个省份。
     let defaultKey = (currentSelectedProvKey && currentSelectedProvKey !== 'china') ? currentSelectedProvKey : null;
     if (!defaultKey && map) {
       const c = map.getCenter();
@@ -3166,6 +3203,18 @@ function setupPyramidModal(map) {
       }
     }
     if (!defaultKey) defaultKey = 'shandong';
+
+    let selectedKeySet = new Set();
+    if (activeDownloadSession && Array.isArray(activeDownloadSession.keys) && activeDownloadSession.keys.length > 0) {
+      selectedKeySet = new Set(activeDownloadSession.keys);
+    } else {
+      const existing = getSelectedKeys();
+      if (existing.length > 0) {
+        selectedKeySet = new Set(existing);
+      } else if (defaultKey) {
+        selectedKeySet = new Set([defaultKey]);
+      }
+    }
 
     // 按拼音排序省份 (排除 china)
     const sortedKeys = Object.keys(PROVINCES_DATA)
@@ -3197,17 +3246,17 @@ function setupPyramidModal(map) {
       const maxZ = saved ? (saved.maxZ || 0) : 0;
       const isFull = (maxZ >= 14) || [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z));
       const isPartial = !isFull && ((saved?.partialZ >= 10) || (maxZ >= 10) || [10, 11, 12, 13, 14].some(z => isLevelPartial(saved, z)));
-      const isDefaultChecked = (k === defaultKey);
+      const isChecked = selectedKeySet.has(k);
 
       const label = document.createElement('label');
       const readyClass = isFull ? ' ready-full' : (isPartial ? ' ready-partial' : '');
-      label.className = `prov-chip-item${readyClass}${isDefaultChecked ? ' checked' : ''}`;
+      label.className = `prov-chip-item${readyClass}${isChecked ? ' checked' : ''}`;
       label.dataset.key = k;
 
       const chk = document.createElement('input');
       chk.type = 'checkbox';
       chk.value = k;
-      chk.checked = isDefaultChecked; // 仅默认勾选当前省份，如需多选点击全选或复选
+      chk.checked = isChecked;
 
       chk.addEventListener('change', () => {
         label.classList.toggle('checked', chk.checked);
@@ -3397,49 +3446,84 @@ function setupPyramidModal(map) {
 
     const totalTiles = totalIncrementalTiles * multiplier;
 
-    if (allReady) {
-      statCount.innerText = '已全部就绪';
-      statSize.innerText = '0 MB';
-      if (provStatusTag) {
-        provStatusTag.className = 'prov-status-line ready';
-        provStatusTag.style.display = 'inline-flex';
-        provStatusTag.innerHTML = `<span class="prov-status-dot ready"></span> 所选省份在 L${maxZ} 已全部就绪`;
-      }
-      btnStart.style.display = 'none';
-      if (btnUpdate) {
-        btnUpdate.style.display = 'inline-block';
-        btnUpdate.disabled = false;
-        btnUpdate.innerHTML = '⚡ 增量更新';
-      }
-      if (btnRetry) btnRetry.style.display = 'inline-block';
-      if (btnDone) btnDone.style.display = 'inline-block';
-    } else {
-      statCount.innerText = `${formatTileCount(totalTiles)} 块`;
-      const avgBytes = 42 * 1024;
-      const totalBytes = totalTiles * avgBytes;
-      if (totalBytes > 1024 * 1024 * 1024) {
-        statSize.innerText = `约 ${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-      } else {
-        statSize.innerText = `约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
-      }
+    const isDownloading = downloadDotState === 'downloading' || Boolean(activeDownloadSession);
+    const activeKeys = activeDownloadSession?.keys || [];
+    const isViewingActiveTask = isDownloading && activeKeys.length > 0 && selectedKeys.length === activeKeys.length && selectedKeys.every(k => activeKeys.includes(k));
 
-      if (provStatusTag) {
-        provStatusTag.style.display = 'inline-flex';
-        if (hasAnySaved && minSavedZ >= 10) {
-          provStatusTag.className = 'prov-status-line partial';
-          provStatusTag.innerHTML = `<span class="prov-status-dot partial"></span> 已就绪至 L${minSavedZ} · 待扩充至 L${maxZ}`;
-        } else {
-          provStatusTag.className = 'prov-status-line pending';
-          provStatusTag.innerHTML = `<span class="prov-status-dot pending"></span> 待下载至 L${maxZ}`;
+    if (isDownloading) {
+      btnCancel.style.display = 'inline-block';
+      btnCancel.innerText = '中止下载';
+      if (btnDone) btnDone.style.display = 'none';
+
+      if (isViewingActiveTask) {
+        btnStart.style.display = 'none';
+        if (btnUpdate) btnUpdate.style.display = 'none';
+        if (btnRetry) btnRetry.style.display = 'none';
+        if (provStatusTag) {
+          provStatusTag.className = 'prov-status-line downloading';
+          provStatusTag.style.display = 'inline-flex';
+          provStatusTag.innerHTML = `<span class="prov-status-dot downloading"></span> 正在高速下载此省份离线数据...`;
+        }
+      } else {
+        const activeNames = activeDownloadSession?.provNames?.join('、') || '其他省份';
+        btnStart.style.display = 'inline-block';
+        btnStart.disabled = false;
+        btnStart.innerText = '中止当前并下载所选省份';
+        btnStart.title = `后台正在下载【${activeNames}】，点击将中止当前任务并开始下载当前所选省份`;
+        if (btnUpdate) btnUpdate.style.display = 'none';
+        if (btnRetry) btnRetry.style.display = 'none';
+        if (provStatusTag) {
+          provStatusTag.className = 'prov-status-line busy';
+          provStatusTag.style.display = 'inline-flex';
+          provStatusTag.innerHTML = `<span class="prov-status-dot busy"></span> 后台正在下载【${activeNames}】· 可点击右侧切换`;
         }
       }
+    } else {
+      btnCancel.style.display = 'none';
+      if (allReady) {
+        statCount.innerText = '已全部就绪';
+        statSize.innerText = '0 MB';
+        if (provStatusTag) {
+          provStatusTag.className = 'prov-status-line ready';
+          provStatusTag.style.display = 'inline-flex';
+          provStatusTag.innerHTML = `<span class="prov-status-dot ready"></span> 所选省份在 L${maxZ} 已全部就绪`;
+        }
+        btnStart.style.display = 'none';
+        if (btnUpdate) {
+          btnUpdate.style.display = 'inline-block';
+          btnUpdate.disabled = false;
+          btnUpdate.innerHTML = '⚡ 增量更新';
+        }
+        if (btnRetry) btnRetry.style.display = 'inline-block';
+        if (btnDone) btnDone.style.display = 'inline-block';
+      } else {
+        statCount.innerText = `${formatTileCount(totalTiles)} 块`;
+        const avgBytes = 42 * 1024;
+        const totalBytes = totalTiles * avgBytes;
+        if (totalBytes > 1024 * 1024 * 1024) {
+          statSize.innerText = `约 ${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+        } else {
+          statSize.innerText = `约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
 
-      btnStart.style.display = 'inline-block';
-      btnStart.disabled = false;
-      btnStart.innerText = (hasAnySaved && minSavedZ >= 10) ? `扩充下载 (至 L${maxZ})` : `开始下载 (至 L${maxZ})`;
-      if (btnUpdate) btnUpdate.style.display = 'none';
-      if (btnRetry) btnRetry.style.display = 'none';
-      if (btnDone) btnDone.style.display = 'none';
+        if (provStatusTag) {
+          provStatusTag.style.display = 'inline-flex';
+          if (hasAnySaved && minSavedZ >= 10) {
+            provStatusTag.className = 'prov-status-line partial';
+            provStatusTag.innerHTML = `<span class="prov-status-dot partial"></span> 已就绪至 L${minSavedZ} · 待扩充至 L${maxZ}`;
+          } else {
+            provStatusTag.className = 'prov-status-line pending';
+            provStatusTag.innerHTML = `<span class="prov-status-dot pending"></span> 待下载至 L${maxZ}`;
+          }
+        }
+
+        btnStart.style.display = 'inline-block';
+        btnStart.disabled = false;
+        btnStart.innerText = (hasAnySaved && minSavedZ >= 10) ? `扩充下载 (至 L${maxZ})` : `开始下载 (至 L${maxZ})`;
+        if (btnUpdate) btnUpdate.style.display = 'none';
+        if (btnRetry) btnRetry.style.display = 'none';
+        if (btnDone) btnDone.style.display = 'none';
+      }
     }
   };
 
@@ -3465,6 +3549,13 @@ function setupPyramidModal(map) {
     const selectedKeys = getSelectedKeys();
     if (selectedKeys.length === 0) return;
 
+    if (downloadDotState === 'downloading') {
+      if (window.electronAPI && window.electronAPI.cancelPyramidDownload) {
+        await window.electronAPI.cancelPyramidDownload();
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
     const provinces = selectedKeys.map(k => {
       const p = PROVINCES_DATA[k];
       return { key: k, name: p.name, bbox: p.bbox };
@@ -3472,9 +3563,16 @@ function setupPyramidModal(map) {
 
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
 
+    activeDownloadSession = {
+      keys: [...selectedKeys],
+      provNames: provinces.map(p => p.name),
+      maxZ
+    };
+
     setDownloadDotState('downloading');
     btnStart.style.display = 'none';
     btnCancel.style.display = 'inline-block';
+    btnCancel.innerText = '中止下载';
     if (btnRetry) btnRetry.style.display = 'none';
     if (btnUpdate) btnUpdate.style.display = 'none';
     if (btnDone) btnDone.style.display = 'none';
@@ -3500,8 +3598,10 @@ function setupPyramidModal(map) {
           isIncrementalUpdate
         });
       } catch (err) {
+        activeDownloadSession = null;
         setDownloadDotState('idle');
         progressNum.innerText = `下载遇到异常: ${err.message}`;
+        updateEstimation();
       }
     }
   };
@@ -3545,6 +3645,7 @@ function setupPyramidModal(map) {
 
   // 中止下载
   btnCancel.addEventListener('click', async () => {
+    activeDownloadSession = null;
     setDownloadDotState('idle');
     if (window.electronAPI && window.electronAPI.cancelPyramidDownload) {
       await window.electronAPI.cancelPyramidDownload();
@@ -3558,6 +3659,7 @@ function setupPyramidModal(map) {
     if (progressTask) progressTask.innerText = '已中止下载';
     progressNum.innerText = '下载已停止';
     progressSpeed.innerText = '';
+    updateEstimation();
   });
 
   // 监听后台批量下载进度广播与完成落盘
@@ -3568,36 +3670,67 @@ function setupPyramidModal(map) {
       const provName = data.currentProvince || '目标省份';
       const zStr = data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`;
 
+      if (!data.done) {
+        if (!activeDownloadSession && data.currentProvince) {
+          let matchedKey = null;
+          for (const [k, p] of Object.entries(PROVINCES_DATA)) {
+            if (p.name === data.currentProvince) {
+              matchedKey = k;
+              break;
+            }
+          }
+          activeDownloadSession = {
+            keys: matchedKey ? [matchedKey] : [],
+            provNames: [data.currentProvince],
+            maxZ: data.currentZ || maxZ
+          };
+        }
+      } else {
+        activeDownloadSession = null;
+      }
+
       if (progressTask) {
+        const curKeys = getSelectedKeys();
+        const isMatched = curKeys.length === 1 && PROVINCES_DATA[curKeys[0]]?.name === provName;
+        const taskPrefix = isMatched ? '📥 正在下载' : '📥 后台正在下载';
         if (data.isIncrementalUpdate) {
           progressTask.innerText = `⚡ 增量更新: ${provName}${zStr}`;
         } else if (data.isVerify) {
           progressTask.innerText = `🔍 正在校验: ${provName}${zStr}`;
         } else {
-          progressTask.innerText = `📥 正在下载: ${provName}${zStr}`;
+          progressTask.innerText = `${taskPrefix}: ${provName}${zStr}`;
         }
       }
 
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)} 瓦片`;
       let detail = countPart;
+      const readyCount = data.existingCount || data.skippedCount || 0;
       if (data.isIncrementalUpdate) {
         const unchanged = data.unchangedCount || 0;
-        const updated = data.updatedCount || 0;
-        const newlyAdded = data.newlyAddedCount || 0;
-        detail = `${countPart} (最新 ${formatTileCount(unchanged)} · 更新 ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐 ${formatTileCount(newlyAdded)}` : ''})`;
-      } else if (data.existingCount) {
-        const newly = data.newlySavedCount || 0;
-        if (newly > 0) {
-          detail = `${countPart} (新下载 ${formatTileCount(newly)} · 本地已有 ${formatTileCount(data.existingCount)})`;
-        } else {
-          detail = `${countPart} (本地已有 ${formatTileCount(data.existingCount)})`;
-        }
-      } else if (data.skippedCount) {
-        detail = `${countPart} (本地已有 ${formatTileCount(data.skippedCount)})`;
+        detail = (readyCount > 0 || unchanged > 0) ? `${countPart} (已就绪 ${formatTileCount(unchanged || readyCount)})` : countPart;
+      } else if (readyCount > 0) {
+        detail = `${countPart} (已就绪 ${formatTileCount(readyCount)})`;
       }
 
       progressNum.innerText = detail;
-      progressSpeed.innerText = data.speed > 0 ? `${data.speed.toLocaleString()} 片/秒` : '';
+
+      // 实时网络速率计算与格式化
+      let curByteSpeed = data.byteSpeed;
+      const now = Date.now();
+      if (curByteSpeed === undefined && data.bytes !== undefined) {
+        if (lastProgressTime > 0) {
+          const dt = (now - lastProgressTime) / 1000;
+          if (dt > 0.2) {
+            curByteSpeed = Math.max(0, Math.round((data.bytes - lastProgressBytes) / dt));
+          }
+        }
+      }
+      if (data.bytes !== undefined) {
+        lastProgressBytes = data.bytes;
+        lastProgressTime = now;
+      }
+
+      progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify);
       progressPct.innerText = `${data.percent}%`;
 
       if (!data.done && downloadDotState !== 'downloading') {
@@ -3634,7 +3767,7 @@ function setupPyramidModal(map) {
           if (data.isIncrementalUpdate) {
             provStatusTag.innerHTML = '<span class="prov-status-dot ready"></span> 增量更新已完成 · 旧切片完好保留';
           } else {
-            provStatusTag.innerHTML = '<span class="prov-status-dot ready"></span> 全部图层已就绪';
+            provStatusTag.innerHTML = `<span class="prov-status-dot ready"></span> 所选省份在 L${maxZ} 已全部就绪`;
           }
         }
 
