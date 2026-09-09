@@ -19,11 +19,11 @@ const appJs = fs.readFileSync(path.resolve(__dirname, '../src/app.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.resolve(__dirname, '../src/index.html'), 'utf8');
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
-assert(['1.6.7', '1.6.8', '1.6.9', '1.7.0'].includes(packageJson.version), 'package.json version must be valid');
-assert(appJs.includes("const APP_VERSION = '1.6.7'") || appJs.includes("const APP_VERSION = '1.6.8'") || appJs.includes("const APP_VERSION = '1.6.9'") || appJs.includes("const APP_VERSION = '1.7.0'"), 'app.js must declare APP_VERSION');
-assert(indexHtml.includes('style.css?v=1.6.7') || indexHtml.includes('style.css?v=1.6.8') || indexHtml.includes('style.css?v=1.6.9') || indexHtml.includes('style.css?v=1.7.0'), 'index.html must reference style.css');
-assert(indexHtml.includes('app.js?v=1.6.7') || indexHtml.includes('app.js?v=1.6.8') || indexHtml.includes('app.js?v=1.6.9') || indexHtml.includes('app.js?v=1.7.0'), 'index.html must reference app.js');
-assert(indexHtml.includes('v1.6.7') || indexHtml.includes('v1.6.8') || indexHtml.includes('v1.6.9') || indexHtml.includes('v1.7.0'), 'index.html must display version badge');
+assert(['1.6.7', '1.6.8', '1.6.9', '1.7.0', '1.7.1'].includes(packageJson.version), 'package.json version must be valid');
+assert(appJs.includes("const APP_VERSION = '1.6.7'") || appJs.includes("const APP_VERSION = '1.6.8'") || appJs.includes("const APP_VERSION = '1.6.9'") || appJs.includes("const APP_VERSION = '1.7.0'") || appJs.includes("const APP_VERSION = '1.7.1'"), 'app.js must declare APP_VERSION');
+assert(indexHtml.includes('style.css?v=1.6.7') || indexHtml.includes('style.css?v=1.6.8') || indexHtml.includes('style.css?v=1.6.9') || indexHtml.includes('style.css?v=1.7.0') || indexHtml.includes('style.css?v=1.7.1'), 'index.html must reference style.css');
+assert(indexHtml.includes('app.js?v=1.6.7') || indexHtml.includes('app.js?v=1.6.8') || indexHtml.includes('app.js?v=1.6.9') || indexHtml.includes('app.js?v=1.7.0') || indexHtml.includes('app.js?v=1.7.1'), 'index.html must reference app.js');
+assert(indexHtml.includes('v1.6.7') || indexHtml.includes('v1.6.8') || indexHtml.includes('v1.6.9') || indexHtml.includes('v1.7.0') || indexHtml.includes('v1.7.1'), 'index.html must display version badge');
 console.log('  [PASS] 1. Version declared consistently across all configuration and source files');
 
 // 1.2 Route visual stability (no dashed flickering)
@@ -117,7 +117,7 @@ app.whenReady().then(async () => {
   assert(results.modalDomPassed, 'Offline modal DOM elements must all exist and be structured properly');
   console.log('  [PASS] Offline download modal DOM structure passed');
 
-  assert(['v1.6.7', 'v1.6.8', 'v1.6.9', 'v1.7.0'].includes(results.badgeText), 'Brand badge must display valid version');
+  assert(['v1.6.7', 'v1.6.8', 'v1.6.9', 'v1.7.0', 'v1.7.1'].includes(results.badgeText), 'Brand badge must display valid version');
   console.log('  [PASS] Brand badge displays ' + results.badgeText);
 
   console.log('✅ ALL v1.6.7 VERIFICATION CHECKS PASSED SUCCESSFULLY!');

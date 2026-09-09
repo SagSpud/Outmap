@@ -27,12 +27,12 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.7.0', 'package.json version must be 1.7.0');
-assert(htmlSrc.includes('app.js?v=1.7.0'), 'index.html must reference app.js?v=1.7.0');
-assert(htmlSrc.includes('location-camera.js?v=1.7.0'), 'index.html must reference location-camera.js?v=1.7.0');
-assert(htmlSrc.includes('style.css?v=1.7.0'), 'index.html must reference style.css?v=1.7.0');
-assert(htmlSrc.includes('v1.7.0'), 'index.html must show v1.7.0 badge');
-assert(appSrc.includes("const APP_VERSION = '1.7.0'"), 'app.js must declare APP_VERSION 1.7.0');
+assert.strictEqual(pkg.version, '1.7.1', 'package.json version must be 1.7.1');
+assert(htmlSrc.includes('app.js?v=1.7.1'), 'index.html must reference app.js?v=1.7.1');
+assert(htmlSrc.includes('location-camera.js?v=1.7.1'), 'index.html must reference location-camera.js?v=1.7.1');
+assert(htmlSrc.includes('style.css?v=1.7.1'), 'index.html must reference style.css?v=1.7.1');
+assert(htmlSrc.includes('v1.7.1'), 'index.html must show v1.7.1 badge');
+assert(appSrc.includes("const APP_VERSION = '1.7.1'"), 'app.js must declare APP_VERSION 1.7.1');
 
 // Route planning: dedicated profiles, collision-free cache and concise context action.
 assert(mainSrc.includes("profile === 'bike' ? 'routed-bike'"), 'Desktop proxy must use the dedicated cycling router');

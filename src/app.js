@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -1927,17 +1927,112 @@ function refreshRouteElevationProfile(map) {
 }
 window.refreshRouteElevationProfile = refreshRouteElevationProfile;
 
-// Search, favourites and route points share one cancellable camera transaction.
-function flyToLocationPrecisely(map, coords, options = {}) {
+// 高精三维针孔透视摄像机单阶段极速飞跃定位系统 (Single-Phase Precision Camera Projection)
+// 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
+function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const flyOpts = { centered: false, ...options };
-  window.OutmapLocationCamera.fly(map, coords, {
-    ...flyOpts,
-    onArrival: () => {
-      refreshAllRouteMarkersElevation(map);
-      refreshRouteElevationProfile(map);
-      options.onArrival?.();
+  options = flyOpts;
+  if (!map || !targetCoords || targetCoords.length < 2) return;
+  const lng = Number(targetCoords[0]);
+  const lat = Number(targetCoords[1]);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+
+  const zoom = Number.isFinite(options.zoom) ? options.zoom : 14.8;
+  const curPitch = Number.isFinite(options.pitch) ? options.pitch : (map.getPitch() ?? 50);
+  const curBearing = Number.isFinite(options.bearing) ? options.bearing : (map.getBearing() ?? 0);
+  const centered = Boolean(options.centered);
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+
+  // 检测移动端底部抽屉 (路线规划抽屉 / 收藏夹抽屉 / 高程起伏抽屉) 展开高度
+  let bottomCover = 0;
+  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+    const routePanel = document.getElementById('route-panel');
+    const favDrawer = document.getElementById('favorites-drawer');
+    const eleSheet = document.getElementById('mobile-ele-sheet');
+    if (routePanel && routePanel.style.display !== 'none') {
+      bottomCover = Math.max(bottomCover, routePanel.getBoundingClientRect().height);
     }
-  });
+    if (favDrawer && favDrawer.style.display !== 'none') {
+      bottomCover = Math.max(bottomCover, favDrawer.getBoundingClientRect().height);
+    }
+    if (eleSheet && eleSheet.style.display !== 'none') {
+      bottomCover = Math.max(bottomCover, eleSheet.getBoundingClientRect().height);
+    }
+  }
+
+  // 视口安全内边距配置 (Padding 系统：让目标点在整个飞行过程中始终稳居黄金视觉中心，图层随之平滑旋转缩放，彻底消除中途漂移与落地跳动)
+  let topPadding = 46;
+  let bottomPadding = 46;
+  if (bottomCover > 0) {
+    bottomPadding = Math.min(Math.round(window.innerHeight * 0.65), Math.round(bottomCover) + 20);
+  } else if (!centered && typeof window !== 'undefined') {
+    topPadding = Math.round(window.innerHeight * 0.24) + 46;
+  }
+
+  const cameraPadding = {
+    top: topPadding,
+    bottom: bottomPadding,
+    left: 20,
+    right: 20
+  };
+
+  // 智能航程判定与极速平滑动画调度
+  const curCenter = map.getCenter() || { lng, lat };
+  const curZoom = map.getZoom() || 10;
+  const distKm = calculateDistanceKm([curCenter.lng, curCenter.lat], [lng, lat]);
+  const zoomDiff = Math.abs(curZoom - zoom);
+
+  // 近距离或同城跳转 (25km 内且层级差 <= 3.5)：使用极速平滑 easeTo (450~550ms)，不产生多层级瓦片下发与GC抖动，极致 60fps
+  const isNearbyHop = distKm < 25 && zoomDiff <= 3.5;
+  const defaultDuration = reducedMotion ? 0 : (isNearbyHop ? 480 : (distKm > 500 ? 1100 : 850));
+  const duration = reducedMotion ? 0 : (options.duration !== undefined ? options.duration : defaultDuration);
+
+  map.stop();
+
+  if (isNearbyHop) {
+    map.easeTo({
+      center: [lng, lat],
+      zoom,
+      pitch: curPitch,
+      bearing: curBearing,
+      padding: cameraPadding,
+      duration,
+      essential: true
+    });
+  } else {
+    map.flyTo({
+      center: [lng, lat],
+      zoom,
+      pitch: curPitch,
+      bearing: curBearing,
+      padding: cameraPadding,
+      curve: 1.42,
+      speed: 1.2,
+      duration,
+      essential: true
+    });
+  }
+
+  let arrivalTriggered = false;
+  const handleArrival = () => {
+    if (arrivalTriggered) return;
+    arrivalTriggered = true;
+
+    // 落地后分批次通知所有标记点贴合最新 DEM 真实海拔
+    if (typeof refreshAllRouteMarkersElevation === 'function') {
+      refreshAllRouteMarkersElevation(map);
+    }
+    if (typeof refreshRouteElevationProfile === 'function') {
+      refreshRouteElevationProfile(map);
+    }
+
+    if (typeof options.onArrival === 'function') {
+      options.onArrival();
+    }
+  };
+
+  map.once('moveend', handleArrival);
+  setTimeout(handleArrival, duration + 80);
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
 
