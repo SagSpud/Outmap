@@ -95,38 +95,35 @@
     const easing = t => { progress = t; return t * t * (3 - 2 * t); };
     map.transformCameraUpdate = cameraUpdate;
 
+    let refineCount = 0;
     function refine() {
       frame = 0;
-      if (disposed || !arrived || map.isMoving()) return;
+      if (disposed || !arrived || map.isMoving() || refineCount >= 1) return;
       const p = map.project(coords), desired = anchor(map, options.centered);
-      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2) return;
+      // If within 6px of desired anchor, consider it perfectly settled
+      if (Math.hypot(p.x - desired.x, p.y - desired.y) < 6) return;
+      refineCount++;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
-      const settleDuration = (reduced || duration === 0) ? 0 : 250;
-      // MapLibre does not call easing for a zero-duration transition, so mark
-      // its only frame as final before transformCameraUpdate runs.
+      const settleDuration = (reduced || duration === 0) ? 0 : 200;
       progress = settleDuration === 0 ? 1 : 0;
-      // Late DEM revisions use a cancellable native transition, never jumpTo.
       map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
         duration: settleDuration, easing, essential: false });
       internal = false;
     }
-    const schedule = () => { if (!disposed && arrived && !frame) frame = requestAnimationFrame(refine); };
+    const schedule = () => { if (!disposed && arrived && !frame && refineCount < 1) frame = requestAnimationFrame(refine); };
     listen('sourcedata', e => { if (e.sourceId === 'terrain-dem') schedule(); });
     listen('idle', schedule);
     listen('resize', schedule);
     listen('moveend', () => {
       if (disposed || arrived) return;
       isFlying = false;
-      // A new easeTo emits the interrupted flight's moveend before its movestart.
-      // Defer completion until that replacement has had a chance to cancel us.
+      map.triggerRepaint?.();
       queueMicrotask(() => {
         if (disposed || arrived || map.isMoving()) return;
         arrived = true;
+        map.triggerRepaint?.();
         refine();
-        // A target DEM tile can arrive without producing a useful idle window.
-        // Two bounded checks cover that race without a permanent polling loop.
-        settleTimers.push(setTimeout(refine, 250), setTimeout(refine, 1000));
         if (!disposed) options.onArrival?.();
       });
     });
@@ -135,13 +132,11 @@
     const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
     const nearby = distDeg < 0.6;
     internal = true;
-    // Short hops interpolate monotonically; distant flights retain the native arc.
     const method = nearby ? 'easeTo' : 'flyTo';
     if (duration === 0) progress = 1;
-    map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
+    map[method]({ center: solved.center, zoom, pitch, bearing,
       padding: zeroPadding, duration, curve: 1.42, speed: 1.2, easing, essential: false });
     internal = false;
-    // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);
   }
 

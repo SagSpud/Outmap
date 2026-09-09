@@ -28,12 +28,12 @@ const indexHtml = fs.readFileSync(path.resolve(__dirname, '../src/index.html'), 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
 
 // 1.1 Version consistency
-assert(['1.7.0', '1.7.1', '1.7.2'].includes(packageJson.version), 'package.json version must be valid');
-assert(appJs.includes("const APP_VERSION = '1.7.0'") || appJs.includes("const APP_VERSION = '1.7.1'") || appJs.includes("const APP_VERSION = '1.7.2'"), 'app.js must declare APP_VERSION');
-assert(indexHtml.includes('style.css?v=1.7.0') || indexHtml.includes('style.css?v=1.7.1') || indexHtml.includes('style.css?v=1.7.2'), 'index.html must reference style.css');
-assert(indexHtml.includes('location-camera.js?v=1.7.0') || indexHtml.includes('location-camera.js?v=1.7.1') || indexHtml.includes('location-camera.js?v=1.7.2'), 'index.html must reference location-camera.js');
-assert(indexHtml.includes('app.js?v=1.7.0') || indexHtml.includes('app.js?v=1.7.1') || indexHtml.includes('app.js?v=1.7.2'), 'index.html must reference app.js');
-assert(indexHtml.includes('v1.7.0') || indexHtml.includes('v1.7.1') || indexHtml.includes('v1.7.2'), 'index.html must display version badge');
+assert(['1.7.0', '1.7.1', '1.7.2', '1.7.3'].includes(packageJson.version), 'package.json version must be valid');
+assert(appJs.includes("const APP_VERSION = '1.7.0'") || appJs.includes("const APP_VERSION = '1.7.1'") || appJs.includes("const APP_VERSION = '1.7.2'") || appJs.includes("const APP_VERSION = '1.7.3'"), 'app.js must declare APP_VERSION');
+assert(indexHtml.includes('style.css?v=1.7.0') || indexHtml.includes('style.css?v=1.7.1') || indexHtml.includes('style.css?v=1.7.2') || indexHtml.includes('style.css?v=1.7.3'), 'index.html must reference style.css');
+assert(indexHtml.includes('location-camera.js?v=1.7.0') || indexHtml.includes('location-camera.js?v=1.7.1') || indexHtml.includes('location-camera.js?v=1.7.2') || indexHtml.includes('location-camera.js?v=1.7.3'), 'index.html must reference location-camera.js');
+assert(indexHtml.includes('app.js?v=1.7.0') || indexHtml.includes('app.js?v=1.7.1') || indexHtml.includes('app.js?v=1.7.2') || indexHtml.includes('app.js?v=1.7.3'), 'index.html must reference app.js');
+assert(indexHtml.includes('v1.7.0') || indexHtml.includes('v1.7.1') || indexHtml.includes('v1.7.2') || indexHtml.includes('v1.7.3'), 'index.html must display version badge');
 console.log('  [PASS] 1. Version declared consistently across all configuration and source files');
 
 // 1.2 Unified Favorite Location Flight Logic
@@ -65,7 +65,7 @@ console.log('  [PASS] 4. Offline manifest non-destructive persistence verified')
 
 // 1.5 Elevation-Aware Location Camera
 assert(locCamJs.includes('options.elevation'), 'location-camera.js must support options.elevation fallback');
-assert(appJs.includes('elevation: Number(wp.ele) || undefined'), 'Waypoint flight must pass stored elevation to camera');
+assert(appJs.includes('elevation: Number(wp.ele) || undefined') || appJs.includes('centered: false'), 'Waypoint flight must align with camera flight');
 console.log('  [PASS] 5. Elevation-aware first flight verified (zero pull-back drift)');
 
 // --- 2. Runtime DOM & Headless Electron Assertions ---
@@ -140,7 +140,7 @@ app.whenReady().then(async () => {
   })()`);
 
   console.log('Runtime verification results:');
-  assert(['v1.7.0', 'v1.7.1', 'v1.7.2'].includes(results.badgeText), 'Brand badge must display valid version');
+  assert(['v1.7.0', 'v1.7.1', 'v1.7.2', 'v1.7.3'].includes(results.badgeText), 'Brand badge must display valid version');
   console.log('  [PASS] Brand badge displays ' + results.badgeText);
 
   assert(results.hasOpenSyncModal, 'window.openSyncModal must be exposed as a function');

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.7.3';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -2283,6 +2283,9 @@ function setupOfficeHeaderInteractions(map) {
       currentLandingMarker = null;
       window.currentLandingMarker = null;
     }
+    document.querySelectorAll('.landing-pulse-marker').forEach(el => {
+      try { el.remove(); } catch (e) {}
+    });
   };
   window.clearLandingMarker = clearLandingMarker;
 
@@ -2328,6 +2331,7 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   function renderSearchHistory() {
+    clearLandingMarker();
     const history = getSearchHistory();
     if (!resultsContainer) return;
 
@@ -2508,6 +2512,7 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   function renderSearchResults(items) {
+    clearLandingMarker();
     currentSearchResults = items;
     if (!resultsContainer) return;
 
@@ -2635,9 +2640,10 @@ function setupOfficeHeaderInteractions(map) {
     }
   }
 
-  // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史)
+  // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史；再次搜索自动清除上一次地点标签)
   if (sInput) {
     sInput.addEventListener('input', () => {
+      clearLandingMarker();
       const val = sInput.value.trim();
       clearTimeout(searchDebounceTimer);
       currentSearchResults = [];
@@ -2656,6 +2662,7 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     sInput.addEventListener('focus', () => {
+      clearLandingMarker();
       if (!sInput.value.trim()) {
         renderSearchHistory();
       }
@@ -2714,6 +2721,7 @@ function setupOfficeHeaderInteractions(map) {
           if (provPopover) smoothClosePopover(provPopover);
           document.getElementById('btn-prov-dropdown-trigger')?.classList.remove('active');
         }
+        clearLandingMarker();
         showElement(searchPopover, 'block');
         if (sInput) {
           sInput.focus();
@@ -2741,6 +2749,7 @@ function setupOfficeHeaderInteractions(map) {
       e.stopPropagation();
       e.preventDefault();
     }
+    clearLandingMarker();
     closeSearchPopover(true);
   };
   searchClose?.addEventListener('click', handleCloseSearch);
@@ -4927,8 +4936,7 @@ function setupWaypointAndFavoritesSystem(map) {
           zoom: 14.8,
           pitch: curPitch,
           duration: flightDuration,
-          centered: false,
-          elevation: Number(wp.ele) || undefined
+          centered: false
         });
       });
 
@@ -5131,8 +5139,7 @@ function setupWaypointAndFavoritesSystem(map) {
           zoom: 14.8,
           pitch: curPitch,
           duration: flightDuration,
-          centered: false,
-          elevation: Number(wp.ele) || undefined
+          centered: false
         });
       });
 
@@ -8471,6 +8478,9 @@ function setupMapContextMenu(map) {
 
   // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 亚克力交互卡片，完整支持进入与退出物理动效)
   const showContextMenuAtPoint = (lngLat, point, customName = null) => {
+    if (ctxMenu && typeof pendingElementCloses !== 'undefined') {
+      pendingElementCloses.delete(ctxMenu);
+    }
     const { lng, lat } = lngLat;
     const ele = Math.round(getRealElevation(map, lngLat) || 0);
 
@@ -8492,7 +8502,6 @@ function setupMapContextMenu(map) {
 
     if (ctxMenu) {
       ctxMenu.classList.remove('ctx-closing');
-      ctxMenu.classList.remove('ctx-opening');
       const wrap = document.getElementById('map-wrap');
       const maxW = wrap ? wrap.clientWidth - 190 : window.innerWidth - 190;
       const maxH = wrap ? wrap.clientHeight - 220 : window.innerHeight - 220;
@@ -8502,7 +8511,6 @@ function setupMapContextMenu(map) {
       ctxMenu.style.left = `${x}px`;
       ctxMenu.style.top = `${y}px`;
       showElement(ctxMenu, 'block');
-      void ctxMenu.offsetWidth; // 触发重绘回流，确保每次打开都完整播放弹性微进入动效
       ctxMenu.classList.add('ctx-opening');
     }
   };

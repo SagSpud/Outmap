@@ -27,12 +27,12 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert(['1.7.1', '1.7.2'].includes(pkg.version), 'package.json version must be valid');
-assert(htmlSrc.includes('app.js?v=1.7.2') || htmlSrc.includes('app.js?v=1.7.1'), 'index.html must reference app.js');
-assert(htmlSrc.includes('location-camera.js?v=1.7.2') || htmlSrc.includes('location-camera.js?v=1.7.1'), 'index.html must reference location-camera.js');
-assert(htmlSrc.includes('style.css?v=1.7.2') || htmlSrc.includes('style.css?v=1.7.1'), 'index.html must reference style.css');
-assert(htmlSrc.includes('v1.7.2') || htmlSrc.includes('v1.7.1'), 'index.html must show version badge');
-assert(appSrc.includes("const APP_VERSION = '1.7.2'") || appSrc.includes("const APP_VERSION = '1.7.1'"), 'app.js must declare APP_VERSION');
+assert(['1.7.1', '1.7.2', '1.7.3'].includes(pkg.version), 'package.json version must be valid');
+assert(htmlSrc.includes('app.js?v=1.7.3') || htmlSrc.includes('app.js?v=1.7.2') || htmlSrc.includes('app.js?v=1.7.1'), 'index.html must reference app.js');
+assert(htmlSrc.includes('location-camera.js?v=1.7.3') || htmlSrc.includes('location-camera.js?v=1.7.2') || htmlSrc.includes('location-camera.js?v=1.7.1'), 'index.html must reference location-camera.js');
+assert(htmlSrc.includes('style.css?v=1.7.3') || htmlSrc.includes('style.css?v=1.7.2') || htmlSrc.includes('style.css?v=1.7.1'), 'index.html must reference style.css');
+assert(htmlSrc.includes('v1.7.3') || htmlSrc.includes('v1.7.2') || htmlSrc.includes('v1.7.1'), 'index.html must show version badge');
+assert(appSrc.includes("const APP_VERSION = '1.7.3'") || appSrc.includes("const APP_VERSION = '1.7.2'") || appSrc.includes("const APP_VERSION = '1.7.1'"), 'app.js must declare APP_VERSION');
 
 // Route planning: dedicated profiles, collision-free cache and concise context action.
 assert(mainSrc.includes("profile === 'bike' ? 'routed-bike'"), 'Desktop proxy must use the dedicated cycling router');
@@ -101,6 +101,9 @@ ipcMain.handle('search-location', () => ({ type: 'FeatureCollection', features: 
 ipcMain.handle('rescan-offline-tiles', () => ({ totalTiles: 1210, totalBytes: 25000000, satCount: 300 }));
 ipcMain.handle('get-power-state', () => ({ powerSource: 'ac', isLowPower: false }));
 ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false, key: 'default' }));
+ipcMain.handle('save-cloud-sync-config', () => ({ success: true }));
+ipcMain.handle('upload-cloud-sync-data', () => ({ success: true }));
+ipcMain.handle('pull-cloud-sync-data', () => ({ success: true, data: null }));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -187,6 +190,7 @@ app.whenReady().then(async () => {
 
   console.log('--- 3. Mobile Emulation & Safe Area Audit (390x844) ---');
   await win.setSize(390, 844);
+  await new Promise(r => setTimeout(r, 300));
   const mobileCheck = await win.webContents.executeJavaScript(`
     (async () => {
       const isNarrow = window.innerWidth <= 768;
