@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.6.3" />
+  <link rel="stylesheet" href="style.css?v=1.6.4" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.3</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.4</span>
                 </div>
               </div>
             </div>
@@ -40,7 +40,7 @@
         <!-- 风格统一的高质感省份选择器 (Fluent 极简暗色触发胶囊 + 展开式拼音首字母分类选择面板) -->
         <div class="office-prov-group">
           <div class="fluent-dropdown-wrapper" id="prov-dropdown-wrapper">
-            <button class="office-fluent-dropdown-btn" id="btn-prov-dropdown-trigger" title="选择省份或全国总览并飞跃定位">
+            <button class="office-fluent-dropdown-btn" id="btn-prov-dropdown-trigger">
               <span id="current-prov-label">总览</span>
               <svg class="fluent-caret-svg" viewBox="0 0 20 20" width="12" height="12" fill="currentColor">
                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
@@ -52,7 +52,7 @@
                 <div class="prov-menu-header-text">
                   <span class="prov-menu-title">全国行政区划</span>
                 </div>
-                <button class="card-close" id="btn-close-prov-menu" title="关闭">✕</button>
+                <button class="card-close" id="btn-close-prov-menu">✕</button>
               </div>
               <div class="prov-menu-quick-index" id="prov-quick-index">
                 <!-- A-Z 快捷索引 -->
@@ -62,7 +62,7 @@
               </div>
             </div>
           </div>
-          <button class="office-btn-icon-capsule" id="btn-open-pyramid-dl" title="离线地图下载 (点击展开)" aria-label="离线下载">
+          <button class="office-btn-icon-capsule" id="btn-open-pyramid-dl" aria-label="离线下载">
             <span class="dl-btn-icon-wrap">
               <svg class="dl-btn-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -70,15 +70,15 @@
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
             </span>
-            <span class="dl-live-blue-dot" id="dl-live-blue-dot" style="display: none;" title="后台正在下载离线瓦片..."></span>
+            <span class="dl-live-blue-dot" id="dl-live-blue-dot" style="display: none;"></span>
           </button>
         </div>
-        <span class="cache-badge" id="titlebar-cache-stat" title="本地离线切片数">离线: 854</span>
+        <span class="cache-badge" id="titlebar-cache-stat">离线: 854</span>
       </div>
 
       <!-- 中间：现代极简搜索胶囊与 Spotlight 沉浸式搜索面板 -->
       <div class="header-center">
-        <button class="office-search-trigger-btn" id="btn-search-trigger" title="搜索全国城市、小区、地标、区县 (Ctrl+K)">
+        <button class="office-search-trigger-btn" id="btn-search-trigger">
           <div class="search-trigger-left">
             <svg class="search-trigger-svg" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="8.5" cy="8.5" r="5.5"/>
@@ -97,7 +97,7 @@
               <line x1="12.5" y1="12.5" x2="17" y2="17"/>
             </svg>
             <input type="text" id="global-search-input" placeholder="输入城市、小区、地点等..." autocomplete="off" />
-            <button id="btn-close-search" class="search-close-btn" title="关闭 (Esc)">✕</button>
+            <button id="btn-close-search" class="search-close-btn">✕</button>
           </div>
           <!-- 实时候选搜索匹配结果与搜索历史列表 -->
           <div id="search-results-list" class="search-results-list" style="display: none;"></div>
@@ -106,7 +106,7 @@
 
       <!-- 右侧：高程夸大比例滑块 (调至右侧，滑块控件加长) -->
       <div class="header-right">
-        <div id="header-slider-group" class="office-slider-group" title="高程夸大比例调整 (拖动细腻增减3D地形立体起伏)">
+        <div id="header-slider-group" class="office-slider-group">
           <span class="slider-lbl">高程: <b id="exaggeration-val">2.0x</b></span>
           <input type="range" id="exaggeration-slider" min="1.0" max="3.0" step="0.1" value="2.0" />
         </div>
@@ -119,13 +119,13 @@
 
       <!-- 地图图层右上角视口核心控制浮动坞 (极简纯图标无文字，锁定视角置顶) -->
       <div id="map-view-dock" class="map-view-dock">
-        <button class="map-dock-btn" id="btn-lock-pitch-toggle" title="锁定/解锁视角倾角高度 (锁定后右键仅水平旋转)">
+        <button class="map-dock-btn" id="btn-lock-pitch-toggle">
           <svg id="svg-lock-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
             <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
           </svg>
         </button>
-        <button class="map-dock-btn active" id="btn-3d-toggle" title="切换 3D 立体 / 2D 平面视角">
+        <button class="map-dock-btn active" id="btn-3d-toggle">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"></path>
             <path d="M12 12l9-4.5"></path>
@@ -133,7 +133,7 @@
             <path d="M12 12L3 7.5"></path>
           </svg>
         </button>
-        <button class="map-dock-btn" id="btn-reset-north" title="校准正北方向 (恢复正北朝上)">
+        <button class="map-dock-btn" id="btn-reset-north">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 19 21 12 17 5 21 12 2" fill="currentColor" opacity="0.25"></polygon>
             <polygon points="12 2 12 17 5 21 12 2" fill="#ef4444"></polygon>
@@ -144,28 +144,28 @@
 
       <!-- 户外核心工具坞 (简约图标化，右下角停靠) -->
       <div id="fab-dock">
-        <button class="fab-btn" id="btn-fab-layers" title="图层显示控制 (收藏点/规划路线/3D地形)">
+        <button class="fab-btn" id="btn-fab-layers">
           <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
           </svg>
         </button>
-        <button class="fab-btn" id="btn-fab-import" title="从外部导入路线轨迹 (支持 GPX / KML / GeoJSON / TCX)">
+        <button class="fab-btn" id="btn-fab-import">
           <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
             <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
         </button>
-        <button class="fab-btn" id="btn-fab-route" title="户外自驾、骑行、徒步路线规划与海拔高程剖面图">
+        <button class="fab-btn" id="btn-fab-route">
           <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="6" cy="19" r="3"></circle>
             <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"></path>
             <circle cx="18" cy="5" r="3"></circle>
           </svg>
         </button>
-        <button class="fab-btn" id="btn-fab-fav" title="查看我的收藏夹地点与规划路线">
+        <button class="fab-btn" id="btn-fab-fav">
           <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
           </svg>
@@ -186,7 +186,7 @@
             </svg>
             <span>图层与要素显示</span>
           </div>
-          <button class="card-close" id="btn-close-layers-popover" title="关闭">✕</button>
+          <button class="card-close" id="btn-close-layers-popover">✕</button>
         </div>
         <div class="panel-body layers-popover-body">
           <label class="layer-toggle-row">
@@ -260,7 +260,7 @@
                 <option value="camp">⛺ 我的露营地</option>
                 <option value="hiking">🥾 徒步穿越点</option>
               </select>
-              <button class="office-btn-sm" id="btn-add-folder" type="button" title="新建收藏夹">+</button>
+              <button class="office-btn-sm" id="btn-add-folder" type="button">+</button>
             </div>
             <!-- 内联新建收藏夹输入框 (替代被 Electron 拦截的 window.prompt) -->
             <div id="new-folder-inline" class="new-folder-inline-box" style="display: none;">
@@ -293,9 +293,9 @@
         <div class="panel-body">
           <!-- 出行方式切换 -->
           <div class="route-mode-pills">
-            <button class="route-mode-btn active" data-mode="drive" title="越野自驾路线 (偏好国道、省道、主要山道)">🚗 自驾</button>
-            <button class="route-mode-btn" data-mode="cycle" title="山地骑行路线 (偏好公路与硬化乡村机耕道)">🚴 骑行</button>
-            <button class="route-mode-btn" data-mode="hike" title="户外徒步/穿越路线 (允许山脊小径、古道与山谷步道)">🥾 徒步</button>
+            <button class="route-mode-btn active" data-mode="drive">🚗 自驾</button>
+            <button class="route-mode-btn" data-mode="cycle">🚴 骑行</button>
+            <button class="route-mode-btn" data-mode="hike">🥾 徒步</button>
           </div>
 
           <!-- 起点终点及多途径点录入 -->
@@ -306,7 +306,7 @@
                 <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入起点 (支持地名/城市/坐标)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-start-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-drag-handle" id="btn-swap-route-pts" title="按住拖拽排序，点击与终点对调">⠿</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts">⠿</button>
             </div>
 
             <!-- 中间动态途径点列表 (支持几十个点平滑衔接与上下拖拽排序) -->
@@ -314,11 +314,11 @@
 
             <!-- 高德地图风格：在途径点与终点之间放置的加号添加途径点框与地图选点按钮 -->
             <div class="route-add-via-bar">
-              <div class="route-add-via-inline" id="btn-add-via-inline" title="添加途径点输入框 (左键单击)">
+              <div class="route-add-via-inline" id="btn-add-via-inline">
                 <span class="inline-plus-icon">＋</span>
                 <span class="inline-plus-text">添加途径点</span>
               </div>
-              <button class="route-pick-via-inline-btn" id="btn-pick-via-inline" type="button" title="直接在地图上选点添加途径点">
+              <button class="route-pick-via-inline-btn" id="btn-pick-via-inline" type="button">
                 <span class="pick-icon">📍</span>
                 <span class="pick-text">地图选点</span>
               </button>
@@ -330,21 +330,21 @@
                 <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入终点 (支持地名/城市/坐标)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-end-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-drag-handle" id="btn-swap-route-pts-2" title="按住拖拽排序，点击与起点对调">⠿</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts-2">⠿</button>
             </div>
           </div>
 
           <div class="route-actions-row">
             <button class="modal-btn primary" id="btn-calc-route">规划</button>
             <div class="route-export-dropdown-wrap">
-              <button class="modal-btn secondary-sm" id="btn-route-export-trigger" title="导出路线">导出 ▾</button>
+              <button class="modal-btn secondary-sm" id="btn-route-export-trigger">导出 ▾</button>
               <div class="route-export-menu" id="route-export-menu" style="display: none;">
                 <button class="route-export-menu-item" id="btn-save-route">💾 存到收藏夹</button>
                 <button class="route-export-menu-item" id="btn-export-gpx">📥 导出 GPX</button>
               </div>
             </div>
-            <button class="modal-btn secondary-sm" id="btn-route-details-toggle" title="展开/收起详情">详情 ▾</button>
-            <button class="modal-btn secondary-sm" id="btn-clear-route" title="清空所有点与路线">清空</button>
+            <button class="modal-btn secondary-sm" id="btn-route-details-toggle">详情 ▾</button>
+            <button class="modal-btn secondary-sm" id="btn-clear-route">清空</button>
           </div>
 
           <!-- 路线统计指标 (距离、耗时、爬升、下降、最高海拔) -->
@@ -357,19 +357,19 @@
               <div class="stat-lbl">预估耗时</div>
               <div class="stat-num" id="stat-route-time">--</div>
             </div>
-            <div class="stat-card stat-card-clickable" id="stat-card-ascent" title="点击展开海拔剖面图">
+            <div class="stat-card stat-card-clickable" id="stat-card-ascent">
               <div class="stat-lbl">累计爬升 📈</div>
               <div class="stat-num green" id="stat-route-ascent">+-- m</div>
             </div>
-            <div class="stat-card stat-card-clickable" id="stat-card-descent" title="点击展开海拔剖面图">
+            <div class="stat-card stat-card-clickable" id="stat-card-descent">
               <div class="stat-lbl">累计下降 📉</div>
               <div class="stat-num red" id="stat-route-descent">--- m</div>
             </div>
-            <div class="stat-card stat-card-clickable" id="stat-card-maxele" title="点击展开海拔剖面图">
+            <div class="stat-card stat-card-clickable" id="stat-card-maxele">
               <div class="stat-lbl">最高海拔 🏔️</div>
               <div class="stat-num blue" id="stat-route-maxele">-- m</div>
             </div>
-            <div class="stat-card stat-card-clickable" id="stat-card-minele" title="点击展开海拔剖面图">
+            <div class="stat-card stat-card-clickable" id="stat-card-minele">
               <div class="stat-lbl">最低海拔 🏞️</div>
               <div class="stat-num gray" id="stat-route-minele">-- m</div>
             </div>
@@ -381,7 +381,7 @@
               <span class="chart-lbl">📈 路线海拔起伏剖面</span>
               <div class="chart-header-actions">
                 <span class="chart-hover-val" id="chart-hover-info">滑动联动地图</span>
-                <button class="chart-close-btn" id="btn-close-chart-section" title="收起剖面图" type="button">✕</button>
+                <button class="chart-close-btn" id="btn-close-chart-section" type="button">✕</button>
               </div>
             </div>
             <div class="chart-canvas-wrap">
@@ -556,23 +556,23 @@
         <div class="form-row form-row-inline">
           <label class="form-lbl">离线层级:</label>
           <div class="zoom-pill-group inline-pills" id="pyramid-zoom-pills">
-            <div class="zoom-pill active" data-value="10" title="L1-L10 基础地势">
+            <div class="zoom-pill active" data-value="10">
               <span class="zoom-pill-title">L10</span>
               <span class="zoom-pill-dot" id="zoom-dot-10">●</span>
             </div>
-            <div class="zoom-pill" data-value="11" title="L1-L11 清晰山脊">
+            <div class="zoom-pill" data-value="11">
               <span class="zoom-pill-title">L11</span>
               <span class="zoom-pill-dot" id="zoom-dot-11">●</span>
             </div>
-            <div class="zoom-pill" data-value="12" title="L1-L12 户外自驾">
+            <div class="zoom-pill" data-value="12">
               <span class="zoom-pill-title">L12</span>
               <span class="zoom-pill-dot" id="zoom-dot-12">●</span>
             </div>
-            <div class="zoom-pill" data-value="13" title="L1-L13 精细等高线">
+            <div class="zoom-pill" data-value="13">
               <span class="zoom-pill-title">L13</span>
               <span class="zoom-pill-dot" id="zoom-dot-13">●</span>
             </div>
-            <div class="zoom-pill" data-value="14" title="L1-L14 全路网与POI">
+            <div class="zoom-pill" data-value="14">
               <span class="zoom-pill-title">L14</span>
               <span class="zoom-pill-dot" id="zoom-dot-14">●</span>
             </div>
@@ -585,32 +585,32 @@
           <div class="check-group inline-checks">
             <label><input type="checkbox" id="chk-dl-dem" checked /> DEM高程图</label>
             <label><input type="checkbox" id="chk-dl-vec" checked /> OSM矢量图</label>
-            <button type="button" class="btn-check-tile-update" id="btn-check-tile-update" title="检测云端最新路网版本与本地差异">🔍 检查图层更新</button>
+            <button type="button" class="btn-check-tile-update" id="btn-check-tile-update">🔍 检查图层更新</button>
           </div>
         </div>
 
-        <div class="stat-summary-box">
+        <div class="stat-summary-box dl-unified-box">
           <div class="stat-info-col">
             <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
             <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
           </div>
+          <div class="stat-divider-line"></div>
           <div class="stat-status-col">
             <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
-          </div>
-        </div>
-
-        <!-- 实时下载进度条与状态 (清晰三段式：任务与百分比/进度条/瓦片明细与速率) -->
-        <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
-          <div class="dl-progress-header">
-            <span class="dl-progress-task" id="dl-progress-task">准备中...</span>
-            <span class="dl-progress-pct" id="dl-progress-pct">0%</span>
-          </div>
-          <div class="progress-bar-wrap">
-            <div class="progress-bar-fill" id="dl-progress-fill" style="width: 0%;"></div>
-          </div>
-          <div class="dl-progress-footer">
-            <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
-            <span class="dl-progress-speed" id="dl-progress-speed">0 片/秒</span>
+            <!-- 实时下载进度条与状态 (清晰三段式：任务与百分比/进度条/瓦片明细与速率) -->
+            <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
+              <div class="dl-progress-header">
+                <span class="dl-progress-task" id="dl-progress-task">准备中...</span>
+                <span class="dl-progress-pct" id="dl-progress-pct">0%</span>
+              </div>
+              <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="dl-progress-fill" style="width: 0%;"></div>
+              </div>
+              <div class="dl-progress-footer">
+                <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
+                <span class="dl-progress-speed" id="dl-progress-speed">0 KB/s</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -618,7 +618,7 @@
       <div class="modal-footer">
         <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
         <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>
-        <button class="modal-btn accent" id="btn-update-dl" style="display: none;" title="方案 A：通过 If-Modified-Since 仅拉取云端变动切片，旧数据完好保留">⚡ 增量更新</button>
+        <button class="modal-btn accent" id="btn-update-dl" style="display: none;">⚡ 增量更新</button>
         <button class="modal-btn primary" id="btn-start-dl">开始下载</button>
         <button class="modal-btn success" id="btn-done-dl" style="display: none;">完成</button>
       </div>
@@ -772,8 +772,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.6.3"></script>
-  <script src="app.js?v=1.6.3"></script>
+  <script src="location-camera.js?v=1.6.4"></script>
+  <script src="app.js?v=1.6.4"></script>
 </body>
 </html>
 

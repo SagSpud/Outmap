@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.3';
+const APP_VERSION = '1.6.4';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -703,7 +703,6 @@ async function initApplication() {
       titleStat.style.display = 'none';
     } else {
       titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
-      titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
 
       if (window.electronAPI && window.electronAPI.onOfflineScanProgress) {
         window.electronAPI.onOfflineScanProgress(data => {
@@ -719,7 +718,6 @@ async function initApplication() {
             totalOfflineCount = data.stats.totalTiles || 0;
             totalOfflineBytes = data.stats.totalBytes || 0;
             titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
-            titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
           }
           if (data && data.provinces) {
             offlineProvCache = data.provinces;
@@ -739,7 +737,6 @@ async function initApplication() {
               totalOfflineCount = stats.totalTiles || 0;
               totalOfflineBytes = stats.totalBytes || 0;
               titleStat.innerText = `离线: ${formatTileDisplay(totalOfflineCount, totalOfflineBytes)}`;
-              titleStat.title = `本地已缓存离线切片: ${totalOfflineCount.toLocaleString()} 块${totalOfflineBytes ? ` · 占用空间: ${formatBytes(totalOfflineBytes)}` : ''} (点击可重新校准磁盘)`;
             }
           }
         } catch (e) {
@@ -1941,7 +1938,6 @@ function setupOfficeHeaderInteractions(map) {
 
     if (btnLockPitch) {
       btnLockPitch.classList.toggle('active', locked);
-      btnLockPitch.title = locked ? '视角倾角已锁定（点击解锁倾角高度）' : '锁定视角倾角高度（锁定后右键仅水平旋转）';
       btnLockPitch.innerHTML = locked
         ? `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" fill="currentColor" opacity="0.25"></rect>
@@ -1999,7 +1995,6 @@ function setupOfficeHeaderInteractions(map) {
       window.OutmapLocationCamera.cancel(map);
       is3DView = !is3DView;
       btn3D.classList.toggle('active', is3DView);
-      btn3D.title = is3DView ? '3D 立体模式（点击切换为 2D）' : '2D 平面模式（点击切换为 3D）';
       btn3D.innerHTML = is3DView
         ? `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
              <path d="M12 3l9 4.5v9L12 21l-9-4.5v-9L12 3z"></path>
@@ -2188,9 +2183,11 @@ function setupOfficeHeaderInteractions(map) {
   currentLandingMarker = null;
 
   const clearLandingMarker = () => {
-    if (currentLandingMarker) {
-      try { currentLandingMarker.remove(); } catch (e) {}
+    const marker = currentLandingMarker || window.currentLandingMarker;
+    if (marker) {
+      try { marker.remove(); } catch (e) {}
       currentLandingMarker = null;
+      window.currentLandingMarker = null;
     }
   };
   window.clearLandingMarker = clearLandingMarker;
@@ -2300,18 +2297,18 @@ function setupOfficeHeaderInteractions(map) {
     el.innerHTML = `
       <div class="landing-card">
         <div class="landing-card-header">
-          <div class="landing-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
-          <button class="landing-card-close" title="关闭标记">✕</button>
+          <div class="landing-card-title">${escapeHtml(title)}</div>
+          <button class="landing-card-close">✕</button>
         </div>
-        <div class="landing-card-desc" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</div>
+        <div class="landing-card-desc">${escapeHtml(metaText)}</div>
         <div class="landing-card-actions">
-          <button class="landing-act-btn primary act-fav" title="添加到收藏夹">⭐ 收藏</button>
-          <button class="landing-act-btn act-start" title="设为路线起点">🚩 起点</button>
-          <button class="landing-act-btn act-via" title="添加为路线途径点">➕ 途径</button>
-          <button class="landing-act-btn act-end" title="设为路线终点">🏁 终点</button>
+          <button class="landing-act-btn primary act-fav">⭐ 收藏</button>
+          <button class="landing-act-btn act-start">🚩 起点</button>
+          <button class="landing-act-btn act-via">➕ 途径</button>
+          <button class="landing-act-btn act-end">🏁 终点</button>
         </div>
       </div>
-      <div class="pulse-pin-wrap" title="右键可打开完整菜单，点击定位">
+      <div class="pulse-pin-wrap">
         <div class="pulse-ring"></div>
         <div class="pulse-core">📍</div>
       </div>
@@ -2413,6 +2410,7 @@ function setupOfficeHeaderInteractions(map) {
     currentLandingMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
       .setLngLat(validCoords)
       .addTo(map);
+    window.currentLandingMarker = currentLandingMarker;
   }
 
   function renderSearchResults(items) {
@@ -2698,9 +2696,6 @@ function setupOfficeHeaderInteractions(map) {
   // 7. 多设备云端漫游同步系统 (基于 Cloudflare R2，右键 Logo 呼出)
   setupCloudSync(map);
 
-  // 8. 全局统一键盘快捷键与 ESC 键层级防穿透调度
-  setupGlobalKeyboardDispatcher();
-
   setupStatusBar(map);
 }
 
@@ -2822,7 +2817,6 @@ function setupProvinceDropdown(map) {
       const btn = document.createElement('button');
       btn.className = 'prov-quick-idx-btn';
       btn.innerText = letter;
-      btn.title = `快速跳转至 [${letter}] 开头的省份`;
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const targetSec = provMenuList.querySelector(`#prov-sec-${letter}`);
@@ -2878,7 +2872,7 @@ function setupProvinceDropdown(map) {
 
         pBtn.innerHTML = `
           <span class="prov-name-txt">${p.name}</span>
-          ${isOffline ? '<span class="prov-offline-dot" title="离线数据包已就绪"></span>' : ''}
+          ${isOffline ? '<span class="prov-offline-dot"></span>' : ''}
         `;
 
         pBtn.addEventListener('click', (e) => {
@@ -2995,9 +2989,11 @@ function setupPyramidModal(map) {
   let lastProgressBytes = 0;
   let lastProgressTime = 0;
 
-  const formatNetworkSpeed = (byteSpeed, isVerify = false) => {
+  const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false) => {
     if (isVerify) return '本地校验中';
-    if (!byteSpeed || byteSpeed <= 0) return '0 KB/s';
+    if (!byteSpeed || byteSpeed <= 0) {
+      return isExisting ? '本地已就绪' : '0 KB/s';
+    }
     if (byteSpeed >= 1024 * 1024 * 1024) {
       return `${(byteSpeed / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
     }
@@ -3010,22 +3006,7 @@ function setupPyramidModal(map) {
     return `${Math.round(byteSpeed)} B/s`;
   };
 
-  const updateBtnTooltip = () => {
-    const isExpanded = btnOpen.classList.contains('expanded');
-    if (downloadDotState === 'downloading') {
-      btnOpen.title = isExpanded
-        ? '离线地图下载 (后台正在下载... 点击收起)'
-        : '离线地图下载 (后台正在下载... 点击展开)';
-    } else if (downloadDotState === 'completed') {
-      btnOpen.title = isExpanded
-        ? '离线地图下载 (全部已就绪 · 点击收起)'
-        : '离线地图下载 (全部已就绪 · 点击展开查看)';
-    } else {
-      btnOpen.title = isExpanded
-        ? '离线地图下载 (点击收起)'
-        : '离线地图下载 (点击展开)';
-    }
-  };
+  const updateBtnTooltip = () => {};
 
   const setDownloadDotState = (state) => {
     downloadDotState = state;
@@ -3033,11 +3014,9 @@ function setupPyramidModal(map) {
     if (state === 'downloading') {
       dlBlueDot.style.display = 'block';
       dlBlueDot.classList.remove('completed');
-      dlBlueDot.title = '后台正在下载离线瓦片...';
     } else if (state === 'completed') {
       dlBlueDot.style.display = 'block';
       dlBlueDot.classList.add('completed');
-      dlBlueDot.title = '离线瓦片已全部下载完成';
     } else {
       dlBlueDot.style.display = 'none';
       dlBlueDot.classList.remove('completed');
@@ -3310,16 +3289,13 @@ function setupPyramidModal(map) {
       if (isFull) {
         badge.className = 'prov-chip-badge full';
         badge.innerText = 'L14';
-        badge.title = `${p.name}已完整下载全部层级 (L1-L14 全路网与POI)`;
       } else if (isPartial) {
         badge.className = 'prov-chip-badge partial';
         const displayZ = Math.max(maxZ, saved?.partialZ || 0);
         badge.innerText = displayZ >= 10 ? `L${displayZ}` : '部分';
-        badge.title = `${p.name}已就绪至 L${displayZ}，可扩充至 L14`;
       } else {
         badge.className = 'prov-chip-badge empty';
         badge.innerText = '未下载';
-        badge.title = `${p.name}未下载离线包`;
       }
       label.appendChild(badge);
 
@@ -3411,9 +3387,6 @@ function setupPyramidModal(map) {
 
         dot.classList.toggle('ready', isReadyForZ);
         dot.classList.toggle('partial', isPartialForZ && !isReadyForZ);
-        dot.title = isReadyForZ
-          ? `所选省份在 L${z} 已 100% 完整下载`
-          : (isPartialForZ ? `所选省份在 L${z} 已部分下载 (可补齐)` : `所选省份在 L${z} 尚未下载`);
       }
     });
 
@@ -3421,6 +3394,7 @@ function setupPyramidModal(map) {
       statCount.innerText = '未选择省份';
       statSize.innerText = '0 MB';
       if (provStatusTag) provStatusTag.style.display = 'none';
+      if (progressBox) progressBox.style.display = 'none';
       btnStart.style.display = 'inline-block';
       btnStart.disabled = true;
       btnStart.innerText = '请选择目标省份';
@@ -3497,14 +3471,19 @@ function setupPyramidModal(map) {
         if (provStatusTag) {
           provStatusTag.style.display = 'none';
         }
+        if (progressBox) {
+          progressBox.style.display = 'flex';
+        }
       } else {
         const activeNames = activeDownloadSession?.provNames?.join('、') || '其他省份';
         btnStart.style.display = 'inline-block';
         btnStart.disabled = false;
         btnStart.innerText = '中止当前并下载所选省份';
-        btnStart.title = `后台正在下载【${activeNames}】，点击将中止当前任务并开始下载当前所选省份`;
         if (btnUpdate) btnUpdate.style.display = 'none';
         if (btnRetry) btnRetry.style.display = 'none';
+        if (progressBox) {
+          progressBox.style.display = 'none';
+        }
         if (provStatusTag) {
           provStatusTag.className = 'prov-status-line busy';
           provStatusTag.style.display = 'inline-flex';
@@ -3513,6 +3492,9 @@ function setupPyramidModal(map) {
       }
     } else {
       btnCancel.style.display = 'none';
+      if (progressBox) {
+        progressBox.style.display = 'none';
+      }
       if (allReady) {
         statCount.innerText = '已全部就绪';
         statSize.innerText = '0 MB';
@@ -3652,13 +3634,11 @@ function setupPyramidModal(map) {
         if (info && info.success) {
           if (info.hasUpdates) {
             btnCheckUpdate.innerText = '⚡ 云端有新路网';
-            btnCheckUpdate.title = `云端最新切片: ${info.remoteDate} (本地扫描: ${info.localDate})，可点击 [⚡ 增量更新] 仅拉取变动切片`;
             btnCheckUpdate.style.background = '#fef3c7';
             btnCheckUpdate.style.borderColor = '#fde047';
             btnCheckUpdate.style.color = '#b45309';
           } else {
             btnCheckUpdate.innerText = '✅ 图层已最新';
-            btnCheckUpdate.title = `云端最新切片: ${info.remoteDate}，本地切片与云端保持最新`;
             btnCheckUpdate.style.background = '#ecfdf5';
             btnCheckUpdate.style.borderColor = '#a7f3d0';
             btnCheckUpdate.style.color = '#047857';
@@ -3763,7 +3743,8 @@ function setupPyramidModal(map) {
         lastProgressTime = now;
       }
 
-      progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify);
+      const isExisting = (!curByteSpeed || curByteSpeed <= 0) && (readyCount > 0 || (data.unchangedCount || 0) > 0 || (data.completed > 0 && (!data.bytes || data.bytes === 0)));
+      progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting);
       progressPct.innerText = `${data.percent}%`;
 
       if (!data.done && downloadDotState !== 'downloading') {
@@ -3774,7 +3755,6 @@ function setupPyramidModal(map) {
       const titleStat = document.getElementById('titlebar-cache-stat');
       if (titleStat && data.totalTiles) {
         titleStat.innerText = `离线: ${formatTileDisplay(data.totalTiles, data.totalBytes)}`;
-        titleStat.title = `本地已缓存离线切片: ${data.totalTiles.toLocaleString()} 块 (下载中实时更新)`;
       }
 
       if (data.done) {
@@ -3817,7 +3797,6 @@ function setupPyramidModal(map) {
         if (titleStat) {
           const totalVal = data.totalTiles || data.savedCount || data.completed;
           titleStat.innerText = `离线: ${formatTileDisplay(totalVal, data.totalBytes)}`;
-          titleStat.title = `本地已缓存离线切片总数: ${totalVal.toLocaleString()} 块${data.totalBytes ? ` · 占用磁盘: ${formatBytes(data.totalBytes)}` : ''} (点击可重新校准磁盘)`;
         }
       }
     });
@@ -4719,7 +4698,6 @@ function setupWaypointAndFavoritesSystem(map) {
         transition: transform 0.15s ease;
       `;
       el.innerText = iconMap[wp.type] || '📍';
-      el.title = `${wp.name} (${wp.ele}m)`;
 
       el.addEventListener('mouseenter', () => el.style.transform = 'scale(1.25)');
       el.addEventListener('mouseleave', () => el.style.transform = 'scale(1.0)');
@@ -4913,7 +4891,7 @@ function setupWaypointAndFavoritesSystem(map) {
           <div class="fav-item-name">${wp.name}</div>
           <div class="fav-item-meta">${wp.lng.toFixed(3)}°E, ${wp.lat.toFixed(3)}°N · ${wp.ele}m</div>
         </div>
-        <button class="fav-item-del" title="删除该收藏">🗑️</button>
+        <button class="fav-item-del">🗑️</button>
       `;
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
@@ -4967,7 +4945,7 @@ function setupWaypointAndFavoritesSystem(map) {
         <div class="fav-route-header">
           <div class="fav-route-title-box">
             <span class="fav-route-mode-tag">${modeNames[route.mode] || '🛣️ 路线'}</span>
-            <span class="fav-route-name" title="${route.name}">${route.name}</span>
+            <span class="fav-route-name">${route.name}</span>
           </div>
           <span class="fav-route-date">${route.createdAt || ''}</span>
         </div>
@@ -4978,9 +4956,9 @@ function setupWaypointAndFavoritesSystem(map) {
           <span>📍 ${viaText}</span>
         </div>
         <div class="fav-route-actions">
-          <button class="fav-route-btn primary btn-recall-route" title="在地图上调出并完整呈现该路线及三维高程剖面">⚡ 调出路线</button>
-          <button class="fav-route-btn gpx btn-gpx-route" title="导出为标准 GPX 轨迹文件供手机/手持GPS使用">📥 导出GPX</button>
-          <button class="fav-route-btn del btn-del-route" title="删除该路线">🗑️ 删除</button>
+          <button class="fav-route-btn primary btn-recall-route">⚡ 调出路线</button>
+          <button class="fav-route-btn gpx btn-gpx-route">📥 导出GPX</button>
+          <button class="fav-route-btn del btn-del-route">🗑️ 删除</button>
         </div>
       `;
 
@@ -5489,13 +5467,11 @@ function syncRouteMarkersVisualState(mapInstance) {
     const el = routeStartMarker.getElement();
     el.style.background = '#16a34a';
     el.innerText = '起';
-    el.title = `路线起点（${routeStartName || ''}）`;
   }
   if (routeEndMarker && routeEndMarker.getElement()) {
     const el = routeEndMarker.getElement();
     el.style.background = '#ef4444';
     el.innerText = '终';
-    el.title = `路线终点（${routeEndName || ''}）`;
   }
   routeViaPoints.forEach((v, idx) => {
     if (!v.marker) return;
@@ -5503,7 +5479,6 @@ function syncRouteMarkersVisualState(mapInstance) {
     if (!el) return;
     el.style.background = '#0284c7';
     el.innerText = idx + 1;
-    el.title = `途径点 ${idx + 1}（${v.name || ''}）`;
   });
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
@@ -5592,20 +5567,17 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
     const el = routeStartMarker.getElement();
     el.style.background = '#16a34a';
     el.innerText = '起';
-    el.title = `路线起点（${routeStartName || ''}）`;
   }
   if (routeEndMarker && routeEndMarker.getElement()) {
     const el = routeEndMarker.getElement();
     el.style.background = '#ef4444';
     el.innerText = '终';
-    el.title = `路线终点（${routeEndName || ''}）`;
   }
   routeViaPoints.forEach((v, idx) => {
     if (v.marker && v.marker.getElement()) {
       const el = v.marker.getElement();
       el.style.background = '#0284c7';
       el.innerText = idx + 1;
-      el.title = `途径点 ${idx + 1}（${v.name || ''}）`;
     }
   });
 
@@ -5843,13 +5815,13 @@ function renderViaList(mapInstance) {
     row.dataset.index = idx;
 
     row.innerHTML = `
-      <span class="pt-tag via" title="途径点 ${idx + 1}（点击定位）">${idx + 1}</span>
+      <span class="pt-tag via">${idx + 1}</span>
       <div class="route-input-wrap">
         <input type="text" class="route-pt-input via-name-input" value="${via.name || ''}" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
         <div class="route-search-dropdown" style="display: none;"></div>
       </div>
-      <button class="btn-via-del" title="删除该途径点">✕</button>
-      <div class="btn-drag-handle via-drag-handle" title="按住拖拽排序">⠿</div>
+      <button class="btn-via-del">✕</button>
+      <div class="btn-drag-handle via-drag-handle">⠿</div>
     `;
 
     const inputEl = row.querySelector('.via-name-input');
@@ -6801,7 +6773,6 @@ function setupOutdoorRouteSystem(map) {
   const staticStartTag = document.querySelector('.route-point-row .pt-tag.start');
   if (staticStartTag) {
     staticStartTag.style.cursor = 'pointer';
-    staticStartTag.title = '起点（点击定位）';
     staticStartTag.addEventListener('click', () => {
       if (routeStartCoord && map) {
         flyToLocationPrecisely(map, routeStartCoord, { zoom: routeStartZoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
@@ -6812,7 +6783,6 @@ function setupOutdoorRouteSystem(map) {
   const staticEndTag = document.querySelector('.route-point-row .pt-tag.end');
   if (staticEndTag) {
     staticEndTag.style.cursor = 'pointer';
-    staticEndTag.title = '终点（点击定位）';
     staticEndTag.addEventListener('click', () => {
       if (routeEndCoord && map) {
         flyToLocationPrecisely(map, routeEndCoord, { zoom: routeEndZoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
@@ -6848,7 +6818,6 @@ function setupOutdoorRouteSystem(map) {
     btnPickViaInline?.classList.remove('picking');
     if (btnPickViaInline) {
       btnPickViaInline.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
-      btnPickViaInline.title = '直接在地图上连续选点添加途径点';
     }
     if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
   };
@@ -6870,7 +6839,6 @@ function setupOutdoorRouteSystem(map) {
       const totalCount = (routeStartCoord ? 1 : 0) + routeViaPoints.length + (routeEndCoord ? 1 : 0);
       const countText = totalCount > 0 ? ` (${totalCount})` : '';
       btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点${countText}</span>`;
-      btnPickViaInline.title = '正在连续选点：点击地图添加路线点，再次点击此按钮、按 ESC 或右键完成';
     }
   };
 
@@ -7786,7 +7754,6 @@ function displayImportedTrack(map, trackData) {
   startEl.className = 'imported-track-marker';
   startEl.style.cssText = 'background:#16a34a; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
   startEl.innerText = '起';
-  startEl.title = `导入轨迹起点：${name}`;
   startEl.addEventListener('click', () => {
     flyToLocationPrecisely(map, startCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
   });
@@ -7797,7 +7764,6 @@ function displayImportedTrack(map, trackData) {
   endEl.className = 'imported-track-marker';
   endEl.style.cssText = 'background:#ef4444; color:#fff; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,0.3); cursor:pointer; z-index:100;';
   endEl.innerText = '终';
-  endEl.title = `导入轨迹终点：${name}`;
   endEl.addEventListener('click', () => {
     flyToLocationPrecisely(map, endCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
   });
@@ -8402,9 +8368,52 @@ function setupGlobalKeyboardDispatcher() {
         e.stopImmediatePropagation();
         return;
       }
+
+      // 8.6. 搜索落地地点标记与卡片 (按 ESC 退出标记)
+      const targetLandingMarker = (typeof currentLandingMarker !== 'undefined' && currentLandingMarker) || window.currentLandingMarker;
+      if (targetLandingMarker) {
+        const markerEl = typeof targetLandingMarker.getElement === 'function' ? targetLandingMarker.getElement() : null;
+        const card = markerEl ? markerEl.querySelector('.landing-card') : null;
+        if (card) {
+          card.classList.add('popover-closing');
+          setTimeout(() => {
+            if (typeof window.clearLandingMarker === 'function') {
+              window.clearLandingMarker();
+            } else {
+              try { targetLandingMarker.remove(); } catch (e) {}
+              if (typeof currentLandingMarker !== 'undefined') currentLandingMarker = null;
+              window.currentLandingMarker = null;
+            }
+          }, 140);
+        } else {
+          if (typeof window.clearLandingMarker === 'function') {
+            window.clearLandingMarker();
+          } else {
+            try { targetLandingMarker.remove(); } catch (e) {}
+            if (typeof currentLandingMarker !== 'undefined') currentLandingMarker = null;
+            window.currentLandingMarker = null;
+          }
+        }
+        const sInput = document.getElementById('global-search-input');
+        if (sInput) sInput.blur();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
     }
   }, true); // 使用捕获阶段 (capture: true) 确保最先响应
+
+  // 全局禁用所有悬浮 Tooltip 提示文案，确保纯净操作交互
+  document.addEventListener('mouseover', (e) => {
+    const target = e.target.closest('[title]');
+    if (target) {
+      target.removeAttribute('title');
+    }
+  }, true);
 }
+
+// 全局统一键盘调度与防穿透系统立即初始化
+setupGlobalKeyboardDispatcher();
 
 // 应用程序启动
 initApplication();
