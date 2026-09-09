@@ -6,7 +6,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.6.2" />
+  <link rel="stylesheet" href="style.css?v=1.6.3" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -29,7 +29,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.2</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.6.3</span>
                 </div>
               </div>
             </div>
@@ -379,7 +379,10 @@
           <div class="elevation-chart-section" id="route-chart-section" style="display: none;">
             <div class="chart-header-row">
               <span class="chart-lbl">📈 路线海拔起伏剖面</span>
-              <span class="chart-hover-val" id="chart-hover-info">滑动联动地图</span>
+              <div class="chart-header-actions">
+                <span class="chart-hover-val" id="chart-hover-info">滑动联动地图</span>
+                <button class="chart-close-btn" id="btn-close-chart-section" title="收起剖面图" type="button">✕</button>
+              </div>
             </div>
             <div class="chart-canvas-wrap">
               <canvas id="elevation-chart-canvas" width="370" height="115"></canvas>
@@ -769,8 +772,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.6.2"></script>
-  <script src="app.js?v=1.6.2"></script>
+  <script src="location-camera.js?v=1.6.3"></script>
+  <script src="app.js?v=1.6.3"></script>
 </body>
 </html>
 

@@ -2454,6 +2454,7 @@ body.web-mode #manage-modal {
   padding: 3px;
   border-radius: 8px;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .route-mode-btn {
@@ -2489,7 +2490,9 @@ body.web-mode #manage-modal {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 240px;
+  max-height: 250px;
+  min-height: 76px;
+  flex-shrink: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
@@ -2518,6 +2521,7 @@ body.web-mode #manage-modal {
   padding: 3px 6px;
   position: relative;
   user-select: none;
+  flex-shrink: 0;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -2718,6 +2722,7 @@ body.web-mode #manage-modal {
   border-radius: 6px;
   padding: 3px 6px;
   position: relative;
+  flex-shrink: 0;
   transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease, background 0.15s ease;
   user-select: none;
 }
@@ -2821,6 +2826,7 @@ body.web-mode #manage-modal {
   align-items: center;
   gap: 6px;
   margin: 4px 0 6px 0;
+  flex-shrink: 0;
 }
 
 .route-add-via-inline {
@@ -2990,6 +2996,7 @@ body.web-mode #manage-modal {
   gap: 6px;
   align-items: stretch;
   width: 100%;
+  flex-shrink: 0;
 }
 
 .route-actions-row > .modal-btn,
@@ -3105,6 +3112,7 @@ body.web-mode #manage-modal {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .stat-card {
@@ -3170,6 +3178,7 @@ body.web-mode #manage-modal {
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 8px;
+  flex-shrink: 0;
 }
 
 .chart-header-row {
@@ -3182,6 +3191,36 @@ body.web-mode #manage-modal {
 .chart-lbl {
   font-weight: 700;
   color: #334155;
+}
+
+.chart-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.chart-close-btn:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}
+
+.chart-close-btn:active {
+  transform: scale(0.92);
 }
 
 .chart-hover-val {
@@ -4390,7 +4429,7 @@ body.web-mode .office-prov-group {
     top: auto !important;
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 82vh !important;
+    max-height: min(85dvh, 720px) !important;
     border-radius: 18px 18px 0 0 !important;
     border-left: none !important;
     border-right: none !important;
@@ -4426,7 +4465,7 @@ body.web-mode .office-prov-group {
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     overscroll-behavior: contain !important;
-    max-height: calc(82vh - 56px) !important;
+    max-height: calc(min(85dvh, 720px) - 56px) !important;
     padding-bottom: 24px !important;
   }
 
@@ -4448,6 +4487,7 @@ body.web-mode .office-prov-group {
     grid-template-columns: repeat(4, 1fr) !important;
     gap: 4px !important;
     width: 100% !important;
+    flex-shrink: 0 !important;
   }
 
   .route-actions-row .modal-btn,
@@ -5154,11 +5194,11 @@ body.web-mode .office-prov-group {
   }
 
   #route-panel {
-    max-height: min(62dvh, 560px) !important;
+    max-height: min(85dvh, 720px) !important;
   }
 
   #route-panel .panel-body {
-    max-height: calc(min(62dvh, 560px) - 56px) !important;
+    max-height: calc(min(85dvh, 720px) - 56px) !important;
   }
 
   #favorites-drawer {

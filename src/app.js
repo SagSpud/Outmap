@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.6.3';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -6361,6 +6361,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     }
     if (statsBox) statsBox.style.display = 'none';
     if (chartSection) chartSection.style.display = 'none';
+    const btnDetails = document.getElementById('btn-route-details-toggle');
+    if (btnDetails) btnDetails.innerText = '详情 ▾';
     currentProfileData = [];
     currentPlannedRouteCoords = [];
     currentRouteMetrics = null;
@@ -7065,12 +7067,30 @@ function setupOutdoorRouteSystem(map) {
     }
   });
 
-  // 3. 详情切换按钮 (展开/收起 距离与海拔等详情)
+  // 3. 详情切换按钮 (展开/收起 距离与海拔等详情及高程剖面图)
+  const isRouteDetailsExpanded = () => {
+    const isStatsOpen = statsBox && statsBox.style.display !== 'none';
+    const isChartOpen = chartSection && chartSection.style.display !== 'none';
+    return Boolean(isStatsOpen || isChartOpen);
+  };
+
+  const updateRouteDetailsToggleText = () => {
+    if (!btnRouteDetailsToggle) return;
+    btnRouteDetailsToggle.innerText = isRouteDetailsExpanded() ? '收起' : '详情 ▾';
+  };
+
   btnRouteDetailsToggle?.addEventListener('click', () => {
     if (!statsBox) return;
-    const isHidden = statsBox.style.display === 'none';
-    statsBox.style.display = isHidden ? 'grid' : 'none';
-    btnRouteDetailsToggle.innerText = isHidden ? '收起' : '详情 ▾';
+    if (isRouteDetailsExpanded()) {
+      // 只要详情统计或高程剖面图有任意一个处于展开状态，点击统统一并平滑收起
+      statsBox.style.display = 'none';
+      if (chartSection) chartSection.style.display = 'none';
+      btnRouteDetailsToggle.innerText = '详情 ▾';
+    } else {
+      // 展开详情统计指标卡片
+      statsBox.style.display = 'grid';
+      btnRouteDetailsToggle.innerText = '收起';
+    }
   });
 
   // 4. 海拔变化图交互联动：海拔图默认彻底隐藏，点击详情中海拔指标时才展开
@@ -7080,10 +7100,27 @@ function setupOutdoorRouteSystem(map) {
     if (isHidden) {
       chartSection.style.display = 'flex';
       drawElevationChart(canvas, currentProfileData);
+      updateRouteDetailsToggleText();
+      // 在移动端抽屉或受限视口中，轻柔平滑滚动到底部展现完整图表
+      try {
+        const panelBody = routePanel?.querySelector('.panel-body');
+        if (panelBody) {
+          panelBody.scrollTo({ top: panelBody.scrollHeight, behavior: 'smooth' });
+        }
+      } catch (_) {}
     } else {
       chartSection.style.display = 'none';
+      updateRouteDetailsToggleText();
     }
   };
+
+  // 剖面图卡片右上角专属关闭按钮 (轻触一键关闭剖面图)
+  const btnCloseChartSection = document.getElementById('btn-close-chart-section');
+  btnCloseChartSection?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (chartSection) chartSection.style.display = 'none';
+    updateRouteDetailsToggleText();
+  });
 
   document.getElementById('stat-card-ascent')?.addEventListener('click', toggleElevationChart);
   document.getElementById('stat-card-descent')?.addEventListener('click', toggleElevationChart);
@@ -7855,6 +7892,8 @@ function displayImportedTrack(map, trackData) {
     chartSection.style.display = 'flex';
     drawElevationChart(canvas, currentProfileData);
   }
+  const btnRouteDetailsToggle = document.getElementById('btn-route-details-toggle');
+  if (btnRouteDetailsToggle) btnRouteDetailsToggle.innerText = '收起';
 
   // 5. 视角对齐整条轨迹全貌
   const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
