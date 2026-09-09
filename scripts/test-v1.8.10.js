@@ -7,13 +7,15 @@ console.log('Running Outmap v1.8.10 Test Suite...');
 
 // 1. Static file verification
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-assert.strictEqual(pkg.version, '1.8.10', 'package.json version must be 1.8.10');
+const [major, minor, patch] = pkg.version.split('.').map(Number);
+assert(major > 1 || (major === 1 && (minor > 8 || (minor === 8 && patch >= 10))),
+  'package.json version must be at least 1.8.10');
 
 const html = fs.readFileSync('src/index.html', 'utf8');
-assert(html.includes('style.css?v=1.8.10'), 'index.html must reference style.css?v=1.8.10');
-assert(html.includes('app.js?v=1.8.10'), 'index.html must reference app.js?v=1.8.10');
-assert(html.includes('location-camera.js?v=1.8.10'), 'index.html must reference location-camera.js?v=1.8.10');
-assert(html.includes('id="brand-ver-badge-txt">v1.8.10</span>'), 'index.html brand badge must show v1.8.10');
+assert(html.includes(`style.css?v=${pkg.version}`), 'index.html must reference current style.css');
+assert(html.includes(`app.js?v=${pkg.version}`), 'index.html must reference current app.js');
+assert(html.includes(`location-camera.js?v=${pkg.version}`), 'index.html must reference current location-camera.js');
+assert(html.includes(`id="brand-ver-badge-txt">v${pkg.version}</span>`), 'index.html brand badge must show current version');
 
 // Verify route panel header actions (import, sync, close)
 assert(html.includes('id="btn-route-import-trigger"'), 'route panel header must have #btn-route-import-trigger (导入)');
@@ -39,29 +41,29 @@ assert(styleCss.includes('.card-action-btn.btn-import'), 'style.css must style .
 assert(styleCss.includes('.card-action-btn.btn-sync'), 'style.css must style .card-action-btn.btn-sync');
 assert(styleCss.includes('grid-template-columns: repeat(4, 1fr) !important;'), 'style.css mobile media query must have 4 columns for route-actions-row');
 
-// Verify preload.js exposes showWaypointTypeMenu
+// The old operating-system radio menu left a large platform-specific gutter.
 const preloadJs = fs.readFileSync('preload.js', 'utf8');
-assert(preloadJs.includes('showWaypointTypeMenu:'), 'preload.js must expose showWaypointTypeMenu');
+assert(!preloadJs.includes('showWaypointTypeMenu:'), 'preload.js must not expose the retired native waypoint menu');
 
-// Verify main.js handles show-waypoint-type-menu
+// Desktop and web now share the same in-app Fluent menu.
 const mainJs = fs.readFileSync('main.js', 'utf8');
-assert(mainJs.includes("ipcMain.handle('show-waypoint-type-menu'"), 'main.js must register show-waypoint-type-menu handler');
+assert(!mainJs.includes("ipcMain.handle('show-waypoint-type-menu'"), 'main.js must not retain the retired native waypoint menu handler');
 
 // Verify app.js optimizations and iOS deep green color
 const appJs = fs.readFileSync('src/app.js', 'utf8');
-assert(appJs.includes("const APP_VERSION = '1.8.10';"), "app.js must declare APP_VERSION = '1.8.10'");
+assert(appJs.includes(`const APP_VERSION = '${pkg.version}';`), 'app.js must declare current APP_VERSION');
 assert(appJs.includes("'line-color': '#248a3d'"), "app.js outdoor-route-line must use iOS deeper green #248a3d for OLED screen comfort");
 assert(appJs.includes("'line-color': '#0e4a23'"), "app.js outdoor-route-casing must use casing #0e4a23");
 assert(appJs.includes("btnRouteSync?.addEventListener('click'"), 'app.js must wire btnRouteSync click listener');
 assert(appJs.includes("btnEl.id === 'btn-fav-drawer-sync' || btnEl.id === 'btn-route-sync'"), 'app.js handleManualSync must handle btn-route-sync');
-assert(appJs.includes('fadeDuration: 0'), 'app.js must set fadeDuration: 0 to eliminate zoom flickering');
-assert(appJs.includes('prefetch: 2'), 'app.js must set prefetch: 2 in desktop mode');
-assert(appJs.includes('electronAPI.showWaypointTypeMenu'), 'app.js must call native showWaypointTypeMenu');
+assert(appJs.includes('fadeDuration: 180'), 'app.js must preserve smooth native symbol fading');
+assert(appJs.includes('prefetch: 1'), 'app.js must bound speculative desktop tile prefetch');
+assert(appJs.includes("menu.className = 'fluent-context-menu fav-point-type-menu ctx-opening'"), 'app.js must use the shared Fluent context-menu surface');
 assert(!appJs.includes('showToast(`已将“${wp.name}”类型修改为'), 'app.js must not show toast when changing waypoint type');
 
 // Verify location-camera.js
 const camJs = fs.readFileSync('src/location-camera.js', 'utf8');
-assert(camJs.includes('curve: 1.42'), 'location-camera.js must use curve: 1.42 for smooth flight');
+assert(camJs.includes('curve: 1.0'), 'location-camera.js must use the stable native flight arc');
 assert(!camJs.includes("listen('sourcedata'"), 'location-camera.js must not listen to sourcedata for refine');
 
 console.log('Static assertions passed. Starting Electron runtime tests...');
@@ -153,7 +155,7 @@ app.whenReady().then(async () => {
         btnCancelSaveClass: btnCancelSave?.className,
         btnConfirmSaveClass: btnConfirmSave?.className,
         btnConfirmSaveText: btnConfirmSave?.innerText.trim(),
-        hasNativeWaypointMenuAPI: typeof window.electronAPI?.showWaypointTypeMenu === 'function'
+        hasRetiredNativeWaypointMenuAPI: typeof window.electronAPI?.showWaypointTypeMenu === 'function'
       });
     });
   `);
@@ -178,7 +180,7 @@ app.whenReady().then(async () => {
   assert(result.btnCancelSaveClass.includes('modal-btn secondary'), 'btn-cancel-save-route must use modal-btn secondary');
   assert(result.btnConfirmSaveClass.includes('modal-btn primary'), 'btn-confirm-save-route must use modal-btn primary');
   assert.strictEqual(result.btnConfirmSaveText, '保存路线', 'btn-confirm-save-route text must be 保存路线');
-  assert(result.hasNativeWaypointMenuAPI, 'electronAPI.showWaypointTypeMenu must be exposed in window');
+  assert.strictEqual(result.hasRetiredNativeWaypointMenuAPI, false, 'retired native waypoint menu API must be absent');
 
   clearTimeout(watchdog);
   console.log('✅ ALL v1.8.10 RUNTIME & STATIC TESTS PASSED PERFECTLY!');

@@ -135,8 +135,8 @@ app.whenReady().then(async () => {
   console.log('v1.8.5 test result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert(result.version.startsWith('1.8.'), 'App version should be 1.8.x');
-  assert(result.badgeText.startsWith('v1.8.'), 'Badge text should be v1.8.x');
+  assert(/^\d+\.\d+\.\d+$/.test(result.version), 'App version should be valid semver');
+  assert.strictEqual(result.badgeText, `v${result.version}`, 'Badge text should match the app version');
   assert.strictEqual(result.maxZoom, 17, 'maxZoom must be locked to 17');
 
   // Waypoint modal pills: 8 options, default view
@@ -155,8 +155,8 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.afterSyncBtnText, '同步', 'Reverted text should be 同步');
 
   // Route colors: Apple Maps solid green
-  assert.strictEqual(result.casingColor, '#0f7135', 'Casing must be solid dark green (#0f7135)');
-  assert.strictEqual(result.lineColor, '#32d15f', 'Line ribbon must be Apple Maps emerald green (#32d15f)');
+  assert.strictEqual(result.casingColor, '#0e4a23', 'Casing must use the current high-contrast dark green');
+  assert.strictEqual(result.lineColor, '#248a3d', 'Line ribbon must use the current iOS-style deep green');
   assert.strictEqual(result.routeBelowLabels, true, 'Route line must be placed below road labels and shields');
 
   // Clear button completely removes track

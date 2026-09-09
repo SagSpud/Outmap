@@ -178,7 +178,7 @@ app.whenReady().then(async () => {
   assert(domCheck.hasRoutePanel, 'routePanel must exist');
   assert(domCheck.hasViaList, 'route-via-list must exist');
   assert(domCheck.hasCanvas, 'elevation-chart-canvas must exist');
-  assert(domCheck.hasBtnExportGpx, 'btn-export-gpx must exist');
+  assert(!domCheck.hasBtnExportGpx, 'GPX export must remain in the saved-route context menu, not the planning action row');
   assert(domCheck.hasLayersPopover, 'layers-popover must exist');
   assert(domCheck.hasBtnFabLayers, 'btn-fab-layers must exist');
   assert(domCheck.hasBtnFabImport, 'btn-fab-import must exist');

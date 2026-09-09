@@ -147,17 +147,14 @@ function scan({ baseDir, provinces, boxes }) {
     }
   }
 
-  // 科学严格三态统计：全量就绪 (绿) 必须达到完整度阈值 (考虑海域/边界空瓦片容差)；部分下载 (蓝) present > 0
+  // 严格三态统计：只有该层级全部预期瓦片都在磁盘上才显示绿色；任何缺片都保持蓝色。
   for (const p of Object.values(result)) {
     for (const layer of ['dem', 'vector']) {
       const state = p.layers[layer];
       state.maxZ = 0;
       state.partialZ = 0;
       for (const [z, level] of Object.entries(state.levels)) {
-        const isComplete = level.expected > 0 && (
-          level.present >= level.expected ||
-          (level.present >= Math.floor(level.expected * 0.95) && (level.expected - level.present) <= Math.max(3, Math.floor(level.expected * 0.05)))
-        );
+        const isComplete = level.expected > 0 && level.present >= level.expected;
         level.complete = isComplete;
         if (level.complete) state.maxZ = Math.max(state.maxZ, +z);
         if (level.present > 0) state.partialZ = Math.max(state.partialZ, +z);

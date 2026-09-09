@@ -1006,46 +1006,6 @@ app.whenReady().then(async () => {
     });
   });
 
-  // 收藏点位类型原生切换菜单 (Windows 11 Fluent 原生单选菜单，零 DOM 延迟)
-  ipcMain.handle('show-waypoint-type-menu', async (event, { currentType, waypointName }) => {
-    return new Promise((resolve) => {
-      const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-      const cleanName = (waypointName || '收藏点位').trim();
-      const typeList = [
-        { key: 'view', name: '景点' },
-        { key: 'camp', name: '露营' },
-        { key: 'water', name: '水源' },
-        { key: 'supply', name: '补给' },
-        { key: 'parking', name: '停车' },
-        { key: 'hotel', name: '住宿' },
-        { key: 'photo', name: '摄影' },
-        { key: 'hiking', name: '徒步' }
-      ];
-
-      const template = [
-        {
-          label: `更改类型 · ${cleanName}`,
-          enabled: false
-        },
-        { type: 'separator' },
-        ...typeList.map(t => ({
-          label: t.name,
-          type: 'radio',
-          checked: currentType === t.key,
-          click: () => resolve({ action: 'change-type', newType: t.key })
-        }))
-      ];
-
-      const menu = Menu.buildFromTemplate(template);
-      menu.popup({
-        window: win,
-        callback: () => {
-          setTimeout(() => resolve({ action: null }), 50);
-        }
-      });
-    });
-  });
-
   // 操作系统原生文件保存对话框 (GPX 导出等)
   ipcMain.handle('save-file-dialog', async (event, { defaultPath, title, filters, content }) => {
     try {

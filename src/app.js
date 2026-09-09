@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.10';
+const APP_VERSION = '1.9.0';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -884,13 +884,13 @@ async function initApplication() {
   const compactDevice = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
   const constrainedWeb = isWebMode && (compactDevice || deviceMemory <= 4);
   const mapPerformance = constrainedWeb
-    ? { workers: 2, demCache: 512, tileCache: 512, prefetch: 0 }
+    ? { workers: 2, demCache: 96, tileCache: 256, prefetch: 0 }
     : isWebMode
-      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 1800, tileCache: 1800, prefetch: 1 }
-      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 3200, tileCache: 3200, prefetch: 2 };
+      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 192, tileCache: 512, prefetch: 1 }
+      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 384, tileCache: 1024, prefetch: 1 };
   maplibregl.workerCount = mapPerformance.workers;
 
-  // 初始化 DEM 高程数据源 (工作站满血模式：扩大高程网格缓存至 6000 片，反复缩放平移零延迟)
+  // DEM 解码缓存按设备分级。无上限扩大会在长时间飞掠后造成内存/显存压力与回收卡顿。
   const demSource = new mlcontour.DemSource({
     url: demUrl,
     encoding: 'terrarium',
@@ -901,7 +901,7 @@ async function initApplication() {
   });
   demSource.setupMaplibre(maplibregl);
 
-  // 2. 初始化 MapLibre 地图实例 (工作站模式：扩大 GPU 显存纹理池至 4000 片，杜绝白块)
+  // 2. 初始化 MapLibre 地图实例。桌面保留充足缓存，但避免全国飞掠后长期持有数千纹理。
   mapInstance = new maplibregl.Map({
     container: 'map',
     center: [104.5000, 36.0000],
@@ -912,7 +912,10 @@ async function initApplication() {
     maxZoom: 17, // 限制最大缩放层级为 17 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
-    fadeDuration: 0, // 零延迟符号渲染，彻底消除快速连续滚轮缩放时的图层/注记频闪
+    fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
+    ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
+    cancelPendingTileRequestsWhileZooming: true,
+    refreshExpiredTiles: false,
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
     renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
@@ -947,6 +950,10 @@ async function initApplication() {
   map.on('moveend', () => { document.body.classList.remove('map-is-moving'); });
 
   map.on('load', () => {
+    // `isStyleLoaded()` can temporarily turn false again while this handler adds
+    // terrain/vector sources.  Keep a monotonic readiness flag for Outmap's own
+    // runtime layers so they cannot miss the one-time load event.
+    map.__outmapStyleReady = true;
     // 3D 地形高度网格
     map.addSource('terrain-dem', {
       type: 'raster-dem',
@@ -969,7 +976,6 @@ async function initApplication() {
           terrainRealignDebounce = setTimeout(() => {
             terrainRealignDebounce = null;
             if (map.isMoving() || map.isZooming() || map.isRotating()) return;
-            refreshAllRouteMarkersElevation(map);
             if (typeof refreshRouteElevationProfile === 'function') {
               refreshRouteElevationProfile(map);
             }
@@ -977,10 +983,6 @@ async function initApplication() {
         }
       }
     });
-    map.on('idle', () => {
-      refreshAllRouteMarkersElevation(map);
-    });
-
     // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
     map.addLayer({
       id: 'hillshade-layer',
@@ -1688,16 +1690,8 @@ async function initApplication() {
       }
     } catch (e) {}
 
-    // 适配屏幕分辨率；同一帧内的连续 resize 只提交一次 WebGL 重排。
+    // MapLibre 默认 trackResize 会原生处理窗口尺寸变化，避免再注册一套重复 WebGL 重排。
     map.resize();
-    let resizeFrame = 0;
-    window.addEventListener('resize', () => {
-      if (resizeFrame) return;
-      resizeFrame = requestAnimationFrame(() => {
-        resizeFrame = 0;
-        map.resize();
-      });
-    }, { passive: true });
 
     // 首次空闲后补一帧，确保异步地形资源及时呈现。
     map.once('idle', () => {
@@ -1958,41 +1952,15 @@ function triggerTerrainRealign(map) {
 }
 window.triggerTerrainRealign = triggerTerrainRealign;
 
-// 全局路网标记与图钉高程重对齐系统：杜绝高原/山地异步 DEM 加载后标记点被埋入地底
+// MapLibre 会在地图渲染与 DEM 到达时原生重投影 DOM Marker。
+// 这里只同步角色样式；禁止在 idle 中 setLngLat/_update/triggerRepaint，
+// 否则会形成 idle -> repaint -> idle 的永久 WebGL 重绘循环。
 function refreshAllRouteMarkersElevation(map) {
   try {
     const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
     if (!m) return;
-    const markers = [];
-    if (typeof routeStartMarker !== 'undefined' && routeStartMarker) markers.push(routeStartMarker);
-    if (typeof routeEndMarker !== 'undefined' && routeEndMarker) markers.push(routeEndMarker);
-    if (typeof routeViaPoints !== 'undefined' && Array.isArray(routeViaPoints)) {
-      routeViaPoints.forEach(v => {
-        if (v && v.marker) markers.push(v.marker);
-      });
-    }
-    if (typeof currentLandingMarker !== 'undefined' && currentLandingMarker) {
-      markers.push(currentLandingMarker);
-    }
-
-    markers.forEach(marker => {
-      try {
-        const pos = marker.getLngLat();
-        if (pos) {
-          marker.setLngLat(pos);
-          if (typeof marker._update === 'function') {
-            marker._update();
-          }
-        }
-      } catch (e) {}
-    });
-
     if (typeof syncRouteMarkersVisualState === 'function') {
       syncRouteMarkersVisualState(m);
-    }
-
-    if (typeof m.triggerRepaint === 'function') {
-      try { m.triggerRepaint(); } catch (e) {}
     }
   } catch (err) {}
 }
@@ -2002,6 +1970,8 @@ function refreshRouteElevationProfile(map) {
   try {
     const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
     if (!m || typeof currentPlannedRouteCoords === 'undefined' || !currentPlannedRouteCoords || currentPlannedRouteCoords.length < 2 || !currentRouteMetrics) return;
+    const chartSection = document.getElementById('route-chart-section');
+    if (!chartSection || chartSection.style.display === 'none') return;
     if (typeof updateProfileAndMetrics === 'function') {
       updateProfileAndMetrics(m, currentPlannedRouteCoords, currentRouteMetrics.totalDistKm, currentRouteMetrics.durationSec, currentRouteMetrics.isRealRoad, false);
     }
@@ -3762,7 +3732,7 @@ function setupPyramidModal(map) {
     if (btnUpdate) btnUpdate.style.display = 'none';
     if (btnDone) btnDone.style.display = 'none';
     progressBox.style.display = 'flex';
-    progressFill.style.width = '0%';
+    progressFill.style.setProperty('--progress', '0');
     if (isIncrementalUpdate) {
       progressNum.innerText = '方案 A：正在通过 If-Modified-Since 启动切片级增量更新...';
     } else if (isVerify) {
@@ -3850,7 +3820,7 @@ function setupPyramidModal(map) {
   // 监听后台批量下载进度广播与完成落盘
   if (window.electronAPI && window.electronAPI.onDownloadProgress) {
     window.electronAPI.onDownloadProgress(data => {
-      progressFill.style.width = `${data.percent}%`;
+      progressFill.style.setProperty('--progress', String(Math.max(0, Math.min(1, Number(data.percent || 0) / 100))));
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
       const provName = data.currentProvince || '目标省份';
       const zStr = data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`;
@@ -4317,7 +4287,9 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
 
       // 若发现云端有新增地标或路线，立即同步写入本地并全量刷新地图与收藏夹列表！
-      const hasNewIncoming = mergedFavs.length !== localFavs.length || mergedRoutes.length !== localRoutes.length;
+      const hasNewIncoming = JSON.stringify(mergedFavs) !== JSON.stringify(localFavs)
+        || JSON.stringify(mergedRoutes) !== JSON.stringify(localRoutes)
+        || JSON.stringify(mergedFolders) !== JSON.stringify(localFolders);
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
       localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
       localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
@@ -5055,10 +5027,16 @@ let savedRoutes = []; // 本地持久化收藏路线列表
 let currentPlannedRouteCoords = []; // 当前规划的完整经纬度坐标
 let currentRouteMetrics = null; // 当前规划的核心指标 (距离、爬升等)
 let renderSavedRoutesListFn = null;
-let waypointMarkers = [];
+let waypointMarkers = []; // 兼容旧扩展；收藏点现由 MapLibre 原生 GeoJSON 图层渲染。
 let customFolders = []; // 用户持久化自定义收藏夹分类
 let isPickingPoint = false;
 let tempPickedPoint = null;
+const FAVORITES_SOURCE_ID = 'outmap-favorites';
+const FAVORITE_LAYER_IDS = ['outmap-favorite-hover', 'outmap-favorite-icons', 'outmap-favorite-clusters', 'outmap-favorite-cluster-count'];
+let favoriteLayersVisible = true;
+let selectedFavoriteFeatureId = null;
+let favoriteLayerEventsBound = false;
+let favoriteLayerInitPending = false;
 
 // 右下角悬浮面板统一互斥调度管理 (收藏抽屉、新建地标收藏弹窗、路线规划面板互斥关闭，杜绝界面重叠)
 function closeConflictingBottomPanels(exceptId = null) {
@@ -5142,81 +5120,224 @@ function setupWaypointAndFavoritesSystem(map) {
   };
   refreshFolderOptions();
 
-  // 渲染已有标记点到地图 (按要求已移除险段，保留4种户外核心类型)
-  const renderWaypointMarkersOnMap = () => {
+  const favoriteIconMap = {
+    view: '🏔️', camp: '🏕️', water: '💧', supply: '⛽',
+    parking: '🅿️', hotel: '🏨', photo: '📸', hiking: '🥾'
+  };
+
+  const waypointFeature = wp => ({
+    type: 'Feature',
+    id: String(wp.id),
+    geometry: { type: 'Point', coordinates: [Number(wp.lng), Number(wp.lat)] },
+    properties: {
+      id: String(wp.id),
+      name: wp.name || '收藏点',
+      type: wp.type || 'view',
+      folder: wp.folder || 'default',
+      ele: Number(wp.ele) || 0,
+      icon: `outmap-fav-${favoriteIconMap[wp.type] ? wp.type : 'view'}`
+    }
+  });
+
+  const favoriteFeatureCollection = () => ({
+    type: 'FeatureCollection',
+    features: savedWaypoints
+      .filter(wp => wp && wp.id != null && Number.isFinite(Number(wp.lng)) && Number.isFinite(Number(wp.lat)))
+      .map(waypointFeature)
+  });
+
+  const addFavoriteIcon = (type, emoji) => {
+    const id = `outmap-fav-${type}`;
+    if (map.hasImage(id)) return;
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+    ctx.beginPath();
+    ctx.arc(32, 32, 27, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.98)';
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#0284c7';
+    ctx.stroke();
+    ctx.font = '34px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, 32, 33);
+    map.addImage(id, ctx.getImageData(0, 0, size, size), { pixelRatio: 2 });
+  };
+
+  const bindFavoriteLayerEvents = () => {
+    if (favoriteLayerEventsBound) return;
+    favoriteLayerEventsBound = true;
+    let hoveredId = null;
+    let longPressTimer = null;
+
+    map.on('mouseenter', 'outmap-favorite-icons', e => {
+      map.getCanvas().style.cursor = 'pointer';
+      const id = e.features?.[0]?.id;
+      if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
+      hoveredId = id;
+      if (id != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id }, { hover: true });
+    });
+    map.on('mouseleave', 'outmap-favorite-icons', () => {
+      map.getCanvas().style.cursor = '';
+      if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
+      hoveredId = null;
+    });
+    map.on('click', 'outmap-favorite-clusters', async e => {
+      if (isPickingPoint || pickingRoutePt) return;
+      const feature = e.features?.[0];
+      if (!feature) return;
+      const source = map.getSource(FAVORITES_SOURCE_ID);
+      try {
+        const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
+        map.easeTo({ center: feature.geometry.coordinates, zoom, duration: 420, easing: t => 1 - Math.pow(1 - t, 3) });
+      } catch (_) {}
+    });
+    map.on('click', 'outmap-favorite-icons', e => {
+      if (isPickingPoint || pickingRoutePt) return;
+      const feature = e.features?.[0];
+      const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
+      if (!wp) return;
+      if (selectedFavoriteFeatureId != null && selectedFavoriteFeatureId !== feature.id) {
+        map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: selectedFavoriteFeatureId }, { selected: false });
+      }
+      selectedFavoriteFeatureId = feature.id;
+      map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: feature.id }, { selected: true });
+      const center = map.getCenter();
+      const isLongFlight = map.getZoom() < 8.5 || Math.hypot(center.lng - wp.lng, center.lat - wp.lat) > 2.5;
+      flyToLocationPrecisely(map, [wp.lng, wp.lat], {
+        zoom: 14.8,
+        pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
+        duration: isLongFlight ? 1100 : 500,
+        centered: false,
+        elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+      });
+    });
+    map.on('contextmenu', 'outmap-favorite-icons', e => {
+      const feature = e.features?.[0];
+      const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
+      if (!wp) return;
+      if (e.originalEvent) e.originalEvent._outmapHandled = true;
+      e.preventDefault?.();
+      window.showChangeWaypointTypeMenu?.(wp, e.originalEvent?.clientX ?? e.point.x, e.originalEvent?.clientY ?? e.point.y);
+    });
+    map.on('touchstart', 'outmap-favorite-icons', e => {
+      clearTimeout(longPressTimer);
+      const feature = e.features?.[0];
+      const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
+      if (!wp) return;
+      const touch = e.originalEvent?.touches?.[0];
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        window.showChangeWaypointTypeMenu?.(wp, touch?.clientX ?? e.point.x, touch?.clientY ?? e.point.y);
+      }, 500);
+    });
+    map.on('touchmove', 'outmap-favorite-icons', () => { clearTimeout(longPressTimer); longPressTimer = null; });
+    map.on('touchend', 'outmap-favorite-icons', () => { clearTimeout(longPressTimer); longPressTimer = null; });
+  };
+
+  const ensureFavoriteLayers = () => {
+    if (!map.__outmapStyleReady) return false;
+    Object.entries(favoriteIconMap).forEach(([type, emoji]) => addFavoriteIcon(type, emoji));
+    if (!map.getSource(FAVORITES_SOURCE_ID)) {
+      map.addSource(FAVORITES_SOURCE_ID, {
+        type: 'geojson',
+        data: favoriteFeatureCollection(),
+        promoteId: 'id',
+        cluster: true,
+        clusterMaxZoom: 11,
+        clusterRadius: 48
+      });
+      map.addLayer({
+        id: 'outmap-favorite-hover', type: 'circle', source: FAVORITES_SOURCE_ID,
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 22, ['boolean', ['feature-state', 'hover'], false], 20, 0],
+          'circle-color': '#38bdf8',
+          'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
+          'circle-blur': 0.25,
+          'circle-pitch-alignment': 'viewport'
+        }
+      });
+      map.addLayer({
+        id: 'outmap-favorite-icons', type: 'symbol', source: FAVORITES_SOURCE_ID,
+        filter: ['!', ['has', 'point_count']],
+        layout: {
+          'icon-image': ['get', 'icon'],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.72, 12, 0.9, 16, 1.05],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true
+        }
+      });
+      map.addLayer({
+        id: 'outmap-favorite-clusters', type: 'circle', source: FAVORITES_SOURCE_ID,
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': ['step', ['get', 'point_count'], '#38bdf8', 20, '#0284c7', 100, '#0369a1'],
+          'circle-radius': ['step', ['get', 'point_count'], 17, 20, 20, 100, 24],
+          'circle-stroke-width': 3,
+          'circle-stroke-color': 'rgba(255,255,255,0.94)',
+          'circle-pitch-alignment': 'viewport'
+        }
+      });
+      map.addLayer({
+        id: 'outmap-favorite-cluster-count', type: 'symbol', source: FAVORITES_SOURCE_ID,
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 11,
+          'text-allow-overlap': true
+        },
+        paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(2,132,199,0.4)', 'text-halo-width': 0.5 }
+      });
+      bindFavoriteLayerEvents();
+    }
+    FAVORITE_LAYER_IDS.forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', favoriteLayersVisible ? 'visible' : 'none');
+    });
+    return true;
+  };
+
+  const renderWaypointMarkersOnMap = (change = null) => {
     waypointMarkers.forEach(m => m.remove());
     waypointMarkers = [];
-
-    const iconMap = {
-      view: '🏔️',
-      camp: '🏕️',
-      water: '💧',
-      supply: '⛽',
-      parking: '🅿️',
-      hotel: '🏨',
-      photo: '📸',
-      hiking: '🥾'
-    };
-
-    savedWaypoints.forEach(wp => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'fav-marker-wrap';
-
-      const pin = document.createElement('div');
-      pin.className = 'fav-marker-pin';
-      pin.style.background = '#ffffff';
-      pin.style.borderColor = '#0284c7';
-      pin.innerText = iconMap[wp.type] || '📍';
-
-      wrapper.appendChild(pin);
-
-      wrapper.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof showChangeWaypointTypeMenu === 'function') {
-          showChangeWaypointTypeMenu(wp, e.clientX, e.clientY);
-        }
-      });
-
-      let markerTouchTimer = null;
-      wrapper.addEventListener('touchstart', (e) => {
-        if (e.touches && e.touches.length === 1) {
-          const t = e.touches[0];
-          markerTouchTimer = setTimeout(() => {
-            markerTouchTimer = null;
-            if (typeof showChangeWaypointTypeMenu === 'function') {
-              showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
-            }
-          }, 500);
-        }
-      }, { passive: true });
-      wrapper.addEventListener('touchmove', () => { if (markerTouchTimer) { clearTimeout(markerTouchTimer); markerTouchTimer = null; } }, { passive: true });
-      wrapper.addEventListener('touchend', () => { if (markerTouchTimer) { clearTimeout(markerTouchTimer); markerTouchTimer = null; } }, { passive: true });
-
-      wrapper.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const curCenter = map.getCenter();
-        const curZoom = map.getZoom();
-        const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
-        const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
-        const flightDuration = isLongFlight ? 1100 : 500;
-        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-        flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-          zoom: 14.8,
-          pitch: curPitch,
-          duration: flightDuration,
-          centered: false,
-          elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+    if (!ensureFavoriteLayers()) {
+      if (!favoriteLayerInitPending) {
+        favoriteLayerInitPending = true;
+        map.once('load', () => {
+          favoriteLayerInitPending = false;
+          renderWaypointMarkersOnMap();
         });
-      });
-
-      const marker = new maplibregl.Marker({ element: wrapper, anchor: 'center' })
-        .setLngLat([wp.lng, wp.lat])
-        .addTo(map);
-
-      waypointMarkers.push(marker);
-    });
+      }
+      return;
+    }
+    favoriteLayerInitPending = false;
+    const source = map.getSource(FAVORITES_SOURCE_ID);
+    if (!source) return;
+    if (change && typeof source.updateData === 'function') {
+      try {
+        const diff = {};
+        if (change.add?.length) diff.add = change.add.map(waypointFeature);
+        if (change.remove?.length) diff.remove = change.remove.map(String);
+        if (change.update?.length) diff.update = change.update.map(wp => ({
+          id: String(wp.id),
+          newGeometry: { type: 'Point', coordinates: [Number(wp.lng), Number(wp.lat)] },
+          addOrUpdateProperties: waypointFeature(wp).properties
+        }));
+        source.updateData(diff);
+        return;
+      } catch (error) {
+        console.warn('[Favorites] Incremental update fallback:', error.message);
+      }
+    }
+    source.setData(favoriteFeatureCollection());
   };
+  window.renderWaypointMarkersOnMap = renderWaypointMarkersOnMap;
 
   renderWaypointMarkersOnMap();
 
@@ -5316,7 +5437,7 @@ function setupWaypointAndFavoritesSystem(map) {
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
     } catch (e) {}
 
-    renderWaypointMarkersOnMap();
+    renderWaypointMarkersOnMap({ add: [newWp] });
     closeWpModal();
     if (typeof window.triggerRealtimeCloudSync === 'function') {
       window.triggerRealtimeCloudSync('add_waypoint');
@@ -5380,36 +5501,14 @@ function setupWaypointAndFavoritesSystem(map) {
   // 1. 收藏地点列表渲染
   
   // 右键修改收藏点图标（类型：景点/露营/水源/补给/停车/住宿/摄影/徒步）
-  const showChangeWaypointTypeMenu = async (wp, x, y) => {
-    // 1. 桌面客户端优先使用操作系统原生上下文菜单 (Windows 11 Fluent 风格，零 DOM 开销)
-    if (window.electronAPI?.showWaypointTypeMenu) {
-      try {
-        const res = await window.electronAPI.showWaypointTypeMenu({
-          currentType: wp.type,
-          waypointName: wp.name
-        });
-        if (res && res.action === 'change-type' && res.newType && res.newType !== wp.type) {
-          wp.type = res.newType;
-          try {
-            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
-          } catch (err) {}
-          renderWaypointMarkersOnMap();
-          renderFavoritesList();
-          if (typeof window.triggerRealtimeCloudSync === 'function') {
-            window.triggerRealtimeCloudSync('update_waypoint_type');
-          }
-          // 不弹出 toast，图标实时响应立即可见
-        }
-        return;
-      } catch (err) {
-        console.warn('Native waypoint type menu failed, falling back to Web DOM menu:', err);
-      }
-    }
-
-    // 2. 网页版或兜底原生 DOM 弹出菜单
+  const showChangeWaypointTypeMenu = (wp, x, y) => {
+    // 桌面与网页统一采用地图右键菜单同款 Fluent 弹层。地图点仍由
+    // MapLibre 原生渲染；交互菜单属于 UI，不应受系统 radio 菜单的
+    // 固定留白、深色主题和平台尺寸差异影响。
     document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
+    smoothCloseContextMenu();
     const menu = document.createElement('div');
-    menu.className = 'fav-point-type-menu';
+    menu.className = 'fluent-context-menu fav-point-type-menu ctx-opening';
 
     const typeList = [
       { key: 'view', name: '景点', icon: '🏔️' },
@@ -5422,30 +5521,37 @@ function setupWaypointAndFavoritesSystem(map) {
       { key: 'hiking', name: '徒步', icon: '🥾' }
     ];
 
-    const menuWidth = 140;
-    const menuHeight = 270;
-    const posX = Math.min(x, window.innerWidth - menuWidth - 12);
-    const posY = Math.min(y, window.innerHeight - menuHeight - 12);
-    menu.style.left = `${Math.max(10, posX)}px`;
-    menu.style.top = `${Math.max(10, posY)}px`;
-
     menu.innerHTML = `
-      <div style="font-size: 11px; font-weight: 600; color: #94a3b8; padding: 4px 8px; border-bottom: 1px solid #f1f5f9; margin-bottom: 2px;">更改类型</div>
+      <div class="ctx-header">
+        <div class="ctx-title"></div>
+        <div class="ctx-sub">更改收藏类型</div>
+      </div>
+      <div class="ctx-divider"></div>
       ${typeList.map(t => `
-        <div class="fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
-          <span>${t.icon}</span>
-          <span>${t.name}</span>
-          ${wp.type === t.key ? '<span style="margin-left: auto; color: #0284c7; font-weight: bold;">✓</span>' : ''}
-        </div>
+        <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
+          <span class="ctx-icon">${t.icon}</span>
+          <span class="ctx-text">${t.name}</span>
+          <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
+        </button>
       `).join('')}
     `;
+    menu.querySelector('.ctx-title').textContent = wp.name || '收藏点';
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    const safeX = Math.max(10, Math.min(Number(x) || 10, window.innerWidth - rect.width - 10));
+    const safeY = Math.max(10, Math.min(Number(y) || 10, window.innerHeight - rect.height - 10));
+    menu.style.left = `${safeX}px`;
+    menu.style.top = `${safeY}px`;
 
     const closeMenu = () => {
-      if (menu.classList.contains('closing')) return;
-      menu.classList.add('closing');
+      if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;
+      menu.classList.remove('ctx-opening');
+      menu.classList.add('ctx-closing');
       setTimeout(() => menu.remove(), 140);
       document.removeEventListener('click', onDocClick);
       document.removeEventListener('keydown', onDocKey);
+      map.off('movestart', closeMenu);
     };
 
     const onDocClick = (e) => {
@@ -5464,7 +5570,7 @@ function setupWaypointAndFavoritesSystem(map) {
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (err) {}
-          renderWaypointMarkersOnMap();
+          renderWaypointMarkersOnMap({ update: [wp] });
           renderFavoritesList();
           if (typeof window.triggerRealtimeCloudSync === 'function') {
             window.triggerRealtimeCloudSync('update_waypoint_type');
@@ -5475,7 +5581,7 @@ function setupWaypointAndFavoritesSystem(map) {
       });
     });
 
-    document.body.appendChild(menu);
+    map.once('movestart', closeMenu);
     setTimeout(() => {
       document.addEventListener('click', onDocClick);
       document.addEventListener('keydown', onDocKey);
@@ -5571,7 +5677,7 @@ function setupWaypointAndFavoritesSystem(map) {
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (err) {}
-          renderWaypointMarkersOnMap();
+          renderWaypointMarkersOnMap({ remove: [wp.id] });
           renderFavoritesList();
           if (typeof window.triggerRealtimeCloudSync === 'function') {
             window.triggerRealtimeCloudSync('delete_waypoint');
@@ -6021,6 +6127,12 @@ let activeRouteMode = 'drive'; // 'drive' | 'cycle' | 'hike'
 let profileCursorMarker = null;
 let currentProfileData = [];
 let routePlanTimer = null;
+const ROUTE_POINTS_SOURCE_ID = 'outmap-route-points';
+const ROUTE_POINT_LAYER_IDS = ['outmap-route-point-halo', 'outmap-route-point-circles', 'outmap-route-point-labels'];
+let routePointLayersVisible = true;
+let routePointLayerEventsBound = false;
+let activeRouteMapDrag = null;
+let routePointLayerInitPending = false;
 
 function scheduleRoutePlan(mapInstance, delayMs = 100) {
   const map = mapInstance || currentOutdoorMap;
@@ -6221,20 +6333,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         via.name = item.name;
         via.coords = item.coords;
         via.zoom = targetZoom;
-        if (via.marker) {
-          via.marker.setLngLat(item.coords);
-          if (typeof via.marker._update === 'function') via.marker._update();
-        } else {
-          const el = document.createElement('div');
-          el.className = 'route-via-marker-pin';
-          el.innerText = viaIndex + 1;
-          el.addEventListener('click', () => {
-            flyToLocationPrecisely(map, via.coords || item.coords, { zoom: via.zoom || targetZoom, pitch: map.getPitch() ?? 50, duration: 600 });
-          });
-          via.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-            .setLngLat(item.coords)
-            .addTo(map);
-        }
+        via.marker = null;
         renderViaList(map);
         scheduleRoutePlan(map);
         syncRouteMarkersVisualState(map);
@@ -6336,7 +6435,10 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         routeStartCoord = null;
         routeStartName = '';
         if (routeStartMarker) { routeStartMarker.remove(); routeStartMarker = null; }
-        if (map) scheduleRoutePlan(map);
+        if (map) {
+          syncRouteMarkersVisualState(map);
+          scheduleRoutePlan(map);
+        }
       } else if (pointType === 'end') {
         routeEndCoord = null;
         routeEndName = '';
@@ -6447,32 +6549,181 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   });
 }
 
-// 同步更新地图上途径点与起终点的视觉表现
+function getRoutePointFeatures() {
+  const features = [];
+  const add = (id, role, coords, name, label, zoom) => {
+    if (!coords || !Number.isFinite(Number(coords[0])) || !Number.isFinite(Number(coords[1]))) return;
+    features.push({
+      type: 'Feature', id,
+      geometry: { type: 'Point', coordinates: [Number(coords[0]), Number(coords[1])] },
+      properties: { id, role, name: name || label, label, zoom: Number(zoom) || 14.8 }
+    });
+  };
+  add('route-start', 'start', routeStartCoord, routeStartName, '起', routeStartZoom);
+  routeViaPoints.forEach((via, index) => add(`route-via-${via.id || index}`, 'via', via.coords, via.name, String(index + 1), via.zoom));
+  add('route-end', 'end', routeEndCoord, routeEndName, '终', routeEndZoom);
+  return { type: 'FeatureCollection', features };
+}
+
+function findRoutePointByFeature(feature) {
+  if (!feature) return null;
+  const role = feature.properties?.role;
+  if (role === 'start') return { role, coords: routeStartCoord, name: routeStartName, zoom: routeStartZoom };
+  if (role === 'end') return { role, coords: routeEndCoord, name: routeEndName, zoom: routeEndZoom };
+  const rawId = String(feature.id || feature.properties?.id || '').replace(/^route-via-/, '');
+  const index = routeViaPoints.findIndex((via, i) => String(via.id || i) === rawId);
+  return index >= 0 ? { role: 'via', index, ...routeViaPoints[index] } : null;
+}
+
+function ensureRoutePointLayers(map) {
+  if (!map || !map.__outmapStyleReady) return false;
+  if (!map.getSource(ROUTE_POINTS_SOURCE_ID)) {
+    map.addSource(ROUTE_POINTS_SOURCE_ID, { type: 'geojson', data: getRoutePointFeatures(), promoteId: 'id' });
+    map.addLayer({
+      id: 'outmap-route-point-halo', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
+      paint: {
+        'circle-radius': ['case', ['boolean', ['feature-state', 'dragging'], false], 21, ['boolean', ['feature-state', 'hover'], false], 19, 0],
+        'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#0284c7'],
+        'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'dragging'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
+        'circle-blur': 0.22,
+        'circle-pitch-alignment': 'viewport'
+      }
+    });
+    map.addLayer({
+      id: 'outmap-route-point-circles', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 8, 11, 10, 15, ['match', ['get', 'role'], 'via', 12, 13]],
+        'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#0284c7'],
+        'circle-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport'
+      }
+    });
+    map.addLayer({
+      id: 'outmap-route-point-labels', type: 'symbol', source: ROUTE_POINTS_SOURCE_ID,
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 6, 9, 14, 11],
+        'text-allow-overlap': true,
+        'text-ignore-placement': true
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
+        'text-halo-color': 'rgba(15,23,42,0.18)',
+        'text-halo-width': 0.5
+      }
+    });
+  }
+  ROUTE_POINT_LAYER_IDS.forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routePointLayersVisible ? 'visible' : 'none');
+  });
+  return true;
+}
+
+function bindRoutePointLayerEvents(map) {
+  if (!map || routePointLayerEventsBound) return;
+  routePointLayerEventsBound = true;
+  let hoveredId = null;
+  let suppressNextClick = false;
+
+  map.on('mouseenter', 'outmap-route-point-circles', e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const id = e.features?.[0]?.id;
+    if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
+    hoveredId = id;
+    if (id != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id }, { hover: true });
+  });
+  map.on('mouseleave', 'outmap-route-point-circles', () => {
+    if (!activeRouteMapDrag) map.getCanvas().style.cursor = '';
+    if (hoveredId != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
+    hoveredId = null;
+  });
+  map.on('click', 'outmap-route-point-circles', e => {
+    if (suppressNextClick) { suppressNextClick = false; return; }
+    const point = findRoutePointByFeature(e.features?.[0]);
+    if (!point?.coords) return;
+    flyToLocationPrecisely(map, point.coords, { zoom: point.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+  });
+  map.on('mousedown', 'outmap-route-point-circles', e => {
+    if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint) return;
+    const feature = e.features?.[0];
+    const point = findRoutePointByFeature(feature);
+    if (!feature || !point?.coords) return;
+    e.preventDefault?.();
+    map.dragPan.disable();
+    const el = document.createElement('div');
+    el.className = point.role === 'start' ? 'route-start-marker-pin' : point.role === 'end' ? 'route-end-marker-pin' : 'route-via-marker-pin';
+    el.innerText = feature.properties?.label || '';
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(point.coords).addTo(map);
+    const featureId = feature.id;
+    map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
+    const origin = e.point;
+    let moved = false;
+    activeRouteMapDrag = { marker, featureId };
+
+    const onMove = moveEvent => {
+      if (!activeRouteMapDrag) return;
+      if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) moved = true;
+      marker.setLngLat(moveEvent.lngLat);
+    };
+    const finish = ({ commit = true } = {}) => {
+      if (!activeRouteMapDrag || activeRouteMapDrag.marker !== marker) return;
+      map.off('mousemove', onMove);
+      map.off('mouseup', onMapMouseUp);
+      window.removeEventListener('pointerup', onWindowPointerUp, true);
+      window.removeEventListener('blur', onWindowBlur);
+      const final = marker.getLngLat();
+      marker.remove();
+      activeRouteMapDrag = null;
+      if (map.getSource(ROUTE_POINTS_SOURCE_ID)) {
+        map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: false });
+      }
+      map.dragPan.enable();
+      map.getCanvas().style.cursor = '';
+      if (!commit || !moved) return;
+      suppressNextClick = true;
+      const coords = [final.lng, final.lat];
+      if (point.role === 'start') routeStartCoord = coords;
+      else if (point.role === 'end') routeEndCoord = coords;
+      else if (routeViaPoints[point.index]) routeViaPoints[point.index].coords = coords;
+      syncRouteMarkersVisualState(map);
+      renderViaList(map);
+      scheduleRoutePlan(map, 60);
+    };
+    const onMapMouseUp = () => finish({ commit: true });
+    const onWindowPointerUp = () => finish({ commit: true });
+    const onWindowBlur = () => finish({ commit: false });
+    map.on('mousemove', onMove);
+    map.on('mouseup', onMapMouseUp);
+    window.addEventListener('pointerup', onWindowPointerUp, true);
+    window.addEventListener('blur', onWindowBlur, { once: true });
+  });
+}
+
+// 同步更新地图上途径点与起终点的视觉表现；常态完全使用 MapLibre 原生图层。
 function syncRouteMarkersVisualState(mapInstance) {
   const m = mapInstance || (typeof currentOutdoorMap !== 'undefined' ? currentOutdoorMap : null);
-  if (routeStartMarker && routeStartMarker.getElement()) {
-    const el = routeStartMarker.getElement();
-    el.classList.remove('route-via-marker-pin', 'route-end-marker-pin');
-    el.classList.add('route-start-marker-pin');
-    el.style.background = '#16a34a';
-    el.innerText = '起';
+  if (!m) return;
+  if (routeStartMarker) { try { routeStartMarker.remove(); } catch (_) {} routeStartMarker = null; }
+  if (routeEndMarker) { try { routeEndMarker.remove(); } catch (_) {} routeEndMarker = null; }
+  routeViaPoints.forEach(v => { if (v.marker) { try { v.marker.remove(); } catch (_) {} v.marker = null; } });
+  if (!ensureRoutePointLayers(m)) {
+    if (!routePointLayerInitPending) {
+      routePointLayerInitPending = true;
+      m.once('load', () => {
+        routePointLayerInitPending = false;
+        syncRouteMarkersVisualState(m);
+      });
+    }
+    return;
   }
-  if (routeEndMarker && routeEndMarker.getElement()) {
-    const el = routeEndMarker.getElement();
-    el.classList.remove('route-start-marker-pin', 'route-via-marker-pin');
-    el.classList.add('route-end-marker-pin');
-    el.style.background = '#ef4444';
-    el.innerText = '终';
-  }
-  routeViaPoints.forEach((v, idx) => {
-    if (!v.marker) return;
-    const el = v.marker.getElement();
-    if (!el) return;
-    el.classList.remove('route-start-marker-pin', 'route-end-marker-pin');
-    el.classList.add('route-via-marker-pin');
-    el.style.background = '#0284c7';
-    el.innerText = idx + 1;
-  });
+  routePointLayerInitPending = false;
+  bindRoutePointLayerEvents(m);
+  m.getSource(ROUTE_POINTS_SOURCE_ID)?.setData(getRoutePointFeatures());
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
@@ -6975,27 +7226,12 @@ function addViaPoint(map, coords, label, zoom = null) {
 
   // 4. 用户点击面板内 "+ 添加途径点"（coords 为 null，待手动输入），或尚无终点时的普通追加
   const idx = routeViaPoints.length + 1;
-  let marker = null;
-  if (coords && m) {
-    const el = document.createElement('div');
-    el.className = 'route-via-marker-pin';
-    el.innerText = idx;
-    el.addEventListener('click', () => {
-      const curPitch = m.getPitch() ?? 50;
-      flyToLocationPrecisely(m, coords, { zoom: targetZoom, pitch: curPitch, duration: 600 });
-    });
-
-    marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-      .setLngLat(coords)
-      .addTo(m);
-  }
-
   const viaName = label || (coords ? `途径点 ${idx} (${coords[0].toFixed(3)}°, ${coords[1].toFixed(3)}°)` : '');
   routeViaPoints.push({
     id: 'via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     coords,
     name: viaName,
-    marker,
+    marker: null,
     zoom: targetZoom
   });
 
@@ -7034,7 +7270,7 @@ function removeViaPoint(map, index) {
 }
 
 // 设置起点
-function setRouteStartPoint(map, coords, label, zoom = null) {
+function setRouteStartPoint(map, coords, label, zoom = null, options = {}) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   routeStartCoord = coords;
@@ -7046,26 +7282,16 @@ function setRouteStartPoint(map, coords, label, zoom = null) {
   const routePanel = document.getElementById('route-panel');
   if (startInput) startInput.value = routeStartName;
   if (routeStartMarker) routeStartMarker.remove();
-  const el = document.createElement('div');
-  el.className = 'route-start-marker-pin';
-  el.innerText = '起';
-  el.addEventListener('click', () => {
-    if (m) {
-      const curPitch = m.getPitch() ?? 50;
-      flyToLocationPrecisely(m, coords, { zoom: routeStartZoom || 14.8, pitch: curPitch, duration: 600 });
-    }
-  });
-  if (m) {
-    routeStartMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
-  }
+  routeStartMarker = null;
   closeConflictingBottomPanels('route-panel');
   showElement(routePanel, 'flex');
   bindStartAndEndRowsDrag(m);
-  if (m) scheduleRoutePlan(m);
+  syncRouteMarkersVisualState(m);
+  if (m && options.schedule !== false) scheduleRoutePlan(m);
 }
 
 // 设置终点
-function setRouteEndPoint(map, coords, label, zoom = null, isFromVia = false) {
+function setRouteEndPoint(map, coords, label, zoom = null, isFromVia = false, options = {}) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
 
@@ -7105,24 +7331,13 @@ function setRouteEndPoint(map, coords, label, zoom = null, isFromVia = false) {
   const routePanel = document.getElementById('route-panel');
   if (endInput) endInput.value = routeEndName;
   if (routeEndMarker) routeEndMarker.remove();
-  const el = document.createElement('div');
-  el.className = 'route-end-marker-pin';
-  el.innerText = '终';
-  el.addEventListener('click', () => {
-    if (m) {
-      const curPitch = m.getPitch() ?? 50;
-      flyToLocationPrecisely(m, coords, { zoom: routeEndZoom || 14.8, pitch: curPitch, duration: 600 });
-    }
-  });
-  if (m) {
-    routeEndMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coords).addTo(m);
-  }
+  routeEndMarker = null;
   renderViaList(m);
   syncRouteMarkersVisualState(m);
   closeConflictingBottomPanels('route-panel');
   showElement(routePanel, 'flex');
   bindStartAndEndRowsDrag(m);
-  if (m) scheduleRoutePlan(m);
+  if (m && options.schedule !== false) scheduleRoutePlan(m);
 }
 
 // 核心自动化多途径点规划与海拔剖面解算引擎
@@ -7145,7 +7360,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (first.marker) {
         try { first.marker.remove(); } catch (e) {}
       }
-      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 14.5);
+      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 14.5, { schedule: false });
       changed = true;
     }
   }
@@ -7162,7 +7377,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (last.marker) {
         try { last.marker.remove(); } catch (e) {}
       }
-      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 14.5, true);
+      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 14.5, true, { schedule: false });
       changed = true;
     }
   }
@@ -8157,19 +8372,7 @@ function setupOutdoorRouteSystem(map) {
         const v = routeViaPoints[targetViaIndexForPick];
         v.coords = [lng, lat];
         v.name = cleanLocation || `途径点 ${targetViaIndexForPick + 1}`;
-        if (v.marker) {
-          v.marker.setLngLat([lng, lat]);
-          if (typeof v.marker._update === 'function') v.marker._update();
-        } else {
-          const el = document.createElement('div');
-          el.className = 'route-via-marker-pin';
-          el.innerText = targetViaIndexForPick + 1;
-          el.addEventListener('click', () => {
-            const curPitch = map.getPitch() ?? 50;
-            flyToLocationPrecisely(map, [lng, lat], { zoom: 14.8, pitch: curPitch, duration: 700 });
-          });
-          v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
-        }
+        v.marker = null;
         renderViaList(map);
         scheduleRoutePlan(map);
         exitRoutePickingMode();
@@ -8180,19 +8383,7 @@ function setupOutdoorRouteSystem(map) {
           const v = routeViaPoints[emptyIdx];
           v.coords = [lng, lat];
           v.name = cleanLocation || `途径点 ${emptyIdx + 1}`;
-          if (v.marker) {
-            v.marker.setLngLat([lng, lat]);
-            if (typeof v.marker._update === 'function') v.marker._update();
-          } else {
-            const el = document.createElement('div');
-            el.className = 'route-via-marker-pin';
-            el.innerText = emptyIdx + 1;
-            el.addEventListener('click', () => {
-              const curPitch = map.getPitch() ?? 50;
-              flyToLocationPrecisely(map, [lng, lat], { zoom: 14.8, pitch: curPitch, duration: 700 });
-            });
-            v.marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
-          }
+          v.marker = null;
           renderViaList(map);
           scheduleRoutePlan(map);
           exitRoutePickingMode();
@@ -8333,7 +8524,7 @@ function setupOutdoorRouteSystem(map) {
     const isHidden = chartSection.style.display === 'none';
     if (isHidden) {
       chartSection.style.display = 'flex';
-      drawElevationChart(canvas, currentProfileData);
+      refreshRouteElevationProfile(map);
       updateRouteDetailsToggleText();
       // 在移动端抽屉或受限视口中，轻柔平滑滚动到底部展现完整图表
       try {
@@ -9217,50 +9408,20 @@ function displayImportedTrack(map, trackData) {
   routeEndCoord = endCoord;
   routeEndName = endName;
 
-  // 起点 Marker
-  const startEl = document.createElement('div');
-  startEl.className = 'imported-track-marker route-start-marker-pin';
-  startEl.innerText = '起';
-  startEl.title = startName;
-  startEl.addEventListener('click', () => {
-    flyToLocationPrecisely(map, startCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
-  });
-  routeStartMarker = new maplibregl.Marker({ element: startEl, anchor: 'center' }).setLngLat(startCoord).addTo(map);
-  importedTrackMarkers.push(routeStartMarker);
+  routeStartMarker = null;
+  routeEndMarker = null;
 
-  // 终点 Marker
-  const endEl = document.createElement('div');
-  endEl.className = 'imported-track-marker route-end-marker-pin';
-  endEl.innerText = '终';
-  endEl.title = endName;
-  endEl.addEventListener('click', () => {
-    flyToLocationPrecisely(map, endCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
-  });
-  routeEndMarker = new maplibregl.Marker({ element: endEl, anchor: 'center' }).setLngLat(endCoord).addTo(map);
-  importedTrackMarkers.push(routeEndMarker);
-
-  // 全量途径点 Markers 与数据注册
+  // 全量途径点注册；静止显示由 MapLibre 原生路线点图层统一完成。
   const effectiveVias = viaPoints && viaPoints.length > 0 ? viaPoints : [];
   effectiveVias.forEach((via, i) => {
     const viaIdx = i + 1;
     const vCoords = [via.coords[0], via.coords[1]];
     const vName = via.name || `途径点 ${viaIdx}`;
-    const vEl = document.createElement('div');
-    vEl.className = 'route-via-marker-pin';
-    vEl.innerText = viaIdx;
-    vEl.title = vName;
-    vEl.style.background = '#0284c7';
-    vEl.addEventListener('click', () => {
-      flyToLocationPrecisely(map, vCoords, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
-    });
-    const vMarker = new maplibregl.Marker({ element: vEl, anchor: 'center' }).setLngLat(vCoords).addTo(map);
-    importedTrackMarkers.push(vMarker);
-
     routeViaPoints.push({
       id: 'via_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 4),
       coords: vCoords,
       name: vName,
-      marker: vMarker,
+      marker: null,
       zoom: 14.8
     });
   });
@@ -9514,6 +9675,10 @@ function setupLayersPopover(map) {
   // 1. 收藏夹地点图钉显示/隐藏切换
   toggleFavs?.addEventListener('change', () => {
     const visible = toggleFavs.checked;
+    favoriteLayersVisible = visible;
+    FAVORITE_LAYER_IDS.forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+    });
     if (Array.isArray(waypointMarkers)) {
       waypointMarkers.forEach(m => {
         const el = m.getElement?.();
@@ -9525,8 +9690,9 @@ function setupLayersPopover(map) {
   // 2. 规划与导入路线轨迹显示/隐藏切换
   toggleRoutes?.addEventListener('change', () => {
     const visible = toggleRoutes.checked;
+    routePointLayersVisible = visible;
     const visibility = visible ? 'visible' : 'none';
-    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line'].forEach(id => {
+    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line', ...ROUTE_POINT_LAYER_IDS].forEach(id => {
       if (map.getLayer(id)) {
         map.setLayoutProperty(id, 'visibility', visibility);
       }
@@ -9669,6 +9835,7 @@ function setupMapContextMenu(map) {
   };
 
   map.on('contextmenu', e => {
+    if (e.originalEvent?._outmapHandled) return;
     if (typeof window.clearLandingMarker === 'function') {
       window.clearLandingMarker();
     } else if (typeof clearLandingMarker === 'function') {

@@ -31,7 +31,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchLocation: (query) => ipcRenderer.invoke('search-location', query),
   onPowerStateChange: (callback) => ipcRenderer.on('power-state-change', (event, data) => callback(data)),
   showMapContextMenu: (params) => ipcRenderer.invoke('show-map-context-menu', params),
-  showWaypointTypeMenu: (params) => ipcRenderer.invoke('show-waypoint-type-menu', params),
   saveFileDialog: (params) => ipcRenderer.invoke('save-file-dialog', params),
   openFileDialog: (params) => ipcRenderer.invoke('open-file-dialog', params),
   writeClipboardText: (text) => ipcRenderer.invoke('write-clipboard-text', text)

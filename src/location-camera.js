@@ -134,7 +134,7 @@
     const method = nearby ? 'easeTo' : 'flyTo';
     if (duration === 0) progress = 1;
     map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
-      padding: zeroPadding, duration, curve: 1.42, easing, essential: false });
+      padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
     internal = false;
     // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);

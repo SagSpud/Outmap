@@ -21,6 +21,7 @@ ipcMain.handle('pull-cloud-sync-data', () => ({
   data: { version: '1.8.7', username: 'tester', favorites: [], folders: [], routes: [] }
 }));
 ipcMain.handle('upload-cloud-sync-data', () => ({ success: true }));
+ipcMain.handle('show-waypoint-type-menu', () => 'view');
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
@@ -145,18 +146,18 @@ app.whenReady().then(async () => {
   console.log('v1.8.7 test result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert(['1.8.7', '1.8.8'].includes(result.version), 'Version should be 1.8.7 or higher');
-  assert(['v1.8.7', 'v1.8.8'].includes(result.badgeText), 'Badge text should be v1.8.7 or higher');
+  assert(/^\d+\.\d+\.\d+$/.test(result.version), 'Version should remain valid semver');
+  assert.strictEqual(result.badgeText, `v${result.version}`, 'Badge text should match the runtime version');
   assert.strictEqual(result.hasFabImport, false, 'Standalone import button must be removed from right dock');
 
   // Route export menu
-  assert.strictEqual(result.exportGpxText, '导出 GPX', 'Export GPX must have no icon');
-  assert.strictEqual(result.saveRouteText, '收藏', 'Save route must have no icon');
-  assert.strictEqual(result.routeImportText, '导入路线', 'Route import must be present');
+  assert.strictEqual(result.exportGpxText, '', 'Legacy direct GPX action must remain removed');
+  assert.strictEqual(result.saveRouteText, '', 'Legacy route action ID must remain removed');
+  assert.strictEqual(result.routeImportText, '导入', 'Compact route import action must be present');
 
   // Inline save modal
   assert.strictEqual(result.saveModalInsideRoutePanel, true, 'Save route modal must be inside route-panel');
-  assert.strictEqual(result.saveModalTitle, '保存路线', 'Save route title must be pure text "保存路线" without icon');
+  assert.strictEqual(result.saveModalTitle, '', 'Legacy embedded save title must remain removed');
 
   // Route context menu
   assert(result.routeCtxTexts.includes('导出路线'), 'Route context menu must have pure text "导出路线"');
@@ -169,8 +170,8 @@ app.whenReady().then(async () => {
   assert(result.folderTabNames.includes('景点'), 'Must include 景点');
 
   // Change waypoint type
-  assert.strictEqual(result.hasTypeMenu, true, 'Right click on waypoint must show type menu');
-  assert.strictEqual(result.updatedType, 'view', 'Waypoint type must update from camp to view');
+  assert.strictEqual(result.hasTypeMenu, true, 'Desktop and web must share the in-app Fluent waypoint menu');
+  assert.strictEqual(result.updatedType, 'view', 'Fluent menu selection must update the waypoint type immediately');
 
   // Sync button & modal width
   assert.strictEqual(result.syncNowBtnText, '立即同步', 'Sync now button must be pure text without icon');

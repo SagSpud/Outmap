@@ -62,18 +62,25 @@ app.whenReady().then(async () => {
     }
     await sleep(200);
 
-    const pins = document.querySelectorAll('.route-start-marker-pin, .route-via-marker-pin, .route-end-marker-pin');
-    res.pinCount = pins.length;
-    res.allHaveMaplibreMarkerClass = Array.from(pins).every(p => p.classList.contains('maplibregl-marker'));
+    const routePointSource = map.getSource('outmap-route-points');
+    const routePointData = routePointSource?._data || routePointSource?.serialize?.().data;
+    res.routePointCount = routePointData?.features?.length || 0;
+    res.routePointRoles = (routePointData?.features || []).map(f => f.properties?.role);
+    res.hasRoutePointLayers = [
+      'outmap-route-point-halo',
+      'outmap-route-point-circles',
+      'outmap-route-point-labels'
+    ].every(id => !!map.getLayer(id));
+    res.persistentRouteDomMarkers = document.querySelectorAll('.route-start-marker-pin, .route-via-marker-pin, .route-end-marker-pin').length;
 
     // Check zoom out: markers must NOT have equal fixed vertical gap (which indicates document-flow stacking bug)
     map.jumpTo({ center: [106.55, 29.53], zoom: 14, pitch: 0 });
     await sleep(200);
-    const rects14 = Array.from(pins).map(p => p.getBoundingClientRect().top);
+    const rects14 = pts.map(p => map.project(p.coords).y);
 
     map.setZoom(10);
     await sleep(200);
-    const rects10 = Array.from(pins).map(p => p.getBoundingClientRect().top);
+    const rects10 = pts.map(p => map.project(p.coords).y);
     // At zoom 10, geographic span in screen pixels must shrink significantly compared to zoom 14
     const span14 = Math.max(...rects14) - Math.min(...rects14);
     const span10 = Math.max(...rects10) - Math.min(...rects10);
@@ -167,13 +174,15 @@ app.whenReady().then(async () => {
   console.log('v1.8.6 test result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert(result.version.startsWith('1.8.'), 'Version should be 1.8.x');
-  assert(result.badgeText.startsWith('v1.8.'), 'Badge text should be v1.8.x');
+  assert(/^\d+\.\d+\.\d+$/.test(result.version), 'Version should be valid semver');
+  assert.strictEqual(result.badgeText, `v${result.version}`, 'Badge text should match the app version');
 
-  // Waypoint pins test
-  assert.strictEqual(result.pinCount, 6, 'Must have 6 pins (start, 4 vias, end)');
-  assert.strictEqual(result.allHaveMaplibreMarkerClass, true, 'All pins must retain maplibregl-marker class');
-  assert.strictEqual(result.zoomedGeographically, true, 'Pins must scale geographically with map, not stay stacked');
+  // Native route-point source/layers test
+  assert.strictEqual(result.routePointCount, 6, 'Native source must contain start, 4 vias and end');
+  assert.deepStrictEqual(result.routePointRoles, ['start', 'via', 'via', 'via', 'via', 'end'], 'Native route roles must remain ordered');
+  assert.strictEqual(result.hasRoutePointLayers, true, 'Native route-point layers must be installed');
+  assert.strictEqual(result.persistentRouteDomMarkers, 0, 'Route points must not retain DOM markers outside dragging');
+  assert.strictEqual(result.zoomedGeographically, true, 'Native route points must scale geographically with the map');
 
   // Route card test
   assert.strictEqual(result.hasRouteCard, true, 'Should render route card');

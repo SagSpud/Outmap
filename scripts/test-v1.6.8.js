@@ -3,7 +3,7 @@
 // 1. Version consistency 1.6.8 across package.json, index.html, app.js
 // 2. Camera flight centering default, jitter-free arrival (anti-pull), and smooth transitions
 // 3. Keep a short native fade so labels do not hard-cut during movement
-// 4. Waypoint marker click stops propagation and specifies centered: true
+// 4. Native waypoint layer owns click/context-menu handling
 // 5. Unified frosted acrylic cards (0.89), transparent headers and footers across all dialogs/panels
 // 6. Modal overlay background unblurred (backdrop-filter: none) with crisp 3D map visibility
 
@@ -44,9 +44,10 @@ console.log('  [PASS] 2. Location camera centering defaults and jitter-free arri
 
 // 1.3 MapLibre Initialization & Waypoint Pin Event Handling
 assert(appJs.includes('fadeDuration: 180') || appJs.includes('fadeDuration: 0'), 'mapInstance symbol fading option verified');
-assert(appJs.includes("wrapper.addEventListener('click', (e) => {"), 'Waypoint pin must capture click event');
-assert(appJs.includes('e.stopPropagation()'), 'Waypoint pin click must stop propagation to map container');
-console.log('  [PASS] 3. fadeDuration preserves smooth native symbol fading and pin click stopPropagation verified');
+assert(appJs.includes("map.on('click', 'outmap-favorite-icons'"), 'Native favorite layer must own click handling');
+assert(appJs.includes("map.on('contextmenu', 'outmap-favorite-icons'"), 'Native favorite layer must own context-menu handling');
+assert(appJs.includes('e.originalEvent._outmapHandled = true'), 'Favorite context menu must suppress the generic map menu');
+console.log('  [PASS] 3. fadeDuration and native favorite-layer event handling verified');
 
 // 1.4 Unified Frosted Acrylic Cards & Transparent Headers/Footers
 assert(styleCss.includes('.modal-overlay {') && styleCss.includes('rgba(15, 23, 42, 0.12) !important'), 'modal-overlay must use light 12% tint');

@@ -176,8 +176,8 @@ app.whenReady().then(async () => {
   console.log('Test v1.8.2 results:', JSON.stringify(result, null, 2));
 
   // Assertions:
-  assert.ok(result.appVersion.startsWith('1.8.'), 'App version should be 1.8.x');
-  assert.ok(result.badgeText.startsWith('v1.8.'), 'Badge text should be v1.8.x');
+  assert.ok(/^\d+\.\d+\.\d+$/.test(result.appVersion), 'App version should be valid semver');
+  assert.strictEqual(result.badgeText, `v${result.appVersion}`, 'Badge text should match the app version');
 
   // Step 1:
   assert.strictEqual(result.step1.startName, '成都市');
