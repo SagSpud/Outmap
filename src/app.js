@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.3';
+const APP_VERSION = '1.8.4';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -8329,30 +8329,120 @@ function drawElevationChart(canvas, data, hoverPt = null) {
 }
 
 // =========================================================
-// 外部路线轨迹导入与高程解析系统 (支持 GPX / KML / GeoJSON / TCX)
+// 外部路线轨迹与途径点导入解析系统 (支持 GPX / KML / GeoJSON / Outmap JSON / TCX)
 // =========================================================
 function parseTrackFile(content, fileName) {
   let name = (fileName || '导入路线').replace(/\.[^/.]+$/, '');
   const coords = [];
+  const waypoints = [];
+  let start = null;
+  let end = null;
+  let viaPoints = [];
 
-  // 1. GeoJSON / JSON
-  if (content.trim().startsWith('{')) {
+  const cleanText = (content || '').trim();
+  if (!cleanText) return null;
+
+  // 1. JSON / GeoJSON / Outmap 原生路线存档
+  if (cleanText.startsWith('{') || cleanText.startsWith('[')) {
     try {
-      const geo = JSON.parse(content);
+      const parsed = JSON.parse(cleanText);
+
+      // 1A. Outmap 原生 Saved Route 格式 { id, name, start, end, viaPoints, pathCoords, ... }
+      if (parsed.start && parsed.end && (parsed.pathCoords || parsed.viaPoints)) {
+        start = {
+          coords: parsed.start.coords,
+          name: parsed.start.name || '起点'
+        };
+        end = {
+          coords: parsed.end.coords,
+          name: parsed.end.name || '终点'
+        };
+        viaPoints = (parsed.viaPoints || []).map((v, i) => ({
+          coords: v.coords,
+          name: v.name || `途径点 ${i + 1}`
+        }));
+        const fullCoords = parsed.pathCoords && parsed.pathCoords.length > 0
+          ? parsed.pathCoords
+          : [start.coords, ...viaPoints.map(v => v.coords), end.coords];
+
+        return {
+          name: parsed.name || name,
+          coords: fullCoords,
+          start,
+          end,
+          viaPoints,
+          waypoints: [start, ...viaPoints, end]
+        };
+      }
+
+      // 1B. GeoJSON FeatureCollection 或 Feature
+      const geo = parsed;
+      if (geo.properties && geo.properties.name) {
+        name = geo.properties.name;
+      }
+
       if (geo.features && Array.isArray(geo.features)) {
         for (const feat of geo.features) {
-          if (feat.properties && feat.properties.name) name = feat.properties.name;
-          if (feat.geometry && feat.geometry.type === 'LineString') {
+          if (!feat || !feat.geometry) continue;
+          if (feat.properties && feat.properties.name && !name) {
+            name = feat.properties.name;
+          }
+
+          const gType = feat.geometry.type;
+          if (gType === 'LineString' && Array.isArray(feat.geometry.coordinates)) {
             coords.push(...feat.geometry.coordinates);
-          } else if (feat.geometry && feat.geometry.type === 'MultiLineString') {
-            for (const line of feat.geometry.coordinates) coords.push(...line);
+          } else if (gType === 'MultiLineString' && Array.isArray(feat.geometry.coordinates)) {
+            for (const line of feat.geometry.coordinates) {
+              if (Array.isArray(line)) coords.push(...line);
+            }
+          } else if (gType === 'Point' && Array.isArray(feat.geometry.coordinates)) {
+            const pCoords = feat.geometry.coordinates;
+            const pName = feat.properties?.name || feat.properties?.title || feat.properties?.desc || `途经点 ${waypoints.length + 1}`;
+            const pOrder = Number.isFinite(feat.properties?.order) ? feat.properties.order : waypoints.length;
+            const pType = feat.properties?.type || '';
+            waypoints.push({
+              coords: pCoords,
+              name: pName,
+              desc: feat.properties?.description || '',
+              order: pOrder,
+              type: pType
+            });
           }
         }
-      } else if (geo.type === 'LineString') {
+      } else if (geo.type === 'LineString' && Array.isArray(geo.coordinates)) {
         coords.push(...geo.coordinates);
+      } else if (geo.type === 'Feature' && geo.geometry?.type === 'LineString') {
+        coords.push(...geo.geometry.coordinates);
       }
-      if (coords.length > 0) return { name, coords };
-    } catch (e) {}
+
+      // 提取起终点与途径点
+      if (waypoints.length > 0) {
+        waypoints.sort((a, b) => a.order - b.order);
+        if (waypoints.length === 1) {
+          start = waypoints[0];
+        } else {
+          start = waypoints[0];
+          end = waypoints[waypoints.length - 1];
+          viaPoints = waypoints.slice(1, -1);
+        }
+        if (coords.length === 0 && waypoints.length >= 2) {
+          coords.push(...waypoints.map(w => w.coords));
+        }
+      }
+
+      if (coords.length > 0) {
+        return {
+          name: (geo.properties && geo.properties.name) ? geo.properties.name : name,
+          coords,
+          start,
+          end,
+          viaPoints,
+          waypoints
+        };
+      }
+    } catch (e) {
+      console.warn('[parseTrackFile JSON error]', e);
+    }
   }
 
   // 2. XML 格式 (GPX, KML, TCX)
@@ -8360,13 +8450,35 @@ function parseTrackFile(content, fileName) {
     const parser = new DOMParser();
     const xml = parser.parseFromString(content, 'text/xml');
 
-    const nameNode = xml.querySelector('name') || xml.querySelector('trk > name') || xml.querySelector('trkpt > name');
+    const nameNode = xml.querySelector('metadata > name') || xml.querySelector('trk > name') || xml.querySelector('name');
     if (nameNode && nameNode.textContent.trim()) {
       name = nameNode.textContent.trim();
     }
 
-    // 2A. GPX <trkpt> / <rtept>
-    const trkpts = xml.querySelectorAll('trkpt, rtept');
+    // 2A. GPX <wpt> (Waypoints 途经点 / 标记点)
+    const wptNodes = xml.querySelectorAll('wpt');
+    if (wptNodes.length > 0) {
+      wptNodes.forEach((wpt, idx) => {
+        const lat = parseFloat(wpt.getAttribute('lat'));
+        const lon = parseFloat(wpt.getAttribute('lon'));
+        const wNameNode = wpt.querySelector('name');
+        const wDescNode = wpt.querySelector('desc');
+        const wEleNode = wpt.querySelector('ele');
+        const rawName = wNameNode ? wNameNode.textContent.trim() : `途经点 ${idx + 1}`;
+        const wDesc = wDescNode ? wDescNode.textContent.trim() : '';
+        const wEle = wEleNode ? parseFloat(wEleNode.textContent) : undefined;
+        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+          waypoints.push({
+            coords: Number.isFinite(wEle) ? [lon, lat, wEle] : [lon, lat],
+            name: rawName,
+            desc: wDesc
+          });
+        }
+      });
+    }
+
+    // 2B. GPX <trkpt> (Trackpoints 路线轨迹细分点)
+    const trkpts = xml.querySelectorAll('trkpt');
     if (trkpts.length > 0) {
       trkpts.forEach(pt => {
         const lat = parseFloat(pt.getAttribute('lat'));
@@ -8377,28 +8489,85 @@ function parseTrackFile(content, fileName) {
           coords.push(Number.isFinite(ele) ? [lon, lat, ele] : [lon, lat]);
         }
       });
-      if (coords.length > 0) return { name, coords };
     }
 
-    // 2B. KML <coordinates>
-    const coordNodes = xml.querySelectorAll('coordinates');
-    if (coordNodes.length > 0) {
-      coordNodes.forEach(node => {
-        const raw = (node.textContent || '').trim();
-        const pts = raw.split(/\s+/);
-        pts.forEach(p => {
-          const parts = p.split(',').map(Number);
-          if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
-            coords.push(parts.length >= 3 && Number.isFinite(parts[2]) ? [parts[0], parts[1], parts[2]] : [parts[0], parts[1]]);
-          }
-        });
+    // 2C. GPX <rtept> (Route Points)
+    const rtepts = xml.querySelectorAll('rtept');
+    if (rtepts.length > 0) {
+      const rteWaypoints = [];
+      rtepts.forEach((pt, idx) => {
+        const lat = parseFloat(pt.getAttribute('lat'));
+        const lon = parseFloat(pt.getAttribute('lon'));
+        const eleNode = pt.querySelector('ele');
+        const rNameNode = pt.querySelector('name');
+        const ele = eleNode ? parseFloat(eleNode.textContent) : undefined;
+        const ptCoords = Number.isFinite(ele) ? [lon, lat, ele] : [lon, lat];
+        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+          rteWaypoints.push({
+            coords: ptCoords,
+            name: rNameNode ? rNameNode.textContent.trim() : `途径点 ${idx + 1}`
+          });
+          if (coords.length === 0) coords.push(ptCoords);
+        }
       });
-      if (coords.length > 0) return { name, coords };
+      if (waypoints.length === 0 && rteWaypoints.length > 0) {
+        waypoints.push(...rteWaypoints);
+      }
     }
 
-    // 2C. TCX <Trackpoint>
+    // 2D. KML 规范解析 (<Placemark> 分辨 LineString 路线与 Point 地标)
+    const placemarks = xml.querySelectorAll('Placemark');
+    if (placemarks.length > 0) {
+      placemarks.forEach((pm, idx) => {
+        const pmName = pm.querySelector('name')?.textContent?.trim() || '';
+        const pmDesc = pm.querySelector('description')?.textContent?.trim() || '';
+
+        // LineString 路线
+        const lsCoordsNode = pm.querySelector('LineString coordinates') || pm.querySelector('coordinates');
+        const hasPoint = !!pm.querySelector('Point');
+        if (lsCoordsNode && !hasPoint) {
+          const raw = lsCoordsNode.textContent.trim();
+          raw.split(/\s+/).forEach(p => {
+            const parts = p.split(',').map(Number);
+            if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+              coords.push(parts.length >= 3 && Number.isFinite(parts[2]) ? [parts[0], parts[1], parts[2]] : [parts[0], parts[1]]);
+            }
+          });
+        }
+
+        // Point 途径地标
+        const ptCoordsNode = pm.querySelector('Point coordinates');
+        if (ptCoordsNode) {
+          const raw = ptCoordsNode.textContent.trim();
+          const parts = raw.split(',').map(Number);
+          if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+            waypoints.push({
+              coords: parts.length >= 3 && Number.isFinite(parts[2]) ? [parts[0], parts[1], parts[2]] : [parts[0], parts[1]],
+              name: pmName || `地标 ${waypoints.length + 1}`,
+              desc: pmDesc
+            });
+          }
+        }
+      });
+    } else {
+      // 兜底 KML 裸 coordinates
+      const coordNodes = xml.querySelectorAll('coordinates');
+      if (coordNodes.length > 0 && coords.length === 0) {
+        coordNodes.forEach(node => {
+          const raw = (node.textContent || '').trim();
+          raw.split(/\s+/).forEach(p => {
+            const parts = p.split(',').map(Number);
+            if (parts.length >= 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+              coords.push(parts.length >= 3 && Number.isFinite(parts[2]) ? [parts[0], parts[1], parts[2]] : [parts[0], parts[1]]);
+            }
+          });
+        });
+      }
+    }
+
+    // 2E. TCX <Trackpoint>
     const trackpoints = xml.querySelectorAll('Trackpoint');
-    if (trackpoints.length > 0) {
+    if (trackpoints.length > 0 && coords.length === 0) {
       trackpoints.forEach(pt => {
         const latNode = pt.querySelector('LatitudeDegrees');
         const lonNode = pt.querySelector('LongitudeDegrees');
@@ -8412,20 +8581,45 @@ function parseTrackFile(content, fileName) {
           }
         }
       });
-      if (coords.length > 0) return { name, coords };
     }
-  } catch (e) {}
 
-  return coords.length > 0 ? { name, coords } : null;
+    if (waypoints.length > 0) {
+      if (waypoints.length === 1) {
+        start = waypoints[0];
+      } else {
+        start = waypoints[0];
+        end = waypoints[waypoints.length - 1];
+        viaPoints = waypoints.slice(1, -1);
+      }
+      if (coords.length === 0 && waypoints.length >= 2) {
+        coords.push(...waypoints.map(w => w.coords));
+      }
+    }
+
+    if (coords.length > 0) {
+      return {
+        name,
+        coords,
+        start,
+        end,
+        viaPoints,
+        waypoints
+      };
+    }
+  } catch (e) {
+    console.warn('[parseTrackFile XML error]', e);
+  }
+
+  return null;
 }
 
 let importedTrackMarkers = [];
 
 function displayImportedTrack(map, trackData) {
-  const { name, coords } = trackData;
+  const { name, coords, start, end, viaPoints } = trackData;
   const pathCoords = coords.map(c => [c[0], c[1]]);
 
-  // 1. 在地图上绘制高质感实心宝蓝/天蓝色导入轨迹线
+  // 1. 在地图上绘制高质感高对比度路线轨迹线
   const geojson = {
     type: 'Feature',
     geometry: {
@@ -8448,8 +8642,8 @@ function displayImportedTrack(map, trackData) {
       source: 'imported-track-source',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#4a48a8',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.0, 10, 8.5, 14, 11.5],
+        'line-color': '#0a4fa3',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4],
         'line-opacity': 1.0
       }
     });
@@ -8460,37 +8654,93 @@ function displayImportedTrack(map, trackData) {
       source: 'imported-track-source',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#7775e7',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.0, 10, 6.0, 14, 8.5],
+        'line-color': '#2f8bff',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8],
         'line-opacity': 1.0
       }
     });
   }
 
-  // 2. 清除并重新添加导入轨迹的起终点图钉
+  // 2. 清除并完全对接系统路线图钉体系 (包含起终点与全量途径点)
   importedTrackMarkers.forEach(m => m.remove());
   importedTrackMarkers = [];
 
-  const startCoord = pathCoords[0];
-  const endCoord = pathCoords[pathCoords.length - 1];
+  if (routeStartMarker) { routeStartMarker.remove(); routeStartMarker = null; }
+  if (routeEndMarker) { routeEndMarker.remove(); routeEndMarker = null; }
+  routeViaPoints.forEach(v => {
+    if (v.marker) {
+      try { v.marker.remove(); } catch (e) {}
+    }
+  });
+  routeViaPoints = [];
 
+  const startCoord = (start && start.coords) ? [start.coords[0], start.coords[1]] : pathCoords[0];
+  const startName = (start && start.name) ? start.name : `[导入] ${name} 起点`;
+  const endCoord = (end && end.coords) ? [end.coords[0], end.coords[1]] : pathCoords[pathCoords.length - 1];
+  const endName = (end && end.name) ? end.name : `[导入] ${name} 终点`;
+
+  routeStartCoord = startCoord;
+  routeStartName = startName;
+  routeEndCoord = endCoord;
+  routeEndName = endName;
+
+  // 起点 Marker
   const startEl = document.createElement('div');
   startEl.className = 'imported-track-marker route-start-marker-pin';
   startEl.innerText = '起';
+  startEl.title = startName;
   startEl.addEventListener('click', () => {
     flyToLocationPrecisely(map, startCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
   });
-  const startMarker = new maplibregl.Marker({ element: startEl, anchor: 'center' }).setLngLat(startCoord).addTo(map);
-  importedTrackMarkers.push(startMarker);
+  routeStartMarker = new maplibregl.Marker({ element: startEl, anchor: 'center' }).setLngLat(startCoord).addTo(map);
+  importedTrackMarkers.push(routeStartMarker);
 
+  // 终点 Marker
   const endEl = document.createElement('div');
   endEl.className = 'imported-track-marker route-end-marker-pin';
   endEl.innerText = '终';
+  endEl.title = endName;
   endEl.addEventListener('click', () => {
     flyToLocationPrecisely(map, endCoord, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
   });
-  const endMarker = new maplibregl.Marker({ element: endEl, anchor: 'center' }).setLngLat(endCoord).addTo(map);
-  importedTrackMarkers.push(endMarker);
+  routeEndMarker = new maplibregl.Marker({ element: endEl, anchor: 'center' }).setLngLat(endCoord).addTo(map);
+  importedTrackMarkers.push(routeEndMarker);
+
+  // 全量途径点 Markers 与数据注册
+  const effectiveVias = viaPoints && viaPoints.length > 0 ? viaPoints : [];
+  effectiveVias.forEach((via, i) => {
+    const viaIdx = i + 1;
+    const vCoords = [via.coords[0], via.coords[1]];
+    const vName = via.name || `途径点 ${viaIdx}`;
+    const vEl = document.createElement('div');
+    vEl.className = 'route-via-marker-pin';
+    vEl.innerText = viaIdx;
+    vEl.title = vName;
+    vEl.style.background = '#0284c7';
+    vEl.addEventListener('click', () => {
+      flyToLocationPrecisely(map, vCoords, { zoom: 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+    });
+    const vMarker = new maplibregl.Marker({ element: vEl, anchor: 'center' }).setLngLat(vCoords).addTo(map);
+    importedTrackMarkers.push(vMarker);
+
+    routeViaPoints.push({
+      id: 'via_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 4),
+      coords: vCoords,
+      name: vName,
+      marker: vMarker,
+      zoom: 14.8
+    });
+  });
+
+  // 同步更新路线规划面板的起终点与途径点列表
+  const startInput = document.getElementById('route-start-input');
+  const endInput = document.getElementById('route-end-input');
+  if (startInput) startInput.value = routeStartName;
+  if (endInput) endInput.value = routeEndName;
+
+  renderViaList(map);
+  syncRouteMarkersVisualState(map);
+  bindStartAndEndRowsDrag(map);
 
   // 3. 计算并展示完整高程剖面与指标统计
   const hasEleData = coords.some(c => c.length >= 3 && Number.isFinite(c[2]));
@@ -8547,10 +8797,13 @@ function displayImportedTrack(map, trackData) {
   const minEleEl = document.getElementById('stat-route-minele');
   const canvas = document.getElementById('elevation-chart-canvas');
 
-  const hrs = (totalDistKm / 4.5) + (totalAscent / 450);
-  const timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+  // 计算行车用时：长线按平均 78km/h 测算驾车时效
+  const driveHours = totalDistKm / 78.0;
+  const timeStr = driveHours < 1
+    ? `${Math.max(1, Math.round(driveHours * 60))}分钟`
+    : `${Math.floor(driveHours)}小时${Math.round((driveHours % 1) * 60)}分`;
 
-  if (distEl) distEl.innerText = `${totalDistKm.toFixed(1)} km (外部轨迹)`;
+  if (distEl) distEl.innerText = `${totalDistKm.toFixed(1)} km`;
   if (timeEl) timeEl.innerText = timeStr;
   if (ascentEl) ascentEl.innerText = `+${Math.round(totalAscent)} m`;
   if (descentEl) descentEl.innerText = `-${Math.round(totalDescent)} m`;
@@ -8567,11 +8820,6 @@ function displayImportedTrack(map, trackData) {
     minEle,
     isRealRoad: true
   };
-
-  const startInput = document.getElementById('route-start-input');
-  const endInput = document.getElementById('route-end-input');
-  if (startInput) startInput.value = `[导入] ${name} 起点`;
-  if (endInput) endInput.value = `[导入] ${name} 终点`;
 
   closeConflictingBottomPanels('route-panel');
   showElement(routePanel, 'flex');
@@ -8591,13 +8839,17 @@ function displayImportedTrack(map, trackData) {
     duration: 1400
   });
 
+  const viaCountStr = effectiveVias.length > 0 ? ` (含 ${effectiveVias.length} 个途径打卡点)` : '';
   if (typeof showFluentAlert === 'function') {
     showFluentAlert({
-      title: '轨迹导入成功',
-      body: `已成功载入“${name}”\n全长 ${totalDistKm.toFixed(1)} km · 累计爬升 +${Math.round(totalAscent)} m`
+      title: '路线轨迹导入成功',
+      body: `已成功载入“${name}”${viaCountStr}\n全长 ${totalDistKm.toFixed(1)} km · 预估驾车 ${timeStr} · 累计爬升 +${Math.round(totalAscent)} m`
     });
   }
 }
+
+window.parseTrackFile = parseTrackFile;
+window.displayImportedTrack = displayImportedTrack;
 
 function setupTrackImport(map) {
   const btnFabImport = document.getElementById('btn-fab-import');
