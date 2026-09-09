@@ -1193,6 +1193,7 @@ app.whenReady().then(async () => {
     const concurrency = 32;
     const createdDirs = new Set();
     let lastProgressTime = 0;
+    let lastTaskbarPct = -1;
     let activeProvName = '';
     let activeZ = 10;
 
@@ -1331,7 +1332,8 @@ app.whenReady().then(async () => {
 
         const now = Date.now();
         const isDone = completed >= total;
-        if (isDone || (completed % 35 === 0 && now - lastProgressTime > 120)) {
+        // 平滑节流进度广播 (250ms)，保持人眼感知流畅同时消除高频 IPC 与 DOM 重排带来的 CPU/GPU 负载
+        if (isDone || (now - lastProgressTime >= 250)) {
           lastProgressTime = now;
           const elapsed = (now - startTime) / 1000;
           const speed = elapsed > 0 ? Math.round(completed / elapsed) : 0;
@@ -1359,7 +1361,12 @@ app.whenReady().then(async () => {
 
           if (mainWindow && !mainWindow.isDestroyed()) {
             const ratio = total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
-            mainWindow.setProgressBar(ratio);
+            // 仅在任务栏百分比整数跳变时调用底层 Windows COM 接口，消除 DWM 窗口合成器持续重绘 GPU 占用
+            const curPct = Math.floor(ratio * 100);
+            if (curPct !== lastTaskbarPct || isDone) {
+              lastTaskbarPct = curPct;
+              mainWindow.setProgressBar(ratio);
+            }
             const curTiles = (baselineStats.totalTiles || 0) + newlySavedCount + newlyAddedCount;
             const curBytes = (baselineStats.totalBytes || 0) + totalBytes;
             mainWindow.webContents.send('download-progress', {
@@ -1540,6 +1547,8 @@ app.whenReady().then(async () => {
 
         let receivedBytes = 0;
         const startTime = Date.now();
+        let lastUpdateProgressTime = 0;
+        let lastUpdatePct = -1;
 
         while (true) {
           if (streamError) break;
@@ -1548,19 +1557,27 @@ app.whenReady().then(async () => {
           fileStream.write(Buffer.from(value));
           receivedBytes += value.length;
 
-          const elapsed = (Date.now() - startTime) / 1000;
-          const speed = elapsed > 0 ? Math.round(receivedBytes / elapsed / 1024) : 0;
+          const now = Date.now();
           const percent = contentLength > 0 ? Math.min(100, Math.round(receivedBytes / contentLength * 100)) : 50;
 
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.setProgressBar(Math.min(1, Math.max(0, percent / 100)));
-            mainWindow.webContents.send('update-download-progress', {
-              percent,
-              speed: `${speed} KB/s`,
-              receivedBytes,
-              totalBytes: contentLength,
-              stage: 'downloading'
-            });
+          if (now - lastUpdateProgressTime >= 250 || receivedBytes >= contentLength) {
+            lastUpdateProgressTime = now;
+            const elapsed = (now - startTime) / 1000;
+            const speed = elapsed > 0 ? Math.round(receivedBytes / elapsed / 1024) : 0;
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              if (percent !== lastUpdatePct) {
+                lastUpdatePct = percent;
+                mainWindow.setProgressBar(Math.min(1, Math.max(0, percent / 100)));
+              }
+              mainWindow.webContents.send('update-download-progress', {
+                percent,
+                speed: `${speed} KB/s`,
+                receivedBytes,
+                totalBytes: contentLength,
+                stage: 'downloading'
+              });
+            }
           }
         }
 

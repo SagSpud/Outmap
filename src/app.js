@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.7';
+const APP_VERSION = '1.8.8';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -3146,6 +3146,7 @@ function setupPyramidModal(map) {
   let activeDownloadSession = null; // { keys: string[], provNames: string[], maxZ: number }
   let lastProgressBytes = 0;
   let lastProgressTime = 0;
+  let lastTitleStatUpdate = 0;
 
   const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false) => {
     if (isVerify) return '本地校验中';
@@ -3753,6 +3754,7 @@ function setupPyramidModal(map) {
     };
 
     setDownloadDotState('downloading');
+    document.body.classList.add('is-downloading');
     btnStart.style.display = 'none';
     btnCancel.style.display = 'inline-block';
     btnCancel.innerText = '中止下载';
@@ -3781,6 +3783,7 @@ function setupPyramidModal(map) {
           isIncrementalUpdate
         });
       } catch (err) {
+        document.body.classList.remove('is-downloading');
         activeDownloadSession = null;
         setDownloadDotState('idle');
         progressNum.innerText = `下载遇到异常: ${err.message}`;
@@ -3826,6 +3829,7 @@ function setupPyramidModal(map) {
 
   // 中止下载
   btnCancel.addEventListener('click', async () => {
+    document.body.classList.remove('is-downloading');
     activeDownloadSession = null;
     setDownloadDotState('idle');
     if (window.electronAPI && window.electronAPI.cancelPyramidDownload) {
@@ -3915,17 +3919,22 @@ function setupPyramidModal(map) {
       progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting);
       progressPct.innerText = `${data.percent}%`;
 
-      if (!data.done && downloadDotState !== 'downloading') {
-        setDownloadDotState('downloading');
+      if (!data.done) {
+        if (downloadDotState !== 'downloading') setDownloadDotState('downloading');
+        if (!document.body.classList.contains('is-downloading')) document.body.classList.add('is-downloading');
       }
 
-      // 关键：下载过程中实时联动刷新顶栏切片数与磁盘体积！
+      // 关键：下载过程中节流联动刷新顶栏切片数与磁盘体积（每 2 秒最多一次，完成时立即更新），杜绝高频重排与顶栏毛玻璃重绘开销
       const titleStat = document.getElementById('titlebar-cache-stat');
       if (titleStat && data.totalTiles) {
-        titleStat.innerText = `离线: ${formatTileDisplay(data.totalTiles, data.totalBytes)}`;
+        if (data.done || (now - lastTitleStatUpdate > 2000)) {
+          lastTitleStatUpdate = now;
+          titleStat.innerText = `离线: ${formatTileDisplay(data.totalTiles, data.totalBytes)}`;
+        }
       }
 
       if (data.done) {
+        document.body.classList.remove('is-downloading');
         const completedCleanly = !data.aborted && !(data.failedCount > 0);
         setDownloadDotState(completedCleanly ? 'completed' : 'idle');
         if (progressTask) {

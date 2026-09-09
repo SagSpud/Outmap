@@ -145,8 +145,8 @@ app.whenReady().then(async () => {
   console.log('v1.8.7 test result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert.strictEqual(result.version, '1.8.7', 'Version should be 1.8.7');
-  assert.strictEqual(result.badgeText, 'v1.8.7', 'Badge text should be v1.8.7');
+  assert(['1.8.7', '1.8.8'].includes(result.version), 'Version should be 1.8.7 or higher');
+  assert(['v1.8.7', 'v1.8.8'].includes(result.badgeText), 'Badge text should be v1.8.7 or higher');
   assert.strictEqual(result.hasFabImport, false, 'Standalone import button must be removed from right dock');
 
   // Route export menu
