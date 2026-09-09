@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.8.6" />
+  <link rel="stylesheet" href="style.css?v=1.8.7" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.6</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.7</span>
                 </div>
               </div>
             </div>
@@ -150,13 +150,6 @@
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
-          </svg>
-        </button>
-        <button class="fab-btn" id="btn-fab-import">
-          <svg class="fab-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
         </button>
         <button class="fab-btn" id="btn-fab-route">
@@ -344,12 +337,36 @@
             <div class="route-export-dropdown-wrap">
               <button class="modal-btn secondary-sm" id="btn-route-export-trigger">导出 ▾</button>
               <div class="route-export-menu" id="route-export-menu" style="display: none;">
-                <button class="route-export-menu-item" id="btn-save-route">💾 存到收藏夹</button>
-                <button class="route-export-menu-item" id="btn-export-gpx">📥 导出 GPX</button>
+                <button class="route-export-menu-item" id="btn-export-gpx">导出 GPX</button>
+                <button class="route-export-menu-item" id="btn-save-route">收藏</button>
+                <button class="route-export-menu-item" id="btn-route-import-trigger">导入路线</button>
               </div>
+              <input type="file" id="route-panel-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
             </div>
             <button class="modal-btn secondary-sm" id="btn-route-details-toggle">详情 ▾</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route">清空</button>
+          </div>
+
+          <!-- 保存路线内联面板 (点击 导出 ▾ -> 收藏 后在下方顺滑展开) -->
+          <div id="save-route-modal" class="save-route-inline-box" style="display: none;">
+            <div class="card-header" style="padding: 4px 0 6px 0; border-bottom: 1px solid #e2e8f0; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+              <div class="card-title" style="font-size: 12px; font-weight: 600; color: #0f172a;">保存路线</div>
+              <button class="card-close" id="btn-close-save-route-modal" style="font-size: 12px; cursor: pointer;">✕</button>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div class="form-row" style="margin-bottom: 6px;">
+                <label class="form-lbl" style="font-size: 11px; margin-bottom: 3px;">路线名称:</label>
+                <input type="text" id="save-route-name-input" class="form-control" style="font-size: 12px; padding: 5px 8px; width: 100%; box-sizing: border-box;" placeholder="输入路线名称..." />
+              </div>
+              <div class="point-meta-box" id="save-route-summary-box" style="margin-bottom: 8px; padding: 6px 8px; background: #f8fafc; border-radius: 6px; font-size: 11px; display: flex; justify-content: space-between;">
+                <div class="meta-item">里程: <span id="save-route-dist-text">-- km</span></div>
+                <div class="meta-item">爬升: <b id="save-route-ascent-text" style="color: #16a34a;">+-- m</b></div>
+              </div>
+            </div>
+            <div class="card-footer" style="padding: 0; display: flex; justify-content: flex-end; gap: 6px;">
+              <button class="modal-btn secondary-sm" id="btn-cancel-save-route">取消</button>
+              <button class="modal-btn primary-sm" id="btn-confirm-save-route">确认保存</button>
+            </div>
           </div>
 
           <!-- 路线统计指标 (距离、耗时、爬升、下降、最高海拔) -->
@@ -428,21 +445,7 @@
         </div>
       </div>
 
-      <!-- 保存路线对话框 -->
-      <div id="save-route-modal" class="floating-card" style="display: none; z-index: 105;">
-        <div class="card-header">
-          <div class="card-title"><span>💾</span><span>保存路线到收藏夹</span></div>
-          <button class="card-close" id="btn-close-save-route-modal">✕</button>
-        </div>
-        <div class="card-body">
-          <div class="form-row">
-            <label class="form-lbl">路线名称:</label>
-            <input type="text" id="save-route-name-input" class="form-control" placeholder="输入路线名称 (如 泰山徒步后石坞线)..." />
-          </div>
-          <div class="point-meta-box" id="save-route-summary-box">
-            <div class="meta-item">里程: <span id="save-route-dist-text">-- km</span></div>
-            <div class="meta-item">爬升: <b id="save-route-ascent-text">+-- m</b></div>
-          </div>
+      
         </div>
         <div class="card-footer">
           <button class="modal-btn secondary" id="btn-cancel-save-route">取消</button>
@@ -674,7 +677,7 @@
             </div>
           </div>
           <div class="sync-action-row" style="margin-top: 12px; display: flex; gap: 8px;">
-            <button class="modal-btn primary" id="btn-sync-now" style="flex: 1; min-height: 36px;">🔄 立即同步</button>
+            <button class="modal-btn primary" id="btn-sync-now" style="flex: 1; min-height: 36px;">立即同步</button>
             <button class="modal-btn secondary sync-logout-btn" id="btn-sync-logout" style="flex: 1; min-height: 36px;">退出登录</button>
           </div>
         </div>

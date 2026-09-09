@@ -4301,7 +4301,7 @@ body.web-mode #manage-modal {
 
 /* 用户登录与全量云端漫游同步弹窗样式 */
 .sync-modal-card {
-  width: 400px;
+  width: 320px;
   max-width: 90vw;
 }
 
@@ -5681,4 +5681,67 @@ body.map-is-moving .fluent-alert-box {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
+}
+
+/* 路线保存内联面板 (直接在路线规划底栏顺滑展开) */
+.save-route-inline-box {
+  margin-top: 8px;
+  background: rgba(248, 250, 252, 0.96);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  animation: panelSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.save-route-inline-box.panel-closing {
+  animation: panelSlideOut 0.15s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+}
+
+/* 收藏点右键修改类型菜单样式 */
+.fav-point-type-menu {
+  position: fixed;
+  z-index: 10000;
+  background: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 130px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: ctxFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.fav-point-type-menu.closing {
+  animation: ctxFadeOut 0.14s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.fav-type-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: #334155;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.fav-type-menu-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.fav-type-menu-item.active {
+  background: #e0f2fe;
+  color: #0284c7;
+  font-weight: 600;
 }

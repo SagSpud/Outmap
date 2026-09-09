@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.6';
+const APP_VERSION = '1.8.7';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -5158,6 +5158,29 @@ function setupWaypointAndFavoritesSystem(map) {
 
       wrapper.appendChild(pin);
 
+      wrapper.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof showChangeWaypointTypeMenu === 'function') {
+          showChangeWaypointTypeMenu(wp, e.clientX, e.clientY);
+        }
+      });
+
+      let markerTouchTimer = null;
+      wrapper.addEventListener('touchstart', (e) => {
+        if (e.touches && e.touches.length === 1) {
+          const t = e.touches[0];
+          markerTouchTimer = setTimeout(() => {
+            markerTouchTimer = null;
+            if (typeof showChangeWaypointTypeMenu === 'function') {
+              showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
+            }
+          }, 500);
+        }
+      }, { passive: true });
+      wrapper.addEventListener('touchmove', () => { if (markerTouchTimer) { clearTimeout(markerTouchTimer); markerTouchTimer = null; } }, { passive: true });
+      wrapper.addEventListener('touchend', () => { if (markerTouchTimer) { clearTimeout(markerTouchTimer); markerTouchTimer = null; } }, { passive: true });
+
       wrapper.addEventListener('click', (e) => {
         e.stopPropagation();
         const curCenter = map.getCenter();
@@ -5343,14 +5366,104 @@ function setupWaypointAndFavoritesSystem(map) {
   const favRoutesCount = document.getElementById('fav-routes-count');
 
   // 1. 收藏地点列表渲染
+  
+  // 右键修改收藏点图标（类型：景点/露营/水源/补给/停车/住宿/摄影/徒步）
+  const showChangeWaypointTypeMenu = (wp, x, y) => {
+    document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'fav-point-type-menu';
+
+    const typeList = [
+      { key: 'view', name: '景点', icon: '🏔️' },
+      { key: 'camp', name: '露营', icon: '🏕️' },
+      { key: 'water', name: '水源', icon: '💧' },
+      { key: 'supply', name: '补给', icon: '⛽' },
+      { key: 'parking', name: '停车', icon: '🅿️' },
+      { key: 'hotel', name: '住宿', icon: '🏨' },
+      { key: 'photo', name: '摄影', icon: '📸' },
+      { key: 'hiking', name: '徒步', icon: '🥾' }
+    ];
+
+    const menuWidth = 140;
+    const menuHeight = 270;
+    const posX = Math.min(x, window.innerWidth - menuWidth - 12);
+    const posY = Math.min(y, window.innerHeight - menuHeight - 12);
+    menu.style.left = `${Math.max(10, posX)}px`;
+    menu.style.top = `${Math.max(10, posY)}px`;
+
+    menu.innerHTML = `
+      <div style="font-size: 11px; font-weight: 600; color: #94a3b8; padding: 4px 8px; border-bottom: 1px solid #f1f5f9; margin-bottom: 2px;">更改类型</div>
+      ${typeList.map(t => `
+        <div class="fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
+          <span>${t.icon}</span>
+          <span>${t.name}</span>
+          ${wp.type === t.key ? '<span style="margin-left: auto; color: #0284c7; font-weight: bold;">✓</span>' : ''}
+        </div>
+      `).join('')}
+    `;
+
+    const closeMenu = () => {
+      if (menu.classList.contains('closing')) return;
+      menu.classList.add('closing');
+      setTimeout(() => menu.remove(), 140);
+      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('keydown', onDocKey);
+    };
+
+    const onDocClick = (e) => {
+      if (!menu.contains(e.target)) closeMenu();
+    };
+    const onDocKey = (e) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+
+    menu.querySelectorAll('.fav-type-menu-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const newType = item.getAttribute('data-type');
+        if (newType) {
+          wp.type = newType;
+          try {
+            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+          } catch (err) {}
+          renderWaypointMarkersOnMap();
+          renderFavoritesList();
+          if (typeof window.triggerRealtimeCloudSync === 'function') {
+            window.triggerRealtimeCloudSync('update_waypoint_type');
+          }
+          const matched = typeList.find(t => t.key === newType);
+          showToast(`已将“${wp.name}”类型修改为【${matched?.name || newType}】`);
+        }
+        closeMenu();
+      });
+    });
+
+    document.body.appendChild(menu);
+    setTimeout(() => {
+      document.addEventListener('click', onDocClick);
+      document.addEventListener('keydown', onDocKey);
+    }, 10);
+  };
+  window.showChangeWaypointTypeMenu = showChangeWaypointTypeMenu;
+
   const renderFavoritesList = () => {
     if (!favList) return;
     favList.innerHTML = '';
     if (favPtsCount) favPtsCount.innerText = savedWaypoints.length;
 
-    const filtered = currentFolderFilter === 'all'
-      ? savedWaypoints
-      : savedWaypoints.filter(w => w.folder === currentFolderFilter);
+    let filtered = savedWaypoints;
+    if (currentFolderFilter === 'all') {
+      filtered = savedWaypoints;
+    } else if (currentFolderFilter === 'folders') {
+      const customIds = customFolders.map(f => f.id);
+      filtered = savedWaypoints.filter(w => customIds.includes(w.folder) || (w.folder && w.folder !== 'default'));
+    } else if (currentFolderFilter === 'default') {
+      filtered = savedWaypoints.filter(w => !w.folder || w.folder === 'default');
+    } else if (currentFolderFilter === 'view') {
+      filtered = savedWaypoints.filter(w => w.type === 'view' || w.folder === 'view');
+    } else {
+      filtered = savedWaypoints.filter(w => w.folder === currentFolderFilter || w.type === currentFolderFilter);
+    }
 
     if (filtered.length === 0) {
       favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:20px 0;">该文件夹下暂无收藏地点<br>可在右下角点击“选点”添加</div>`;
@@ -5367,6 +5480,26 @@ function setupWaypointAndFavoritesSystem(map) {
         </div>
         <button class="fav-item-del">🗑️</button>
       `;
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showChangeWaypointTypeMenu(wp, e.clientX, e.clientY);
+      });
+
+      // 移动端长按 500ms
+      let itemTouchTimer = null;
+      item.addEventListener('touchstart', (e) => {
+        if (e.touches && e.touches.length === 1) {
+          const t = e.touches[0];
+          itemTouchTimer = setTimeout(() => {
+            itemTouchTimer = null;
+            showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
+          }, 500);
+        }
+      }, { passive: true });
+      item.addEventListener('touchmove', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
+      item.addEventListener('touchend', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
         const startFavoriteFlight = () => {
@@ -5472,8 +5605,8 @@ function setupWaypointAndFavoritesSystem(map) {
         menu.style.top = `${Math.max(10, posY)}px`;
 
         menu.innerHTML = `
-          <div class="fav-route-context-item btn-ctx-export">📥 导出路线 (GPX)</div>
-          <div class="fav-route-context-item danger btn-ctx-del">🗑️ 删除路线</div>
+          <div class="fav-route-context-item btn-ctx-export">导出路线</div>
+          <div class="fav-route-context-item danger btn-ctx-del">删除路线</div>
         `;
 
         const closeMenu = () => {
@@ -5571,12 +5704,13 @@ function setupWaypointAndFavoritesSystem(map) {
     favTabs.innerHTML = '';
     const tabs = [
       { id: 'all', name: '全部' },
-      { id: 'default', name: '⭐ 默认' },
-      { id: 'camp', name: '⛺ 露营' },
-      { id: 'hiking', name: '🥾 徒步' }
+      { id: 'folders', name: '收藏夹' },
+      { id: 'default', name: '默认' },
+      { id: 'view', name: '景点' }
     ];
     customFolders.forEach(f => {
-      tabs.push({ id: f.id, name: `📁 ${f.name}` });
+      const cleanName = (f.name || '').replace(/^(\[导入\]|📁|\s)+/, '');
+      tabs.push({ id: f.id, name: cleanName || f.name });
     });
 
     tabs.forEach(t => {
@@ -5630,6 +5764,36 @@ function setupWaypointAndFavoritesSystem(map) {
   };
 
   btnFavImportPts?.addEventListener('click', async () => {
+    if (currentFavTabMode === 'routes') {
+      // 路线规划标签页：导入路线轨迹
+      if (window.electronAPI?.openFileDialog) {
+        try {
+          const res = await window.electronAPI.openFileDialog({
+            title: '选择路线轨迹文件',
+            filters: [
+              { name: '路线轨迹文件 (*.gpx;*.kml;*.geojson;*.json;*.tcx)', extensions: ['gpx', 'kml', 'geojson', 'json', 'tcx'] },
+              { name: 'All Files (*.*)', extensions: ['*'] }
+            ]
+          });
+          if (res && res.success && res.content) {
+            const trackData = parseTrackFile(res.content, res.filename);
+            if (trackData) {
+              displayImportedTrack(map, trackData);
+              showToast(`已成功导入路线: ${res.filename}`);
+            }
+          }
+        } catch (e) {
+          alert(`打开路线文件失败: ${e.message}`);
+        }
+        return;
+      }
+      const routeInput = document.getElementById('route-panel-import-input') || fileInputWp;
+      if (routeInput) {
+        routeInput.value = '';
+        routeInput.click();
+      }
+      return;
+    }
     if (window.electronAPI?.openFileDialog) {
       try {
         const res = await window.electronAPI.openFileDialog({
