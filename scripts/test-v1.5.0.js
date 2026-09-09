@@ -60,9 +60,9 @@ assert(terrainIdx < favsIdx, '3D地貌效果 must be placed above 收藏夹地�
 assert(favsIdx < routesIdx, '收藏夹地点图钉 must be placed above 规划与导入路线轨迹');
 
 // 高清矢量光标断言 (无锯齿、高分屏优化)
-assert(styleSrc.includes('--cursor-grab: grab'), 'style.css must use the platform-native grab cursor');
-assert(styleSrc.includes('--cursor-grabbing: grabbing'), 'style.css must use the platform-native grabbing cursor');
-assert(styleSrc.includes('--cursor-crosshair: crosshair'), 'style.css must use the platform-native crosshair cursor');
+assert(styleSrc.includes('--cursor-grab: url('), 'style.css must define high-DPI SVG open hand cursor');
+assert(styleSrc.includes('--cursor-grabbing: url('), 'style.css must define high-DPI SVG closed fist cursor');
+assert(styleSrc.includes('--cursor-crosshair: url('), 'style.css must define high-DPI SVG crosshair cursor');
 
 // 离线状态单一圆点与语义状态断言 (彻底解决双重绿点 Bug)
 assert(styleSrc.includes('.prov-status-dot'), 'style.css must define .prov-status-dot');
@@ -158,8 +158,8 @@ app.whenReady().then(async () => {
         hasBtnFabImport: !!btnFabImport,
         hasTrackInput: !!trackInput,
         cacheStatText: cacheStat ? cacheStat.innerText : null,
-        hasNativeGrab: grabCursor.trim() === 'grab',
-        hasNativeGrabbing: grabbingCursor.trim() === 'grabbing',
+        hasSvgGrab: grabCursor.includes('data:image/svg+xml'),
+        hasSvgGrabbing: grabbingCursor.includes('data:image/svg+xml'),
         locHefei,
         locMengyin,
         layerNames
@@ -177,8 +177,8 @@ app.whenReady().then(async () => {
   assert(domCheck.hasBtnFabLayers, 'btn-fab-layers must exist');
   assert(domCheck.hasBtnFabImport, 'btn-fab-import must exist');
   assert(domCheck.hasTrackInput, 'track-file-import-input must exist');
-  assert(domCheck.hasNativeGrab, 'Must use platform-native grab cursor');
-  assert(domCheck.hasNativeGrabbing, 'Must use platform-native grabbing cursor');
+  assert(domCheck.hasSvgGrab, 'Must have high-DPI SVG grab cursor');
+  assert(domCheck.hasSvgGrabbing, 'Must have high-DPI SVG grabbing cursor');
   assert(!domCheck.locHefei.includes('安徽省') || domCheck.locHefei.includes('合肥'), 'Context menu must not be only province');
   assert(domCheck.layerNames[0].includes('3D地貌效果'), 'Top layer must be 3D地貌效果');
 

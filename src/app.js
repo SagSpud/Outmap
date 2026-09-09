@@ -850,6 +850,9 @@ async function initApplication() {
           terrainRealignDebounce = setTimeout(() => {
             terrainRealignDebounce = null;
             refreshAllRouteMarkersElevation(map);
+            if (typeof refreshRouteElevationProfile === 'function') {
+              refreshRouteElevationProfile(map);
+            }
           }, 120);
         }
       }
@@ -1872,12 +1875,24 @@ function refreshAllRouteMarkersElevation(map) {
 }
 window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
 
+function refreshRouteElevationProfile(map) {
+  try {
+    const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
+    if (!m || typeof currentPlannedRouteCoords === 'undefined' || !currentPlannedRouteCoords || currentPlannedRouteCoords.length < 2 || !currentRouteMetrics) return;
+    if (typeof updateProfileAndMetrics === 'function') {
+      updateProfileAndMetrics(m, currentPlannedRouteCoords, currentRouteMetrics.totalDistKm, currentRouteMetrics.durationSec, currentRouteMetrics.isRealRoad, false);
+    }
+  } catch (e) {}
+}
+window.refreshRouteElevationProfile = refreshRouteElevationProfile;
+
 // Search, favourites and route points share one cancellable camera transaction.
 function flyToLocationPrecisely(map, coords, options = {}) {
   window.OutmapLocationCamera.fly(map, coords, {
     ...options,
     onArrival: () => {
       refreshAllRouteMarkersElevation(map);
+      refreshRouteElevationProfile(map);
       options.onArrival?.();
     }
   });
@@ -5655,6 +5670,102 @@ function renderRouteGeometry(map, pathCoords) {
   }
 }
 
+// 科学真实高程采样与中国三大阶梯地理基准模型 (彻底剔除脱离实际的 3100m 正弦波假数据)
+function sampleRouteElevationData(map, sampledCoords) {
+  const n = sampledCoords.length;
+  if (n === 0) return [];
+
+  // 1. 尝试从当前已载入 WebGL 显存的 DEM 切片直接采样真实高程
+  const rawEle = new Array(n);
+  const knownIndices = [];
+  for (let i = 0; i < n; i++) {
+    const val = getRealElevation(map, sampledCoords[i]);
+    if (val !== null && val !== undefined && !isNaN(val)) {
+      rawEle[i] = val;
+      knownIndices.push(i);
+    } else {
+      rawEle[i] = null;
+    }
+  }
+
+  // 2. 中国地理宏观地势三大阶梯科学基准高程模型 (经纬度宏观地形推算)
+  const getGeoBaseEle = (lng, lat) => {
+    // 第一阶梯：青藏高原、柴达木、藏北、川西高原 (西藏/青海/川西)
+    if (lng < 103 && lat >= 27 && lat <= 38) return 3800;
+    // 新疆盆地与天山
+    if (lng < 95) return (lat > 42 && lng > 86 && lng < 90) ? 150 : 1100;
+    // 第二阶梯：云贵高原
+    if (lng >= 98 && lng <= 106 && lat >= 22 && lat < 28) return 1600;
+    // 第二阶梯：黄土高原 / 内蒙古高原 (陕西、山西、宁夏、内蒙)
+    if (lng >= 106 && lng <= 114 && lat >= 34 && lat <= 42) return 1050;
+    // 第二阶梯：四川盆地 (平缓丘陵低地)
+    if (lng >= 103 && lng <= 108 && lat >= 28 && lat <= 32) return 450;
+    // 第三阶梯：平原与低丘
+    if (lng >= 114) {
+      if (lat >= 30 && lat <= 41) return 40; // 华北与长江中下游平原
+      if (lat > 41) return 160; // 东北平原
+      return 120; // 东南丘陵
+    }
+    return 500;
+  };
+
+  // 3. 混合插值与地势连续解算
+  const finalEle = new Array(n);
+
+  if (knownIndices.length === n) {
+    // 全部点均具备真实 DEM 高程 (100% 精确)
+    for (let i = 0; i < n; i++) finalEle[i] = rawEle[i];
+  } else if (knownIndices.length > 0) {
+    // 部分点具备真实 DEM (例如起终点或视口内路段)：在线段已知锚点之间按距离线性平滑过渡
+    const dists = new Array(n).fill(0);
+    for (let i = 1; i < n; i++) {
+      dists[i] = dists[i - 1] + calculateDistanceKm(sampledCoords[i - 1], sampledCoords[i]);
+    }
+
+    // 填充第一个已知点之前的点
+    const firstKnown = knownIndices[0];
+    const firstEle = rawEle[firstKnown];
+    const startGeo = getGeoBaseEle(sampledCoords[0][0], sampledCoords[0][1]);
+    for (let i = 0; i < firstKnown; i++) {
+      const ratio = dists[firstKnown] > 0 ? (dists[i] / dists[firstKnown]) : 0;
+      finalEle[i] = startGeo + ratio * (firstEle - startGeo);
+    }
+    finalEle[firstKnown] = firstEle;
+
+    // 填充已知点之间的点 (在已知真实高程之间按真实里程线性插值)
+    for (let k = 0; k < knownIndices.length - 1; k++) {
+      const idxA = knownIndices[k];
+      const idxB = knownIndices[k + 1];
+      const eleA = rawEle[idxA];
+      const eleB = rawEle[idxB];
+      finalEle[idxA] = eleA;
+      finalEle[idxB] = eleB;
+      const spanDist = dists[idxB] - dists[idxA];
+      for (let i = idxA + 1; i < idxB; i++) {
+        const ratio = spanDist > 0 ? (dists[i] - dists[idxA]) / spanDist : 0;
+        finalEle[i] = eleA + ratio * (eleB - eleA);
+      }
+    }
+
+    // 填充最后一个已知点之后的点
+    const lastKnown = knownIndices[knownIndices.length - 1];
+    const lastEle = rawEle[lastKnown];
+    const endGeo = getGeoBaseEle(sampledCoords[n - 1][0], sampledCoords[n - 1][1]);
+    const remDist = dists[n - 1] - dists[lastKnown];
+    for (let i = lastKnown + 1; i < n; i++) {
+      const ratio = remDist > 0 ? (dists[i] - dists[lastKnown]) / remDist : 1;
+      finalEle[i] = lastEle + ratio * (endGeo - lastEle);
+    }
+  } else {
+    // 尚未载入任何视口切片：根据路线途经地理坐标宏观模型平滑解算 (杜绝假山峰)
+    for (let i = 0; i < n; i++) {
+      finalEle[i] = getGeoBaseEle(sampledCoords[i][0], sampledCoords[i][1]);
+    }
+  }
+
+  return finalEle;
+}
+
 function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSec, isRealRoad, shouldFitBounds) {
   const statsBox = document.getElementById('route-stats-box');
   const chartSection = document.getElementById('route-chart-section');
@@ -5682,13 +5793,11 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
   let minEle = 99999;
   currentProfileData = [];
 
+  const elevations = sampleRouteElevationData(map, sampledCoords);
+
   for (let i = 0; i < sampledCoords.length; i++) {
     const pt = sampledCoords[i];
-    let ele = getRealElevation(map, pt);
-    if (ele === null || ele === undefined) {
-      ele = 500 + Math.sin((i / sampledCoords.length) * Math.PI) * 2600;
-    }
-    ele = Math.round(ele);
+    const ele = Math.round(elevations[i] !== undefined ? elevations[i] : 0);
 
     if (i > 0) {
       const prev = sampledCoords[i - 1];
@@ -5747,7 +5856,8 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
     totalDescent,
     maxEle,
     minEle,
-    isRealRoad
+    isRealRoad,
+    durationSec: roadDurationSec
   };
 
   // 海拔剖面图默认隐藏 (桌面与浏览器端均遵循，点击详情内海拔信息时才滑出)
@@ -5815,6 +5925,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
 
   // 若有效节点少于 2 个，清空高亮轨迹和剖面
   if (ordered.length < 2) {
+    currentRouteAbortController?.abort();
+    currentRouteAbortController = null;
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
@@ -6374,6 +6486,9 @@ function setupOutdoorRouteSystem(map) {
   // 清空所有点与路线
   btnClearRoute?.addEventListener('click', () => {
     exitRoutePickingMode();
+    currentRouteAbortController?.abort();
+    currentRouteAbortController = null;
+    ++currentRouteRequestId;
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
