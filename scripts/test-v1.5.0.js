@@ -16,7 +16,7 @@ setTimeout(() => {
 }, 30000).unref();
 
 // 1. 静态代码与配置审查
-console.log('--- 1. Static Configuration & Code Assertions (v1.5.2) ---');
+console.log('--- 1. Static Configuration & Code Assertions (v1.5.5) ---');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const mainSrc = fs.readFileSync('main.js', 'utf8');
 const preloadSrc = fs.readFileSync('preload.js', 'utf8');
@@ -27,12 +27,12 @@ const htmlSrc = fs.readFileSync('src/index.html', 'utf8');
 const workerSrc = fs.readFileSync('src/offline-worker.cjs', 'utf8');
 
 // 版本号检查
-assert.strictEqual(pkg.version, '1.5.2', 'package.json version must be 1.5.2');
-assert(htmlSrc.includes('app.js?v=1.5.2'), 'index.html must reference app.js?v=1.5.2');
-assert(htmlSrc.includes('location-camera.js?v=1.5.2'), 'index.html must reference location-camera.js?v=1.5.2');
-assert(htmlSrc.includes('style.css?v=1.5.2'), 'index.html must reference style.css?v=1.5.2');
-assert(htmlSrc.includes('v1.5.2'), 'index.html must show v1.5.2 badge');
-assert(appSrc.includes("const APP_VERSION = '1.5.2'"), 'app.js must declare APP_VERSION 1.5.2');
+assert.strictEqual(pkg.version, '1.5.5', 'package.json version must be 1.5.5');
+assert(htmlSrc.includes('app.js?v=1.5.5'), 'index.html must reference app.js?v=1.5.5');
+assert(htmlSrc.includes('location-camera.js?v=1.5.5'), 'index.html must reference location-camera.js?v=1.5.5');
+assert(htmlSrc.includes('style.css?v=1.5.5'), 'index.html must reference style.css?v=1.5.5');
+assert(htmlSrc.includes('v1.5.5'), 'index.html must show v1.5.5 badge');
+assert(appSrc.includes("const APP_VERSION = '1.5.5'"), 'app.js must declare APP_VERSION 1.5.5');
 
 // Route planning: dedicated profiles, collision-free cache and concise context action.
 assert(mainSrc.includes("profile === 'bike' ? 'routed-bike'"), 'Desktop proxy must use the dedicated cycling router');
@@ -168,7 +168,7 @@ app.whenReady().then(async () => {
   `);
 
   console.log('DOM & Runtime Check result:', domCheck);
-  assert.strictEqual(domCheck.brandText, 'v1.5.2', 'Brand badge in DOM must display v1.5.2');
+  assert.strictEqual(domCheck.brandText, 'v1.5.5', 'Brand badge in DOM must display v1.5.5');
   assert(domCheck.hasRoutePanel, 'routePanel must exist');
   assert(domCheck.hasViaList, 'route-via-list must exist');
   assert(domCheck.hasCanvas, 'elevation-chart-canvas must exist');
@@ -221,6 +221,6 @@ app.whenReady().then(async () => {
     process.exit(1);
   }
 
-  console.log('\n🎉 ALL v1.5.2 DESKTOP & MOBILE VERIFICATIONS PASSED SUCCESSFULLY!');
+  console.log('\n🎉 ALL v1.5.5 DESKTOP & MOBILE VERIFICATIONS PASSED SUCCESSFULLY!');
   app.exit(0);
 });
