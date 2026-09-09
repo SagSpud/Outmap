@@ -886,12 +886,6 @@ function createWindow() {
       }
     });
 
-    mainWindow.on('focus', () => {
-      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-        mainWindow.webContents.send('app-window-focused');
-      }
-    });
-
     // 1.5秒兜底显示，防止特定低端核显环境 ready-to-show 触发延迟
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {

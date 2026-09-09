@@ -152,18 +152,25 @@ app.whenReady().then(async () => {
 
     // 3. Test Cloud Sync UI and Bidirectional Merging
     const btnSyncNow = document.getElementById('btn-sync-now');
+    const btnFavDrawerSync = document.getElementById('btn-fav-drawer-sync');
     out.hasBtnSyncNow = !!btnSyncNow;
-    out.hasOnWindowFocus = typeof window.electronAPI?.onWindowFocus === 'function';
+    out.hasBtnFavDrawerSync = !!btnFavDrawerSync;
+    out.btnFavDrawerSyncText = btnFavDrawerSync ? btnFavDrawerSync.innerText.trim() : '';
+    out.hasElectronOnWindowFocus = typeof window.electronAPI?.onWindowFocus === 'function';
+    out.hasHandleManualSync = typeof window.handleManualCloudSync === 'function';
     out.hasExecuteFullSync = typeof window.executeFullSync === 'function';
 
-    // Seed local storage with desktop waypoint
+    // Seed local storage with logged in account and desktop waypoint
+    localStorage.setItem('outmap_user_account', JSON.stringify({ loggedIn: true, username: 'tester', syncKey: 'user_tester' }));
     localStorage.setItem('outmap_saved_waypoints', JSON.stringify([
       { id: 'wp_desktop_1', name: '桌面地标1', lng: 116.4, lat: 39.9, type: 'camp', folder: 'default' }
     ]));
 
-    // Execute full sync (silent mode)
-    await window.executeFullSync({ username: 'tester', syncKey: 'user_tester' }, false);
-    await sleep(100);
+    // Click drawer sync button and await completion
+    if (btnFavDrawerSync) {
+      await window.handleManualCloudSync(btnFavDrawerSync);
+      await sleep(100);
+    }
 
     const mergedLocal = JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]');
     out.mergedCount = mergedLocal.length;
@@ -173,11 +180,11 @@ app.whenReady().then(async () => {
     return out;
   }).toString() + ')()');
 
-  console.log('Test v1.8.2 results:', JSON.stringify(result, null, 2));
+  console.log('Test v1.8.3 results:', JSON.stringify(result, null, 2));
 
   // Assertions:
-  assert.ok(result.appVersion.startsWith('1.8.'), 'App version should be 1.8.x');
-  assert.ok(result.badgeText.startsWith('v1.8.'), 'Badge text should be v1.8.x');
+  assert.strictEqual(result.appVersion, '1.8.3', 'App version should be 1.8.3');
+  assert.strictEqual(result.badgeText, 'v1.8.3', 'Badge text should be v1.8.3');
 
   // Step 1:
   assert.strictEqual(result.step1.startName, '成都市');
@@ -215,11 +222,15 @@ app.whenReady().then(async () => {
 
   // Cloud sync assertions:
   assert.strictEqual(result.hasBtnSyncNow, true, 'btn-sync-now button must exist');
+  assert.strictEqual(result.hasBtnFavDrawerSync, true, 'btn-fav-drawer-sync button must exist in favorites drawer');
+  assert.ok(result.btnFavDrawerSyncText.includes('同步'), 'Drawer sync button text must contain 同步');
+  assert.strictEqual(result.hasElectronOnWindowFocus, false, 'onWindowFocus IPC handler must be removed');
+  assert.strictEqual(result.hasHandleManualSync, true, 'handleManualCloudSync must exist');
   assert.strictEqual(result.hasExecuteFullSync, true, 'executeFullSync must exist');
   assert.strictEqual(result.hasWebWaypoint, true, 'Web waypoint must be merged into desktop storage');
   assert.strictEqual(result.mergedCount, 2, 'Merged waypoints count must be 2');
 
-  console.log('✅ ALL v1.8.2 TESTS PASSED SUCCESSFULLY!');
+  console.log('✅ ALL v1.8.3 TESTS PASSED SUCCESSFULLY!');
   clearTimeout(watchdog);
   app.quit();
 }).catch(err => {

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.2';
+const APP_VERSION = '1.8.3';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -2064,10 +2064,6 @@ function setupOfficeHeaderInteractions(map) {
         try { map.touchPitch.enable(); } catch (e) {}
       }
       if (statusPitchLock) statusPitchLock.innerText = '';
-    }
-
-    if (typeof window.triggerRealtimeCloudSync === 'function') {
-      window.triggerRealtimeCloudSync('pitch_lock_changed');
     }
   };
   updatePitchLockFn = updatePitchLockState;
@@ -4416,17 +4412,6 @@ function setupCloudSync(map) {
   };
   window.openSyncModal = openSyncModal;
 
-  // 监听地图视口停止拖动/平移，节流自动同步当前中心点与仰角 (5s 节流)
-  let moveSyncThrottleTimer = null;
-  map.on('moveend', () => {
-    if (!getLoggedInUser()) return;
-    if (moveSyncThrottleTimer) return;
-    moveSyncThrottleTimer = setTimeout(() => {
-      moveSyncThrottleTimer = null;
-      triggerRealtimeCloudSync('view_changed');
-    }, 5000);
-  });
-
   // 执行全量双向智能合并与云端同步
   const executeFullSync = async (user, isUserInitiated = true) => {
     const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
@@ -4640,50 +4625,39 @@ function setupCloudSync(map) {
     }
   });
 
-  // 绑定 "🔄 立即同步" 按钮
-  const btnSyncNow = document.getElementById('btn-sync-now');
-  btnSyncNow?.addEventListener('click', async () => {
+  // 手动同步触发逻辑 (支持同步弹窗中的 "🔄 立即同步" 与收藏夹抽屉中的 "🔄 同步" 按钮)
+  const handleManualSync = async (btnEl = null) => {
     const user = getLoggedInUser();
-    if (!user) return;
-    btnSyncNow.disabled = true;
-    btnSyncNow.innerText = '⏳ 正在同步...';
+    if (!user) {
+      openSyncModal();
+      showStatus('请先登录以同步云端数据', true);
+      return;
+    }
+    const originalHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = btnEl.id === 'btn-fav-drawer-sync'
+        ? '<span style="display: inline-block;">⏳</span> 同步中...'
+        : '⏳ 正在同步...';
+    }
     try {
       await executeFullSync(user, true);
     } finally {
-      btnSyncNow.disabled = false;
-      btnSyncNow.innerText = '🔄 立即同步';
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalHtml;
+      }
     }
-  });
-
-  // 窗口重新获得焦点或切回前台时，自动执行静默增量漫游同步 (10秒防抖)
-  let lastFocusSyncTime = Date.now();
-  const triggerFocusSync = () => {
-    const user = getLoggedInUser();
-    if (!user) return;
-    const now = Date.now();
-    if (now - lastFocusSyncTime < 10000) return;
-    lastFocusSyncTime = now;
-    console.log('[CloudSync] 窗口激活聚焦，静默拉取云端同步数据...');
-    executeFullSync(user, false);
   };
+  window.handleManualCloudSync = handleManualSync;
 
-  window.addEventListener('focus', triggerFocusSync);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') triggerFocusSync();
-  });
-  if (window.electronAPI?.onWindowFocus) {
-    window.electronAPI.onWindowFocus(triggerFocusSync);
-  }
+  const btnSyncNow = document.getElementById('btn-sync-now');
+  btnSyncNow?.addEventListener('click', () => handleManualSync(btnSyncNow));
 
-  // 后台定时静默轮询漫游同步 (每 25 秒自动核验并合并云端最新地标与路线)
-  setInterval(() => {
-    const user = getLoggedInUser();
-    if (user) {
-      executeFullSync(user, false);
-    }
-  }, 25000);
+  const btnFavDrawerSync = document.getElementById('btn-fav-drawer-sync');
+  btnFavDrawerSync?.addEventListener('click', () => handleManualSync(btnFavDrawerSync));
 
-  // 页面启动时：如果已记住登录状态，自动执行一次后台全量漫游同步
+  // 页面启动时：如果已记住登录状态，自动执行一次初始全量漫游同步
   const currentUser = getLoggedInUser();
   if (currentUser) {
     setTimeout(() => {
