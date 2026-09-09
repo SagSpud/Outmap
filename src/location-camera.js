@@ -21,7 +21,8 @@
     }
     // All coordinates are CSS pixels, independent of devicePixelRatio.
     // Anchor the geographic pin, not a screen-fixed imitation of its marker.
-    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.62));
+    const isCentered = Boolean(centered);
+    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (isCentered ? 0.5 : 0.62));
   }
 
   function cancel(map) { active.get(map)?.dispose(); }
@@ -36,6 +37,7 @@
     const settleTimers = [];
     let progress = 0;
     let isFlying = true;
+    const isCentered = Boolean(options.centered);
     const previousCameraUpdate = map.transformCameraUpdate;
     const subscriptions = [];
     const listen = (type, fn) => { map.on(type, fn); subscriptions.push([type, fn]); };
@@ -73,7 +75,7 @@
       tr.setCenter(target);
       const elevation = map.queryTerrainElevation(coords);
       if (Number.isFinite(elevation)) tr.setElevation(elevation);
-      tr.setLocationAtPoint(target, anchor(map, options.centered));
+      tr.setLocationAtPoint(target, anchor(map, isCentered));
       return { center: tr.center, elevation: tr.elevation };
     }
 
@@ -96,15 +98,12 @@
     function refine() {
       frame = 0;
       if (disposed || !arrived || map.isMoving()) return;
-      const p = map.project(coords), desired = anchor(map, options.centered);
+      const p = map.project(coords), desired = anchor(map, isCentered);
       if (Math.hypot(p.x - desired.x, p.y - desired.y) < 2) return;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
       const settleDuration = (reduced || duration === 0) ? 0 : 250;
-      // MapLibre does not call easing for a zero-duration transition, so mark
-      // its only frame as final before transformCameraUpdate runs.
       progress = settleDuration === 0 ? 1 : 0;
-      // Late DEM revisions use a cancellable native transition, never jumpTo.
       map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
         duration: settleDuration, easing, essential: false });
       internal = false;
@@ -122,21 +121,20 @@
         if (disposed || arrived || map.isMoving()) return;
         arrived = true;
         refine();
-        // A target DEM tile can arrive without producing a useful idle window.
-        // Two bounded checks cover that race without a permanent polling loop.
         settleTimers.push(setTimeout(refine, 250), setTimeout(refine, 1000));
         if (!disposed) options.onArrival?.();
       });
     });
     const solved = endpoint(zoom, pitch, bearing);
     const center = map.getCenter();
-    const nearby = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]) < 0.25;
+    const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
+    const nearby = distDeg < 0.6;
     internal = true;
-    // Short hops interpolate monotonically; distant flights retain the native arc.
+    // Short hops interpolate monotonically; distant flights retain smooth easing arc.
     const method = nearby ? 'easeTo' : 'flyTo';
     if (duration === 0) progress = 1;
     map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
-      padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
+      padding: zeroPadding, duration, curve: 1.42, easing, essential: false });
     internal = false;
     // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);

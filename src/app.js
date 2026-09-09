@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.7';
+const APP_VERSION = '1.6.8';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -836,7 +836,7 @@ async function initApplication() {
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxZoom: 18, // 限制最大缩放层级为 18 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
-    fadeDuration: 180, // 标签跨瓦片层级交接时短暂渐变，避免整数层级硬切闪烁
+    fadeDuration: 30, // 标签跨瓦片层级快速平滑交接，削减高速漫游与飞掠时的全屏 Alpha 混合计算开销
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
     renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
@@ -1929,8 +1929,9 @@ window.refreshRouteElevationProfile = refreshRouteElevationProfile;
 
 // Search, favourites and route points share one cancellable camera transaction.
 function flyToLocationPrecisely(map, coords, options = {}) {
+  const flyOpts = { centered: true, ...options };
   window.OutmapLocationCamera.fly(map, coords, {
-    ...options,
+    ...flyOpts,
     onArrival: () => {
       refreshAllRouteMarkersElevation(map);
       refreshRouteElevationProfile(map);
@@ -4689,9 +4690,10 @@ function setupWaypointAndFavoritesSystem(map) {
 
       wrapper.appendChild(pin);
 
-      wrapper.addEventListener('click', () => {
+      wrapper.addEventListener('click', (e) => {
+        e.stopPropagation();
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.5, pitch: curPitch, duration: 850 });
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.5, pitch: curPitch, duration: 850, centered: true });
       });
 
       const marker = new maplibregl.Marker({ element: wrapper, anchor: 'center' })
@@ -4884,7 +4886,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
       item.querySelector('.fav-item-info').addEventListener('click', () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.2, pitch: curPitch, duration: 850 });
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], { zoom: 14.2, pitch: curPitch, duration: 850, centered: true });
       });
 
       item.querySelector('.fav-item-del').addEventListener('click', (e) => {
