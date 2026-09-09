@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -4946,26 +4946,33 @@ function positionRouteFloatingDropdown(inputEl) {
     hideRouteFloatingDropdown();
     return;
   }
-  const spaceBelow = window.innerHeight - rect.bottom;
-  const spaceAbove = rect.top;
-
+  const viewport = window.visualViewport;
+  const viewportTop = viewport ? viewport.offsetTop : 0;
+  const viewportLeft = viewport ? viewport.offsetLeft : 0;
+  const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+  const viewportRight = viewport ? viewport.offsetLeft + viewport.width : window.innerWidth;
   const isMobile = window.innerWidth <= 768;
   const margin = isMobile ? 8 : 10;
-  const maxW = window.innerWidth - margin * 2;
+  const spaceBelow = Math.max(0, viewportBottom - rect.bottom - margin);
+  const spaceAbove = Math.max(0, rect.top - viewportTop - margin);
+  const maxW = Math.max(180, viewportRight - viewportLeft - margin * 2);
   const width = Math.min(maxW, Math.max(isMobile ? 240 : 260, rect.width));
-  const left = Math.max(margin, Math.min(window.innerWidth - width - margin, rect.left));
+  const left = Math.max(viewportLeft + margin, Math.min(viewportRight - width - margin, rect.left));
 
   floatingEl.style.left = `${left}px`;
   floatingEl.style.width = `${width}px`;
 
-  const availableHeight = Math.max(spaceBelow, spaceAbove);
-  floatingEl.style.maxHeight = `${Math.min(240, Math.max(120, availableHeight - 14))}px`;
+  const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
+  const availableHeight = placeAbove ? spaceAbove : spaceBelow;
+  const maxHeight = Math.max(44, Math.min(240, Math.floor(availableHeight - 4)));
+  floatingEl.style.maxHeight = `${maxHeight}px`;
 
-  if (spaceBelow < 180 && spaceAbove > spaceBelow) {
-    floatingEl.style.top = 'auto';
-    floatingEl.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+  if (placeAbove) {
+    const contentHeight = Math.min(maxHeight, floatingEl.scrollHeight || maxHeight);
+    floatingEl.style.top = `${Math.max(viewportTop + margin, rect.top - contentHeight - 4)}px`;
+    floatingEl.style.bottom = 'auto';
   } else {
-    floatingEl.style.top = `${rect.bottom + 4}px`;
+    floatingEl.style.top = `${Math.min(rect.bottom + 4, viewportBottom - margin - maxHeight)}px`;
     floatingEl.style.bottom = 'auto';
   }
 }
@@ -4983,6 +4990,8 @@ if (typeof window !== 'undefined') {
   };
   window.addEventListener('scroll', handleDropdownReposition, true);
   window.addEventListener('resize', handleDropdownReposition);
+  window.visualViewport?.addEventListener('resize', handleDropdownReposition);
+  window.visualViewport?.addEventListener('scroll', handleDropdownReposition);
 }
 
 // 统一绑定起点、终点及途径点输入框的实时搜索、拼音联想与回车直达 (接入全局浮动下拉框)
@@ -5135,8 +5144,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       floatingEl.appendChild(mapPickRow);
     }
 
-    positionRouteFloatingDropdown(inputEl);
     floatingEl.style.display = 'flex';
+    positionRouteFloatingDropdown(inputEl);
   };
 
   inputEl.addEventListener('input', () => {
@@ -5241,6 +5250,10 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   inputEl.addEventListener('focus', () => {
     if (typeof window.exitRoutePickingMode === 'function') window.exitRoutePickingMode();
     if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
+    if (window.innerWidth <= 768) {
+      inputEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      requestAnimationFrame(() => positionRouteFloatingDropdown(inputEl));
+    }
     const val = (inputEl.value || '').trim();
     if (val) {
       const seq = ++requestSequence;
@@ -5557,6 +5570,7 @@ function setRouteEndPoint(map, coords, label, zoom = null) {
 
 // 核心自动化多途径点规划与海拔剖面解算引擎
 let currentRouteRequestId = 0;
+let currentRouteAbortController = null;
 
 // 寻找第一个文本/图标标注图层 (symbol 类型)，将路线置于标注文字之下，保证路名与地名清爽可见
 function findFirstRoadLabelLayerId(map) {
@@ -5692,27 +5706,25 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
     totalDistKm = roadDistanceKm;
   }
 
+  const formatHours = hrs => hrs < 1
+    ? `${Math.max(1, Math.round(hrs * 60))}分钟`
+    : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
   let timeStr = '';
-  if (activeRouteMode === 'drive') {
-    if (roadDurationSec && roadDurationSec > 0) {
-      const hrs = roadDurationSec / 3600;
-      if (hrs < 1) {
-        timeStr = `${Math.max(1, Math.round(roadDurationSec / 60))}分钟`;
-      } else {
-        timeStr = `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
-      }
-    } else {
+  // Dedicated car/bike/foot routers already return mode-specific travel time.
+  // Prefer that over a single generic speed whenever every chunk matched roads.
+  if (isRealRoad && roadDurationSec && roadDurationSec > 0) {
+    timeStr = formatHours(roadDurationSec / 3600);
+  } else if (activeRouteMode === 'drive') {
       const hrs = totalDistKm / 48;
-      timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
-    }
+      timeStr = formatHours(hrs);
   } else if (activeRouteMode === 'cycle') {
     // 真实户外骑行规律：平地基准 ~18 km/h，叠加海拔爬升 (每 600m 爬升增加 1 小时)
     const hrs = (totalDistKm / 18) + (totalAscent / 600);
-    timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+    timeStr = formatHours(hrs);
   } else {
     // 国际标准 Naismith 户外徒步法则：平地基准 ~4.5 km/h，每 450m 爬升增加 1 小时
     const hrs = (totalDistKm / 4.5) + (totalAscent / 450);
-    timeStr = hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))}分钟` : `${Math.floor(hrs)}小时${Math.round((hrs % 1) * 60)}分`;
+    timeStr = formatHours(hrs);
   }
 
   if (distEl) distEl.innerText = `${totalDistKm.toFixed(1)} km${isRealRoad ? '' : ' (导引)'}`;
@@ -5762,6 +5774,9 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   const map = mapInstance || currentOutdoorMap;
   if (!map) return;
   const reqId = ++currentRouteRequestId;
+  currentRouteAbortController?.abort();
+  const routeController = new AbortController();
+  currentRouteAbortController = routeController;
   const ordered = [];
   const validVias = routeViaPoints.filter(v => v && v.coords);
 
@@ -5801,6 +5816,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     if (statsBox) statsBox.style.display = 'none';
     if (chartSection) chartSection.style.display = 'none';
     currentProfileData = [];
+    currentPlannedRouteCoords = [];
+    currentRouteMetrics = null;
     return;
   }
 
@@ -5845,33 +5862,58 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         return { coords: seg, distKm, durationSec: (distKm / 48) * 3600, isRoad: false };
       };
 
+      const limitGeometryPoints = coords => {
+        if (!Array.isArray(coords)) return [];
+        const maxPoints = window.innerWidth <= 768 ? 6000 : 12000;
+        if (coords.length <= maxPoints) return coords;
+        const step = Math.ceil((coords.length - 1) / (maxPoints - 1));
+        const reduced = [];
+        for (let i = 0; i < coords.length - 1; i += step) reduced.push(coords[i]);
+        reduced.push(coords[coords.length - 1]);
+        return reduced;
+      };
+
+      const fetchWithTimeout = async (url, timeoutMs) => {
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        routeController.signal.addEventListener('abort', abort, { once: true });
+        const timer = setTimeout(abort, timeoutMs);
+        try {
+          return await fetch(url, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+          routeController.signal.removeEventListener('abort', abort);
+        }
+      };
+
       const fetchSubRoute = async (subPoints) => {
         const coordStr = subPoints.map(p => `${p.coords[0].toFixed(5)},${p.coords[1].toFixed(5)}`).join(';');
         const localRouteUrl = `http://127.0.0.1:${localServerPort}/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
-        const onlineRouteUrl = `https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
+        const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
+        const onlineRouteUrl = `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
 
         let resp = null;
         if (window.electronAPI) {
           try {
-            resp = await fetch(localRouteUrl, { signal: AbortSignal.timeout(3500) });
+            resp = await fetchWithTimeout(localRouteUrl, 13000);
             if (!resp.ok) throw new Error('Local unavailable');
-          } catch (e) {
-            try {
-              resp = await fetch(onlineRouteUrl, { signal: AbortSignal.timeout(4000) });
-            } catch (e2) {}
-          }
+          } catch (e) {}
         } else {
           try {
-            resp = await fetch(onlineRouteUrl, { signal: AbortSignal.timeout(4000) });
+            resp = await fetchWithTimeout(onlineRouteUrl, 12000);
           } catch (e) {}
         }
+
+        if (routeController.signal.aborted) return null;
 
         if (resp && resp.ok) {
           try {
             const data = await resp.json();
             if (data.code === 'Ok' && data.routes && data.routes[0]) {
               return {
-                coords: data.routes[0].geometry.coordinates,
+                // Long-distance routes can contain tens of thousands of tiny
+                // vertices. Keep their shape while bounding mobile WebGL work.
+                coords: limitGeometryPoints(data.routes[0].geometry.coordinates),
                 distKm: data.routes[0].distance / 1000,
                 durationSec: data.routes[0].duration,
                 isRoad: data.source !== 'local-engine'
@@ -5907,19 +5949,30 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         chunks.push(ordered.slice(i, Math.min(ordered.length, i + CHUNK_SIZE + 1)));
       }
 
-      const subResults = await Promise.all(chunks.map(chunk => fetchSubRoute(chunk)));
+      // Bound concurrency so dozens of waypoints do not flood the browser,
+      // local proxy or public routing service with simultaneous requests.
+      const subResults = new Array(chunks.length);
+      let nextChunk = 0;
+      const worker = async () => {
+        while (!routeController.signal.aborted) {
+          const index = nextChunk++;
+          if (index >= chunks.length) return;
+          subResults[index] = await fetchSubRoute(chunks[index]);
+        }
+      };
+      const maxWorkers = window.innerWidth <= 768 ? 2 : 3;
+      await Promise.all(Array.from({ length: Math.min(maxWorkers, chunks.length) }, worker));
       if (reqId !== currentRouteRequestId) return;
 
       const mergedCoords = [];
       let mergedDistKm = 0;
       let mergedDurationSec = 0;
-      let hasAnyRoad = false;
+      const isEntireRouteRoad = subResults.length > 0 && subResults.every(res => res?.isRoad);
 
       subResults.forEach((res, rIdx) => {
         if (!res || !res.coords || res.coords.length === 0) return;
         mergedDistKm += res.distKm || 0;
         mergedDurationSec += res.durationSec || 0;
-        if (res.isRoad) hasAnyRoad = true;
 
         if (rIdx === 0 || mergedCoords.length === 0) {
           mergedCoords.push(...res.coords);
@@ -5937,8 +5990,9 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       });
 
       if (mergedCoords.length > 0) {
-        renderRouteGeometry(map, mergedCoords);
-        updateProfileAndMetrics(map, mergedCoords, mergedDistKm, mergedDurationSec, hasAnyRoad, false);
+        const finalCoords = limitGeometryPoints(mergedCoords);
+        renderRouteGeometry(map, finalCoords);
+        updateProfileAndMetrics(map, finalCoords, mergedDistKm, mergedDurationSec, isEntireRouteRoad, false);
       }
     } catch (e) {
       if (reqId === currentRouteRequestId && distEl) {

@@ -512,14 +512,25 @@ function startLocalTileServer() {
         if (type === 'route' && parts.length >= 4) {
           const profile = parts[2];
           const coordStr = parts[3];
-          const cleanKey = `route_${profile}_${coordStr.replace(/[^0-9a-zA-Z]/g, '_').slice(0, 100)}`;
+          const upstreamController = new AbortController();
+          req.once('aborted', () => upstreamController.abort());
+          res.once('close', () => {
+            if (!res.writableEnded) upstreamController.abort();
+          });
+          // Hash the complete coordinate list. Truncating long lists caused
+          // unrelated many-waypoint routes to collide with the same cache file.
+          const routeHash = crypto.createHash('sha256').update(`${profile}:${coordStr}`).digest('hex').slice(0, 32);
+          const cleanKey = `route_${profile}_${routeHash}`;
           const localRoutePath = path.join(OFFLINE_ROUTE_DIR, `${cleanKey}.json`);
 
           // 1. 本地持久化路线缓存优先 (0.01ms 直出，100% 离线)
           if (fs.existsSync(localRoutePath)) {
             try {
               const data = await fs.promises.readFile(localRoutePath, 'utf8');
-              if (data && data.length > 20) {
+              const cached = data && data.length > 20 ? JSON.parse(data) : null;
+              // Older versions persisted straight-line emergency results as if
+              // they were road routes. Ignore those so the next request can heal.
+              if (cached && cached.source !== 'local-engine') {
                 res.writeHead(200, {
                   'Content-Type': 'application/json',
                   'Cache-Control': 'private, max-age=3600',
@@ -531,14 +542,20 @@ function startLocalTileServer() {
             } catch (e) {}
           }
 
-          // 2. 尝试在线 OSRM 并自动落盘写入本地离线路线库
+          // 2. Three dedicated public OSRM profiles, then persist real road data.
           try {
-            const osrmUrl = `https://router.project-osrm.org/route/v1/${profile}/${coordStr}?overview=full&geometries=geojson`;
-            const osrmResp = await fetch(osrmUrl, { signal: AbortSignal.timeout(2800) });
+            const routedService = profile === 'bike' ? 'routed-bike' : (profile === 'foot' ? 'routed-foot' : 'routed-car');
+            const osrmUrl = `https://routing.openstreetmap.de/${routedService}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+            const timeoutSignal = AbortSignal.timeout(10000);
+            const upstreamSignal = typeof AbortSignal.any === 'function'
+              ? AbortSignal.any([upstreamController.signal, timeoutSignal])
+              : timeoutSignal;
+            const osrmResp = await fetch(osrmUrl, { signal: upstreamSignal });
             if (osrmResp.ok) {
-              const text = await osrmResp.text();
-              const json = JSON.parse(text);
+              const json = await osrmResp.json();
               if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
+                json.source = 'road-engine';
+                const text = JSON.stringify(json);
                 try {
                   await fs.promises.writeFile(localRoutePath, text, 'utf8');
                 } catch (e) {}
@@ -552,6 +569,10 @@ function startLocalTileServer() {
               }
             }
           } catch (e) {}
+
+          // The renderer already requested a newer route; do not keep computing
+          // or attempt to write an emergency response to a closed connection.
+          if (upstreamController.signal.aborted || req.aborted || res.destroyed) return;
 
           // 3. 离线/断网/超时时：本地三维地势连续折线路由引擎 (保障 100% 返回有效 GeoJSON)
           const pts = coordStr.split(';').map(s => s.split(',').map(Number));
@@ -591,10 +612,6 @@ function startLocalTileServer() {
               }],
               source: 'local-engine'
             });
-
-            try {
-              await fs.promises.writeFile(localRoutePath, fallbackPayload, 'utf8');
-            } catch (e) {}
 
             res.writeHead(200, {
               'Content-Type': 'application/json',
