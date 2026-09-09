@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.6.6';
+const APP_VERSION = '1.6.7';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -2454,12 +2454,20 @@ function setupOfficeHeaderInteractions(map) {
     resultsContainer.style.display = 'block';
   }
 
-  function closeSearchPopover() {
+  function closeSearchPopover(clearText = false) {
     ++searchRequestSequence;
     clearTimeout(searchDebounceTimer);
+    if (sInput) {
+      if (clearText) sInput.value = '';
+      sInput.blur();
+    }
     if (searchPopover && searchPopover.style.display !== 'none') {
       smoothClosePopover(searchPopover, () => {
-        if (sInput) sInput.blur();
+        if (sInput) {
+          if (clearText) sInput.value = '';
+          sInput.blur();
+        }
+        if (resultsContainer) resultsContainer.style.display = 'none';
       });
     }
   }
@@ -2573,9 +2581,7 @@ function setupOfficeHeaderInteractions(map) {
         doSearch();
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        sInput.value = '';
-        sInput.blur();
-        closeSearchPopover();
+        closeSearchPopover(true);
         if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
       }
     });
@@ -2649,7 +2655,7 @@ function setupOfficeHeaderInteractions(map) {
       e.stopPropagation();
       e.preventDefault();
     }
-    closeSearchPopover();
+    closeSearchPopover(true);
   };
   searchClose?.addEventListener('click', handleCloseSearch);
   searchClose?.addEventListener('touchend', handleCloseSearch);
@@ -2661,7 +2667,7 @@ function setupOfficeHeaderInteractions(map) {
   });
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') closeSearchPopover();
+      if (e.key === 'Escape') closeSearchPopover(true);
     });
 
     // 点击/拖拽地图主界面时，立即关闭搜索框
@@ -6168,12 +6174,12 @@ function renderRouteGeometry(map, pathCoords) {
 function setRoutePendingVisual(map, isPending) {
   try {
     if (map.getLayer('outdoor-route-casing')) {
-      map.setPaintProperty('outdoor-route-casing', 'line-opacity', isPending ? 0.5 : 1);
-      map.setPaintProperty('outdoor-route-casing', 'line-dasharray', isPending ? [1.2, 1.15] : null);
+      map.setPaintProperty('outdoor-route-casing', 'line-opacity', 1.0);
+      map.setPaintProperty('outdoor-route-casing', 'line-dasharray', null);
     }
     if (map.getLayer('outdoor-route-line')) {
-      map.setPaintProperty('outdoor-route-line', 'line-opacity', isPending ? 0.68 : 1);
-      map.setPaintProperty('outdoor-route-line', 'line-dasharray', isPending ? [1.2, 1.15] : null);
+      map.setPaintProperty('outdoor-route-line', 'line-opacity', 1.0);
+      map.setPaintProperty('outdoor-route-line', 'line-dasharray', null);
     }
   } catch (e) {}
 }

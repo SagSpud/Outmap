@@ -744,6 +744,16 @@ body.web-mode #manage-modal {
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
+.search-popover-box.popover-closing {
+  animation: fadeOutSearchPopover 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
+  pointer-events: none !important;
+}
+
+@keyframes fadeOutSearchPopover {
+  0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.97); }
+}
+
 .spotlight-search-header {
   display: flex;
   align-items: center;
@@ -2066,6 +2076,152 @@ body.web-mode #manage-modal {
 .modal-btn.secondary:hover {
   background: #f1f5f9;
   color: #0f172a;
+}
+
+/* =========================================================
+   瓦片金字塔离线地图下载专属半透明磨砂亚克力规范 (Fluent 2 Acrylic)
+   底图保持清晰完全可见，弹窗自身及内部原生控件统一微透光磨砂质感
+   ========================================================= */
+#pyramid-modal.modal-overlay {
+  background: rgba(15, 23, 42, 0.12) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#pyramid-modal .modal-card {
+  background: rgba(255, 255, 255, 0.82) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.7) inset !important;
+}
+
+#pyramid-modal .modal-header {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.7) !important;
+}
+
+#pyramid-modal .modal-body {
+  background: transparent !important;
+}
+
+#pyramid-modal .modal-footer {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-top: 1px solid rgba(226, 232, 240, 0.7) !important;
+}
+
+#pyramid-modal .prov-act-btn {
+  background: rgba(255, 255, 255, 0.75) !important;
+  border: 1px solid rgba(203, 213, 225, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+#pyramid-modal .prov-act-btn:hover {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+#pyramid-modal .prov-selected-badge {
+  background: rgba(224, 242, 254, 0.85) !important;
+  border: 1px solid rgba(186, 230, 253, 0.8) !important;
+}
+
+#pyramid-modal .prov-dropdown-trigger {
+  background: rgba(255, 255, 255, 0.75) !important;
+  border: 1px solid rgba(203, 213, 225, 0.8) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+#pyramid-modal .prov-dropdown-trigger:hover {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: #0284c7 !important;
+}
+
+#pyramid-modal .prov-dropdown-panel {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+  border: 1px solid rgba(226, 232, 240, 0.85) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12) !important;
+}
+
+#pyramid-modal .prov-multi-grid {
+  background: rgba(248, 250, 252, 0.65) !important;
+  border: 1px solid rgba(226, 232, 240, 0.7) !important;
+}
+
+#pyramid-modal .prov-chip-item {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border: 1px solid rgba(226, 232, 240, 0.85) !important;
+}
+
+#pyramid-modal .prov-chip-item:hover {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border-color: #94a3b8 !important;
+}
+
+#pyramid-modal .zoom-pill-group.inline-pills .zoom-pill {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border: 1px solid rgba(226, 232, 240, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+#pyramid-modal .zoom-pill-group.inline-pills .zoom-pill:hover {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: #cbd5e1 !important;
+}
+
+#pyramid-modal .zoom-pill-group.inline-pills .zoom-pill.active {
+  background: rgba(240, 249, 255, 0.92) !important;
+  border-color: #38bdf8 !important;
+  color: #0284c7 !important;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.16) !important;
+}
+
+#pyramid-modal .btn-check-tile-update {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border: 1px solid rgba(203, 213, 225, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #334155;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+#pyramid-modal .btn-check-tile-update:hover {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: #0284c7 !important;
+  color: #0284c7 !important;
+}
+
+#pyramid-modal .stat-summary-box.dl-unified-box {
+  background: rgba(248, 250, 252, 0.65) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(226, 232, 240, 0.75) !important;
+}
+
+#pyramid-modal .modal-btn.secondary {
+  background: rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid rgba(203, 213, 225, 0.8) !important;
+  color: #475569 !important;
+}
+
+#pyramid-modal .modal-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: #0f172a !important;
 }
 
 /* =========================================================
@@ -4432,6 +4588,10 @@ body.web-mode .office-prov-group {
     z-index: 2500 !important;
     border-radius: 12px !important;
     box-shadow: 0 12px 35px rgba(0, 0, 0, 0.28) !important;
+  }
+
+  .search-popover-box.popover-closing {
+    animation: fadeOutSearchPopoverMobile 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important;
   }
 
   .spotlight-search-header input {
