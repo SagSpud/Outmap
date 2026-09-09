@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.6';
+const APP_VERSION = '1.7.8';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -597,52 +597,142 @@ function formatTileDisplay(count, bytes) {
   return countStr;
 }
 
-// 智能双向合并算法 (本地与云端求并集，确保双方新加的数据均不丢失)
-function mergeWaypoints(localList = [], cloudList = []) {
-  const map = new Map();
-  (cloudList || []).forEach(item => {
-    if (!item) return;
-    const lng = item.lng ?? item.coords?.[0];
-    const lat = item.lat ?? item.coords?.[1];
-    const key = item.id || `${item.name}_${lng},${lat}`;
-    map.set(key, item);
-  });
-  (localList || []).forEach(item => {
-    if (!item) return;
-    const lng = item.lng ?? item.coords?.[0];
-    const lat = item.lat ?? item.coords?.[1];
-    const key = item.id || `${item.name}_${lng},${lat}`;
-    map.set(key, item);
-  });
-  return Array.from(map.values());
+// 智能双向合并算法与跨端删除墓碑机制 (彻底解决设备随机ID冲突、死而复生与坐标小数位漂移)
+function getDeletedWaypoints() {
+  try {
+    return JSON.parse(localStorage.getItem('outmap_deleted_waypoints') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function addDeletedWaypointTombstone(wp) {
+  if (!wp) return;
+  try {
+    const list = getDeletedWaypoints();
+    const id = wp.id;
+    const lng = Number(wp.lng ?? wp.coords?.[0]);
+    const lat = Number(wp.lat ?? wp.coords?.[1]);
+    const name = (wp.name || '').trim();
+    list.push({
+      id,
+      name,
+      lng: Number.isFinite(lng) ? lng.toFixed(5) : null,
+      lat: Number.isFinite(lat) ? lat.toFixed(5) : null,
+      time: Date.now()
+    });
+    const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+    const trimmed = list.filter(item => item.time > cutoff).slice(-500);
+    localStorage.setItem('outmap_deleted_waypoints', JSON.stringify(trimmed));
+  } catch (e) {}
+}
+
+function normalizeWaypoint(wp) {
+  if (!wp || typeof wp !== 'object') return null;
+  const lng = Number(wp.lng ?? wp.coords?.[0]);
+  const lat = Number(wp.lat ?? wp.coords?.[1]);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return {
+    ...wp,
+    id: wp.id || `wp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+    name: (wp.name || '地标').trim(),
+    type: wp.type || 'camp',
+    folder: wp.folder || 'default',
+    lng,
+    lat,
+    coords: [lng, lat],
+    ele: (wp.ele !== undefined && wp.ele !== null) ? wp.ele : 0,
+    time: wp.time || new Date().toLocaleDateString()
+  };
+}
+
+function areWaypointsEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.id && b.id && a.id === b.id) return true;
+  const dLng = Math.abs(a.lng - b.lng);
+  const dLat = Math.abs(a.lat - b.lat);
+  const sameCoords = dLng < 0.00005 && dLat < 0.00005; // 约 5 米以内
+  const sameName = a.name && b.name && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+  if (sameCoords) return true;
+  if (sameName && dLng < 0.001 && dLat < 0.001) return true; // 同名且在 100 米内
+  return false;
+}
+
+function isWaypointDeleted(wp, deletedList = []) {
+  if (!wp || !deletedList.length) return false;
+  for (const d of deletedList) {
+    if (wp.id && d.id && wp.id === d.id) return true;
+    if (d.name && wp.name && d.name.trim() === wp.name.trim()) {
+      if (d.lng && d.lat && wp.lng !== undefined && wp.lat !== undefined) {
+        const dLng = Math.abs(Number(d.lng) - wp.lng);
+        const dLat = Math.abs(Number(d.lat) - wp.lat);
+        if (dLng < 0.001 && dLat < 0.001) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function mergeWaypoints(localList = [], cloudList = [], deletedList = []) {
+  const allDeleted = deletedList.length ? deletedList : getDeletedWaypoints();
+  const result = [];
+  const normalizedLocal = (localList || []).map(normalizeWaypoint).filter(Boolean);
+  const normalizedCloud = (cloudList || []).map(normalizeWaypoint).filter(Boolean);
+
+  const combined = [...normalizedLocal, ...normalizedCloud];
+  for (const item of combined) {
+    if (isWaypointDeleted(item, allDeleted)) continue;
+    const existingIdx = result.findIndex(r => areWaypointsEqual(r, item));
+    if (existingIdx < 0) {
+      result.push(item);
+    } else {
+      const existing = result[existingIdx];
+      result[existingIdx] = {
+        ...item,
+        ...existing,
+        name: existing.name || item.name,
+        ele: (existing.ele !== undefined && existing.ele !== 0) ? existing.ele : item.ele,
+        folder: (existing.folder && existing.folder !== 'default') ? existing.folder : (item.folder || 'default')
+      };
+    }
+  }
+  return result;
 }
 
 function mergeRoutes(localList = [], cloudList = []) {
-  const map = new Map();
-  (cloudList || []).forEach(item => {
-    if (!item) return;
-    const key = item.id || `${item.name}_${item.distance}`;
-    map.set(key, item);
-  });
-  (localList || []).forEach(item => {
-    if (!item) return;
-    const key = item.id || `${item.name}_${item.distance}`;
-    map.set(key, item);
-  });
-  return Array.from(map.values());
+  const result = [];
+  const combined = [...(localList || []), ...(cloudList || [])];
+  for (const item of combined) {
+    if (!item) continue;
+    const dist = item.metrics?.distKm ?? item.distance ?? 0;
+    const name = (item.name || '').trim();
+    const existingIdx = result.findIndex(r => {
+      if (r.id && item.id && r.id === item.id) return true;
+      const rDist = r.metrics?.distKm ?? r.distance ?? 0;
+      const rName = (r.name || '').trim();
+      return rName === name && Math.abs(rDist - dist) < 0.1;
+    });
+    if (existingIdx < 0) {
+      result.push(item);
+    }
+  }
+  return result;
 }
 
 function mergeFolders(localList = [], cloudList = []) {
+  const result = [];
   const set = new Set();
-  const res = [];
-  [...(cloudList || []), ...(localList || [])].forEach(f => {
-    const val = typeof f === 'string' ? f : (f && f.name);
-    if (val && !set.has(val)) {
-      set.add(val);
-      res.push(f);
+  [...(localList || []), ...(cloudList || [])].forEach(f => {
+    if (!f) return;
+    const id = typeof f === 'string' ? f : (f.id || f.name);
+    const name = typeof f === 'string' ? f : f.name;
+    const key = (name || id || '').trim();
+    if (key && !set.has(key)) {
+      set.add(key);
+      result.push(typeof f === 'string' ? { id: key, name: key } : f);
     }
   });
-  return res;
+  return result;
 }
 
 async function initApplication() {
@@ -4050,6 +4140,62 @@ let cloudSyncUploading = false;
 let cloudSyncPending = false;
 const USER_ACCOUNT_STORAGE_KEY = 'outmap_user_account';
 
+// Standalone Web & Desktop Cloudflare R2 Cloud Sync Engine
+const WEB_R2_SYNC = {
+  accountId: 'f0423794f245054a81f1fbc59ea859c5',
+  bucket: 'sagspud',
+  accessKeyId: 'bd4944821b855719862c66cdc7700569',
+  secretAccessKey: 'aec00662af922369c4e84b81e6a7966f68349d5be90dbd1f5923db447d958d49'
+};
+const bytesToHex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
+async function webCryptoSha256(value) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  return crypto.subtle.digest('SHA-256', bytes);
+}
+async function webCryptoHmac(key, value) {
+  const rawKey = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+  const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(value));
+}
+async function uploadWebCloudSyncData({ syncKey, data }) {
+  const key = (syncKey || 'default').trim();
+  const host = `${WEB_R2_SYNC.accountId}.r2.cloudflarestorage.com`;
+  const canonicalUri = `/${WEB_R2_SYNC.bucket}/Outmap/sync/${encodeURIComponent(key)}.json`;
+  const body = JSON.stringify(data, null, 2);
+  const payloadHash = bytesToHex(await webCryptoSha256(body));
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+  const canonicalRequest = ['PUT', canonicalUri, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const scope = `${dateStamp}/auto/s3/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, bytesToHex(await webCryptoSha256(canonicalRequest))].join('\n');
+  const kDate = await webCryptoHmac(`AWS4${WEB_R2_SYNC.secretAccessKey}`, dateStamp);
+  const kRegion = await webCryptoHmac(kDate, 'auto');
+  const kService = await webCryptoHmac(kRegion, 's3');
+  const kSigning = await webCryptoHmac(kService, 'aws4_request');
+  const signature = bytesToHex(await webCryptoHmac(kSigning, stringToSign));
+  const authorization = `AWS4-HMAC-SHA256 Credential=${WEB_R2_SYNC.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${canonicalUri}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-amz-date': amzDate,
+      'x-amz-content-sha256': payloadHash,
+      Authorization: authorization
+    },
+    body
+  });
+  if (!response.ok) throw new Error(`网页同步上传失败 (HTTP ${response.status})`);
+  return { success: true };
+}
+async function uploadCloudSyncPayload(payload) {
+  if (window.electronAPI?.uploadCloudSyncData) return window.electronAPI.uploadCloudSyncData(payload);
+  return uploadWebCloudSyncData(payload);
+}
+window.uploadCloudSyncPayload = uploadCloudSyncPayload;
+
+
 function getLoggedInUser() {
   try {
     const raw = localStorage.getItem(USER_ACCOUNT_STORAGE_KEY);
@@ -4085,6 +4231,7 @@ async function triggerRealtimeCloudSync(reason = 'change') {
           favorites: JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]'),
           folders: JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]'),
           routes: JSON.parse(localStorage.getItem('outmap_saved_routes') || '[]'),
+          deletedWaypoints: getDeletedWaypoints(),
           views: window.mapInstance ? {
             center: window.mapInstance.getCenter(),
             zoom: window.mapInstance.getZoom(),
@@ -4098,8 +4245,8 @@ async function triggerRealtimeCloudSync(reason = 'change') {
         }
       };
 
-      if (window.electronAPI && window.electronAPI.uploadCloudSyncData) {
-        const res = await window.electronAPI.uploadCloudSyncData(payload);
+      {
+        const res = await uploadCloudSyncPayload(payload);
         const userBadge = document.getElementById('sync-user-status-badge');
         if (res && res.success) {
           console.log(`[CloudSync] 实时自动漫游同步成功 (${reason})`);
@@ -4236,8 +4383,15 @@ function setupCloudSync(map) {
       const localRoutes = JSON.parse(localStorage.getItem('outmap_saved_routes') || '[]');
       const localFolders = JSON.parse(localStorage.getItem('outmap_custom_folders') || '[]');
 
-      // 3. 全量智能双向合并 (双方新数据均保留)
-      const mergedFavs = cloudData?.favorites ? mergeWaypoints(localFavs, cloudData.favorites) : localFavs;
+      // 3. 墓碑与全量智能双向合并 (过滤已删除地标，避免跨端死而复生)
+      const cloudDeleted = cloudData?.deletedWaypoints || [];
+      const localDeleted = getDeletedWaypoints();
+      const mergedDeleted = [...localDeleted, ...cloudDeleted].filter((item, idx, arr) =>
+        arr.findIndex(x => (x.id && x.id === item.id) || (x.name === item.name && x.lng === item.lng && x.lat === item.lat)) === idx
+      ).slice(-500);
+      try { localStorage.setItem('outmap_deleted_waypoints', JSON.stringify(mergedDeleted)); } catch (e) {}
+
+      const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
       const mergedRoutes = cloudData?.routes ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
       const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
 
@@ -4262,6 +4416,7 @@ function setupCloudSync(map) {
           favorites: mergedFavs,
           folders: mergedFolders,
           routes: mergedRoutes,
+          deletedWaypoints: mergedDeleted,
           views: {
             center: map.getCenter(),
             zoom: map.getZoom(),
@@ -4275,8 +4430,8 @@ function setupCloudSync(map) {
         }
       };
 
-      if (window.electronAPI && window.electronAPI.uploadCloudSyncData) {
-        const upRes = await window.electronAPI.uploadCloudSyncData(payload);
+      {
+        const upRes = await uploadCloudSyncPayload(payload);
         if (!upRes || !upRes.success) {
           throw new Error(upRes?.message || '上传云端失败');
         }
@@ -5095,6 +5250,7 @@ function setupWaypointAndFavoritesSystem(map) {
       item.querySelector('.fav-item-del').addEventListener('click', (e) => {
         e.stopPropagation();
         if (confirm(`确定删除收藏点“${wp.name}”？`)) {
+          addDeletedWaypointTombstone(wp);
           savedWaypoints = savedWaypoints.filter(w => w.id !== wp.id);
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
@@ -6323,6 +6479,55 @@ let currentRouteAbortController = null;
 // Route must sit above every road surface but below road shields/names.
 // The former "first symbol" anchor was a water label placed before roads,
 // causing later yellow highway layers to paint over the green route.
+
+// Promote actual route state rather than only treating waypoints as endpoints
+// inside the calculation. Inputs, markers, export and saved routes then agree.
+function promoteMissingRouteEndpoints(mapInstance) {
+  const map = mapInstance || currentOutdoorMap;
+  let changed = false;
+  if (!routeStartCoord) {
+    const firstIndex = routeViaPoints.findIndex(v => v && v.coords);
+    if (firstIndex >= 0) {
+      const first = routeViaPoints.splice(firstIndex, 1)[0];
+      if (first.marker) {
+        try { first.marker.remove(); } catch (e) {}
+      }
+      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 14.5);
+      changed = true;
+    }
+  }
+  if (!routeEndCoord) {
+    let lastIndex = -1;
+    for (let i = routeViaPoints.length - 1; i >= 0; i--) {
+      if (routeViaPoints[i] && routeViaPoints[i].coords) {
+        lastIndex = i;
+        break;
+      }
+    }
+    if (lastIndex >= 0) {
+      const last = routeViaPoints.splice(lastIndex, 1)[0];
+      if (last.marker) {
+        try { last.marker.remove(); } catch (e) {}
+      }
+      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 14.5);
+      changed = true;
+    }
+  }
+  if (changed && map) {
+    renderViaList(map);
+    syncRouteMarkersVisualState(map);
+  }
+  return changed;
+}
+window.promoteMissingRouteEndpoints = promoteMissingRouteEndpoints;
+window.getRouteState = () => ({
+  routeStartCoord,
+  routeStartName,
+  routeEndCoord,
+  routeEndName,
+  routeViaPoints: [...(routeViaPoints || [])]
+});
+
 function findFirstRoadLabelLayerId(map) {
   try {
     const layers = map.getStyle()?.layers;
@@ -6634,6 +6839,7 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
 async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   const map = mapInstance || currentOutdoorMap;
   if (!map) return;
+  promoteMissingRouteEndpoints(map);
   clearTimeout(routePlanTimer);
   routePlanTimer = null;
   const reqId = ++currentRouteRequestId;
@@ -6643,26 +6849,13 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   const ordered = [];
   const validVias = routeViaPoints.filter(v => v && v.coords);
 
-  if (routeStartCoord) {
-    ordered.push({ coords: routeStartCoord, role: 'start', name: routeStartName });
-  } else if (validVias.length > 0) {
-    // 智能容错：若未单独设定起点，将首个有效途径点作为起点
-    const firstVia = validVias.shift();
-    ordered.push({ coords: firstVia.coords, role: 'start', name: firstVia.name });
-  }
+  if (routeStartCoord) ordered.push({ coords: routeStartCoord, role: 'start', name: routeStartName });
 
   if (routeEndCoord) {
     validVias.forEach((v, i) => {
       ordered.push({ coords: v.coords, role: 'via', name: v.name, index: i + 1 });
     });
     ordered.push({ coords: routeEndCoord, role: 'end', name: routeEndName });
-  } else if (validVias.length > 0) {
-    // 若未单独设定终点，最后一个途径点作为路线终点
-    for (let i = 0; i < validVias.length - 1; i++) {
-      ordered.push({ coords: validVias[i].coords, role: 'via', name: validVias[i].name, index: i + 1 });
-    }
-    const lastVia = validVias[validVias.length - 1];
-    ordered.push({ coords: lastVia.coords, role: 'end', name: lastVia.name, index: validVias.length });
   }
 
   syncRouteMarkersVisualState(map);
