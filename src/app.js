@@ -3586,9 +3586,14 @@ function setupPyramidModal(map) {
         const newlyAdded = data.newlyAddedCount || 0;
         detail = `${countPart} (最新 ${formatTileCount(unchanged)} · 更新 ${formatTileCount(updated)}${newlyAdded > 0 ? ` · 补齐 ${formatTileCount(newlyAdded)}` : ''})`;
       } else if (data.existingCount) {
-        detail = `${countPart} (已就绪 ${formatTileCount(data.existingCount)})`;
+        const newly = data.newlySavedCount || 0;
+        if (newly > 0) {
+          detail = `${countPart} (新下载 ${formatTileCount(newly)} · 本地已有 ${formatTileCount(data.existingCount)})`;
+        } else {
+          detail = `${countPart} (本地已有 ${formatTileCount(data.existingCount)})`;
+        }
       } else if (data.skippedCount) {
-        detail = `${countPart} (已跳过 ${formatTileCount(data.skippedCount)})`;
+        detail = `${countPart} (本地已有 ${formatTileCount(data.skippedCount)})`;
       }
 
       progressNum.innerText = detail;
@@ -6440,7 +6445,6 @@ function setupOutdoorRouteSystem(map) {
     document.body.classList.remove('picking-mode');
     map.getCanvas().style.cursor = '';
     btnPickViaInline?.classList.remove('picking');
-    btnAddViaInline?.classList.remove('picking');
     if (btnPickViaInline) {
       btnPickViaInline.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
       btnPickViaInline.title = '直接在地图上连续选点添加途径点';
@@ -6461,7 +6465,6 @@ function setupOutdoorRouteSystem(map) {
     document.body.classList.add('picking-mode');
     map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
     btnPickViaInline?.classList.add('picking');
-    btnAddViaInline?.classList.add('picking');
     if (btnPickViaInline) {
       const countText = routeViaPoints.length > 0 ? ` (${routeViaPoints.length})` : '';
       btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点${countText}</span>`;
@@ -6471,8 +6474,7 @@ function setupOutdoorRouteSystem(map) {
 
   btnAddViaInline?.addEventListener('click', handleAddVia);
   btnAddViaInline?.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    triggerInlineMapPick();
+    e.preventDefault(); // 禁用右键自动选点，右边已提供独立的“地图选点”按钮
   });
   btnPickViaInline?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -7600,7 +7602,14 @@ function setupMapContextMenu(map) {
   let currentContextPoint = null;
 
   const hideContextMenu = () => {
-    if (ctxMenu) ctxMenu.style.display = 'none';
+    if (ctxMenu && ctxMenu.style.display !== 'none') {
+      if (ctxMenu.classList.contains('ctx-closing')) return;
+      ctxMenu.classList.add('ctx-closing');
+      setTimeout(() => {
+        ctxMenu.style.display = 'none';
+        ctxMenu.classList.remove('ctx-closing');
+      }, 120);
+    }
   };
 
   const handleContextMenuSelection = (action, point) => {
@@ -7625,12 +7634,10 @@ function setupMapContextMenu(map) {
       addViaPoint(map, [point.lng, point.lat], point.placeName);
     } else if (action === 'route-end') {
       setRouteEndPoint(map, [point.lng, point.lat], point.placeName);
-    } else if (action === 'copy-coords') {
-      showToast(`已复制坐标: ${point.lng.toFixed(6)}, ${point.lat.toFixed(6)}`);
     }
   };
 
-  // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 交互卡片)
+  // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 亚克力交互卡片)
   const showContextMenuAtPoint = (lngLat, point, customName = null) => {
     const { lng, lat } = lngLat;
     const ele = Math.round(getRealElevation(map, lngLat) || 0);
@@ -7648,32 +7655,16 @@ function setupMapContextMenu(map) {
       placeName: cleanLocation || '地点'
     };
 
-    // 桌面端优先接入操作系统原生右键菜单 (Windows 11 Fluent / macOS 原生系统级上下文菜单)
-    if (window.electronAPI?.showMapContextMenu) {
-      window.electronAPI.showMapContextMenu({
-        lng: currentContextPoint.lng,
-        lat: currentContextPoint.lat,
-        ele: currentContextPoint.ele,
-        placeName: currentContextPoint.placeName
-      }).then(res => {
-        if (res && res.action) {
-          handleContextMenuSelection(res.action, currentContextPoint);
-        }
-      }).catch(err => {
-        console.warn('[Native Context Menu Error]', err);
-      });
-      return;
-    }
-
     if (ctxPlaceName) ctxPlaceName.innerText = currentContextPoint.placeName;
     if (ctxPlaceMeta) ctxPlaceMeta.innerText = `${lng.toFixed(4)}°E, ${lat.toFixed(4)}°N · ${ele}m`;
 
     if (ctxMenu) {
+      ctxMenu.classList.remove('ctx-closing');
       const wrap = document.getElementById('map-wrap');
-      const maxW = wrap ? wrap.clientWidth - 180 : window.innerWidth - 180;
-      const maxH = wrap ? wrap.clientHeight - 180 : window.innerHeight - 180;
-      const x = Math.max(10, Math.min(point.x, maxW));
-      const y = Math.max(10, Math.min(point.y, maxH));
+      const maxW = wrap ? wrap.clientWidth - 190 : window.innerWidth - 190;
+      const maxH = wrap ? wrap.clientHeight - 220 : window.innerHeight - 220;
+      const x = Math.max(12, Math.min(point.x, maxW));
+      const y = Math.max(12, Math.min(point.y, maxH));
 
       ctxMenu.style.left = `${x}px`;
       ctxMenu.style.top = `${y}px`;
@@ -7768,7 +7759,22 @@ function setupMapContextMenu(map) {
 function setupGlobalKeyboardDispatcher() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      // 0. 图层控制面板
+      // 0. 地图右键菜单 (最高响应优先级)
+      const ctxMenu = document.getElementById('map-context-menu');
+      if (ctxMenu && ctxMenu.style.display !== 'none') {
+        if (!ctxMenu.classList.contains('ctx-closing')) {
+          ctxMenu.classList.add('ctx-closing');
+          setTimeout(() => {
+            ctxMenu.style.display = 'none';
+            ctxMenu.classList.remove('ctx-closing');
+          }, 120);
+        }
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.05 图层控制面板
       const layersPopover = document.getElementById('layers-popover');
       if (layersPopover && layersPopover.style.display !== 'none') {
         if (typeof smoothClosePopover === 'function') {
@@ -7939,15 +7945,6 @@ function setupGlobalKeyboardDispatcher() {
       const brandFlipCard = document.getElementById('brand-flip-card');
       if (brandFlipCard && brandFlipCard.classList.contains('flipped')) {
         brandFlipCard.classList.remove('flipped');
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
-      }
-
-      // 9. 地图右键菜单
-      const ctxMenu = document.getElementById('map-context-menu');
-      if (ctxMenu && ctxMenu.style.display !== 'none') {
-        ctxMenu.style.display = 'none';
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;

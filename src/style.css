@@ -181,8 +181,10 @@ button:active,
 #unified-header {
   position: relative;
   height: 44px;
-  background: var(--header-bg);
-  border-bottom: 1px solid var(--header-border);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   z-index: 1100;
   display: flex;
@@ -726,10 +728,10 @@ body.web-mode #manage-modal {
   transform: translateX(-50%);
   width: 560px;
   max-width: 92vw;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(203, 213, 225, 0.85);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.08);
   z-index: 1250;
@@ -1206,8 +1208,10 @@ body.web-mode #manage-modal {
   left: 0;
   width: 380px;
   max-height: 480px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 10px;
   box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.08);
   display: flex;
@@ -1656,8 +1660,10 @@ body.web-mode #manage-modal {
    ========================================================= */
 #status-bar {
   height: 26px;
-  background: #ffffff;
-  border-top: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-top: 1px solid rgba(226, 232, 240, 0.8);
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.03);
   display: flex;
   align-items: center;
@@ -1731,9 +1737,11 @@ body.web-mode #manage-modal {
   width: 540px;
   max-width: 92vw;
   max-height: calc(100vh - 36px);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border-radius: 12px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1755,8 +1763,10 @@ body.web-mode #manage-modal {
   align-items: center;
   justify-content: space-between;
   padding: 12px 18px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   flex-shrink: 0;
 }
 
@@ -1959,8 +1969,10 @@ body.web-mode #manage-modal {
   justify-content: flex-end;
   gap: 10px;
   padding: 12px 18px;
-  background: #f8fafc;
-  border-top: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(226, 232, 240, 0.8);
   flex-shrink: 0;
   position: relative;
   z-index: 10;
@@ -2063,31 +2075,41 @@ body.web-mode #manage-modal {
   flex-shrink: 0;
 }
 
-/* Fluent 风格右键交互快捷菜单 (紧凑纤巧，消除多余空白) */
+/* Fluent 风格右键交互快捷菜单 (半透明深度亚克力毛玻璃与顺滑微动效) */
 .fluent-context-menu {
   position: absolute;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(203, 213, 225, 0.9);
-  border-radius: 10px;
-  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
-  padding: 5px;
-  min-width: 120px;
-  max-width: 200px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 6px;
+  min-width: 140px;
+  max-width: 220px;
   width: max-content;
-  z-index: 3000;
+  z-index: 3500;
   transform-origin: top left;
-  animation: ctxFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ctxFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
   -webkit-app-region: no-drag;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   will-change: transform, opacity;
 }
 
+.fluent-context-menu.ctx-closing {
+  animation: ctxFadeOut 0.12s cubic-bezier(0.4, 0, 1, 1) forwards !important;
+  pointer-events: none !important;
+}
+
 @keyframes ctxFadeIn {
-  0% { opacity: 0; transform: translate3d(0, -6px, 0) scale(0.92); }
+  0% { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.92); }
   100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.0); }
+}
+
+@keyframes ctxFadeOut {
+  0% { opacity: 1; transform: translate3d(0, 0, 0) scale(1.0); }
+  100% { opacity: 0; transform: translate3d(0, -6px, 0) scale(0.95); }
 }
 
 .ctx-header {
@@ -2095,56 +2117,64 @@ body.web-mode #manage-modal {
 }
 
 .ctx-title {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: -0.2px;
 }
 
 .ctx-sub {
-  font-size: 9px;
+  font-size: 9.5px;
   color: #64748b;
   margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: var(--font-mono);
 }
 
 .ctx-divider {
   height: 1px;
-  background: #e2e8f0;
-  margin: 3px 0;
+  background: rgba(226, 232, 240, 0.8);
+  margin: 4px 0;
 }
 
 .ctx-item {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   background: transparent;
   border: none;
-  padding: 6px 8px;
-  font-size: 11px;
+  padding: 6.5px 9px;
+  font-size: 11.5px;
   font-weight: 500;
   color: #334155;
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s ease, transform 0.08s ease, color 0.12s ease;
+  transition: background-color 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s ease;
   white-space: nowrap;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
 
 .ctx-item:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: rgba(2, 132, 199, 0.08);
+  color: #0284c7;
+  transform: translate3d(2px, 0, 0);
+}
+
+.ctx-item:hover .ctx-icon {
+  transform: scale(1.18);
+  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .ctx-item:active {
-  transform: scale(0.96);
+  transform: translate3d(2px, 0, 0) scale(0.95) !important;
 }
 
 .ctx-item.primary {
@@ -2153,24 +2183,26 @@ body.web-mode #manage-modal {
 }
 
 .ctx-item.primary:hover {
-  background: #e0f2fe;
+  background: rgba(2, 132, 199, 0.12);
   color: #0369a1;
 }
 
 .ctx-icon {
   font-size: 13px;
   line-height: 1;
+  display: inline-block;
+  transition: transform 0.15s ease;
 }
 
 /* 浮动卡片与侧边面板 (Office 365 / Windows 11 Fluent 风格) */
 .floating-card, .floating-panel {
   position: absolute;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(203, 213, 225, 0.85);
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 12px;
-  box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 18px 45px -8px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
   z-index: 1050;
   display: flex;
   flex-direction: column;
@@ -2220,8 +2252,10 @@ body.web-mode #manage-modal {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
 }
 
 .card-title, .panel-title {
@@ -2806,10 +2840,10 @@ body.web-mode #manage-modal {
 .route-floating-dropdown {
   position: fixed;
   z-index: 99999;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 8px;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(0, 0, 0, 0.08);
   max-height: 220px;
@@ -5060,10 +5094,20 @@ body.web-mode .office-prov-group {
 .card-close,
 .modal-close-btn,
 .btn-check-tile-update {
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease, box-shadow 0.18s ease, color 0.15s ease, border-color 0.15s ease;
   user-select: none;
   -webkit-user-select: none;
+  will-change: transform;
+}
+
+.office-btn-icon-capsule:hover,
+.prov-act-btn:hover,
+.modal-btn:hover,
+.type-pill:hover,
+.zoom-pill:hover,
+.btn-check-tile-update:hover {
+  transform: translate3d(0, -1px, 0);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .office-btn-icon-capsule:active,
@@ -5073,8 +5117,13 @@ body.web-mode .office-prov-group {
 .type-pill:active,
 .zoom-pill:active,
 .btn-check-tile-update:active {
-  transform: translate3d(0, 1px, 0) scale(0.96) !important;
+  transform: translate3d(0, 1px, 0) scale(0.95) !important;
   transition: transform 0.08s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.fab-btn:hover,
+.map-dock-btn:hover {
+  transform: translate3d(0, -2px, 0) scale(1.04);
 }
 
 .fab-btn:active,
@@ -5089,8 +5138,7 @@ body.web-mode .office-prov-group {
 .floating-card,
 .floating-panel,
 .fluent-context-menu {
-  transform: translate3d(0, 0, 0);
   will-change: transform, opacity;
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
 }

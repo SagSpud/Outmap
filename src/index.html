@@ -207,19 +207,20 @@
         </div>
       </div>
 
-      <!-- 右键地图交互快捷菜单 -->
+      <!-- 右键地图交互快捷菜单 (Fluent 2 亚克力毛玻璃微动效) -->
       <div id="map-context-menu" class="fluent-context-menu" style="display: none;">
         <div class="ctx-header">
           <div class="ctx-title" id="ctx-place-name">地点</div>
+          <div class="ctx-sub" id="ctx-place-meta">--</div>
         </div>
         <div class="ctx-divider"></div>
         <button class="ctx-item primary" id="ctx-btn-add-fav">
           <span class="ctx-icon">⭐</span>
-          <span class="ctx-text">收藏</span>
+          <span class="ctx-text">收藏此地点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-via">
           <span class="ctx-icon">➕</span>
-          <span class="ctx-text">途径点</span>
+          <span class="ctx-text">设为途径点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-start">
           <span class="ctx-icon">🚩</span>
@@ -313,7 +314,7 @@
 
             <!-- 高德地图风格：在途径点与终点之间放置的加号添加途径点框与地图选点按钮 -->
             <div class="route-add-via-bar">
-              <div class="route-add-via-inline" id="btn-add-via-inline" title="左键单击输入途径点，右键在地图上选点">
+              <div class="route-add-via-inline" id="btn-add-via-inline" title="添加途径点输入框 (左键单击)">
                 <span class="inline-plus-icon">＋</span>
                 <span class="inline-plus-text">添加途径点</span>
               </div>

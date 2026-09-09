@@ -1,12 +1,25 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const assert = require('assert');
 const fs = require('fs');
+
+const os = require('os');
 
 console.log('=== Outmap v1.5.9 Integration & Native Bridge Test ===');
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
+// 隔离测试进程缓存目录，彻底杜绝缓存文件冲突
+app.setPath('userData', path.join(os.tmpdir(), 'outmap-test-v159-' + process.pid));
+
+// 注册基础 IPC 模拟处理器，确保测试窗口加载时不产生未处理异常
+ipcMain.handle('get-tile-server-info', () => ({ port: 28795, totalTiles: 0, totalBytes: 0 }));
+ipcMain.handle('get-offline-manifest', () => ({ inventoryVersion: 3, provinces: {} }));
+ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false, syncKey: 'default' }));
+ipcMain.handle('check-tile-updates', () => ({ updatesAvailable: false }));
+ipcMain.handle('search-location', () => []);
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
