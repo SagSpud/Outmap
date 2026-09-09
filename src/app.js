@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.8';
+const APP_VERSION = '1.7.9';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -3375,7 +3375,17 @@ function setupPyramidModal(map) {
       });
 
     const isLayerLevelComplete = (s, layer, z) => Boolean(s?.layers?.[layer]?.levels?.[z]?.complete);
-    const isLevelComplete = (s, z) => isLayerLevelComplete(s, 'dem', z) && isLayerLevelComplete(s, 'vector', z);
+    const isLevelComplete = (s, z) => {
+      if (!s) return false;
+      const hasDem = Boolean(s.dem || (s.layers?.dem && Object.values(s.layers.dem.levels || {}).some(l => (l.present || 0) > 0)));
+      const hasVec = Boolean(s.vec || (s.layers?.vector && Object.values(s.layers.vector.levels || {}).some(l => (l.present || 0) > 0)));
+      if (hasDem && hasVec) {
+        return isLayerLevelComplete(s, 'dem', z) && isLayerLevelComplete(s, 'vector', z);
+      }
+      if (hasVec) return isLayerLevelComplete(s, 'vector', z);
+      if (hasDem) return isLayerLevelComplete(s, 'dem', z);
+      return false;
+    };
     const isLevelPartial = (s, z) => {
       if (!s) return false;
       const layerStates = ['dem', 'vector'].map(layer => s.layers?.[layer]?.levels?.[z]).filter(Boolean);
@@ -3387,8 +3397,17 @@ function setupPyramidModal(map) {
       const p = PROVINCES_DATA[k];
       const saved = offlineState[k];
       const maxZ = saved ? (saved.maxZ || 0) : 0;
-      const isFull = [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z));
-      const isPartial = !isFull && ((saved?.partialZ >= 10) || (maxZ >= 10) || [10, 11, 12, 13, 14].some(z => isLevelPartial(saved, z)));
+      const partialZ = saved ? (saved.partialZ || 0) : 0;
+
+      // 科学判定全量就绪 (绿点/绿徽章)：
+      // 1. 已达到 L10~L14 任一已就绪层级 (maxZ >= 10)，且自 L10 至 maxZ 连续完整，且无未完成的高层级半途切片 (partialZ <= maxZ)；
+      // 2. 或者全部 10~14 层级已全量完整。
+      const hasContiguousComplete = maxZ >= 10 && [10, 11, 12, 13, 14].filter(z => z <= maxZ).every(z => isLevelComplete(saved, z));
+      const isFull = hasContiguousComplete && (partialZ <= maxZ || [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z)));
+
+      // 判断部分下载 (蓝点/蓝徽章)：
+      // 存在切片但尚未达到完整连续就绪状态 (如 4/10 切片，或 partialZ > maxZ)
+      const isPartial = !isFull && ((partialZ >= 10) || (maxZ >= 10) || [10, 11, 12, 13, 14].some(z => isLevelPartial(saved, z)));
       const isChecked = selectedKeySet.has(k);
 
       const label = document.createElement('label');
@@ -3417,10 +3436,10 @@ function setupPyramidModal(map) {
       const badge = document.createElement('span');
       if (isFull) {
         badge.className = 'prov-chip-badge full';
-        badge.innerText = 'L14';
+        badge.innerText = `L${maxZ || 14}`;
       } else if (isPartial) {
         badge.className = 'prov-chip-badge partial';
-        const displayZ = Math.max(maxZ, saved?.partialZ || 0);
+        const displayZ = Math.max(maxZ, partialZ || 0);
         badge.innerText = displayZ >= 10 ? `L${displayZ}` : '部分';
       } else {
         badge.className = 'prov-chip-badge empty';
@@ -3571,6 +3590,7 @@ function setupPyramidModal(map) {
         const geometricExpected = (x2 - x1 + 1) * (y2 - y1 + 1);
         for (const layer of requestedLayers) {
           const level = saved?.layers?.[layer]?.levels?.[z];
+          if (level?.complete) continue;
           const expected = Number.isFinite(Number(level?.expected)) ? Number(level.expected) : geometricExpected;
           const present = Number.isFinite(Number(level?.present)) ? Number(level.present) : 0;
           totalIncrementalTiles += Math.max(0, expected - present);

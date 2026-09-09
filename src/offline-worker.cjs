@@ -147,21 +147,28 @@ function scan({ baseDir, provinces, boxes }) {
     }
   }
 
-  // 科学严格三态统计：全量就绪 (绿) 必须 present >= expected；部分下载 (蓝) present > 0
+  // 科学严格三态统计：全量就绪 (绿) 必须达到完整度阈值 (考虑海域/边界空瓦片容差)；部分下载 (蓝) present > 0
   for (const p of Object.values(result)) {
     for (const layer of ['dem', 'vector']) {
       const state = p.layers[layer];
       state.maxZ = 0;
       state.partialZ = 0;
       for (const [z, level] of Object.entries(state.levels)) {
-        level.complete = level.expected > 0 && level.present >= level.expected;
+        const isComplete = level.expected > 0 && (
+          level.present >= level.expected ||
+          (level.present >= Math.floor(level.expected * 0.95) && (level.expected - level.present) <= Math.max(3, Math.floor(level.expected * 0.05)))
+        );
+        level.complete = isComplete;
         if (level.complete) state.maxZ = Math.max(state.maxZ, +z);
         if (level.present > 0) state.partialZ = Math.max(state.partialZ, +z);
       }
     }
     p.dem = Object.values(p.layers.dem.levels).some(l => l.present > 0);
     p.vec = Object.values(p.layers.vector.levels).some(l => l.present > 0);
-    p.maxZ = Math.min(p.layers.dem.maxZ, p.layers.vector.maxZ);
+    const activeMaxZs = [];
+    if (p.layers.dem.maxZ > 0 || p.dem) activeMaxZs.push(p.layers.dem.maxZ);
+    if (p.layers.vector.maxZ > 0 || p.vec) activeMaxZs.push(p.layers.vector.maxZ);
+    p.maxZ = activeMaxZs.length > 0 ? Math.min(...activeMaxZs) : 0;
     p.partialZ = Math.max(p.layers.dem.partialZ, p.layers.vector.partialZ);
   }
 

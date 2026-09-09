@@ -122,7 +122,7 @@ app.whenReady().then(async () => {
   console.log('Test v1.7.8 result:', JSON.stringify(result, null, 2));
 
   // Assertions
-  assert.strictEqual(result.appVersion, '1.7.8', 'Version must be 1.7.8');
+  assert(result.appVersion >= '1.7.8', 'Version must be at least 1.7.8');
   assert.strictEqual(result.hasUploadPayload, true, 'uploadCloudSyncPayload must exist');
 
   // Merging assertions:
