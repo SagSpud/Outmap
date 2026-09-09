@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.7.9';
+const APP_VERSION = '1.8.0';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
@@ -2532,6 +2532,7 @@ function setupOfficeHeaderInteractions(map) {
       .addTo(map);
     window.currentLandingMarker = currentLandingMarker;
   }
+  window.showLandingMarker = showLandingMarker;
 
   function renderSearchResults(items) {
     clearLandingMarker();
@@ -4196,17 +4197,25 @@ async function uploadWebCloudSyncData({ syncKey, data }) {
   const kSigning = await webCryptoHmac(kService, 'aws4_request');
   const signature = bytesToHex(await webCryptoHmac(kSigning, stringToSign));
   const authorization = `AWS4-HMAC-SHA256 Credential=${WEB_R2_SYNC.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`https://${host}${canonicalUri}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-amz-date': amzDate,
-      'x-amz-content-sha256': payloadHash,
-      Authorization: authorization
-    },
-    body
-  });
-  if (!response.ok) throw new Error(`网页同步上传失败 (HTTP ${response.status})`);
+  let response;
+  try {
+    response = await fetch(`https://${host}${canonicalUri}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-amz-date': amzDate,
+        'x-amz-content-sha256': payloadHash,
+        Authorization: authorization
+      },
+      body
+    });
+  } catch (netErr) {
+    throw new Error(`网络连接异常，未能连接到云端存储 (${netErr.message || '请检查网络或跨域'})`);
+  }
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`网页同步上传失败 (HTTP ${response.status}${errBody ? ': ' + errBody.slice(0, 80) : ''})`);
+  }
   return { success: true };
 }
 async function uploadCloudSyncPayload(payload) {
@@ -8642,6 +8651,26 @@ function setupMapContextMenu(map) {
 
   // 监听地图右键事件与移动端长按触控事件 (展现高质感 Fluent 亚克力交互卡片，完整支持进入与退出物理动效)
   const showContextMenuAtPoint = (lngLat, point, customName = null) => {
+    // 地图右键或长按时，立即关闭并移除搜索地点卡片与图钉
+    if (typeof window.clearLandingMarker === 'function') {
+      window.clearLandingMarker();
+    } else if (typeof clearLandingMarker === 'function') {
+      clearLandingMarker();
+    }
+
+    // 同时关闭已展开的搜索浮窗与搜索面板
+    const searchPop = document.getElementById('search-popover');
+    if (searchPop && searchPop.style.display !== 'none') {
+      if (typeof smoothClosePopover === 'function') {
+        smoothClosePopover(searchPop, () => {
+          document.getElementById('btn-search-trigger')?.classList.remove('active');
+        });
+      } else {
+        searchPop.style.display = 'none';
+        document.getElementById('btn-search-trigger')?.classList.remove('active');
+      }
+    }
+
     if (ctxMenu && typeof pendingElementCloses !== 'undefined') {
       pendingElementCloses.delete(ctxMenu);
     }
@@ -8685,6 +8714,11 @@ function setupMapContextMenu(map) {
   };
 
   map.on('contextmenu', e => {
+    if (typeof window.clearLandingMarker === 'function') {
+      window.clearLandingMarker();
+    } else if (typeof clearLandingMarker === 'function') {
+      clearLandingMarker();
+    }
     if (pickingRoutePt) {
       if (typeof window.exitRoutePickingMode === 'function') {
         window.exitRoutePickingMode();
