@@ -2527,6 +2527,59 @@ body.web-mode #manage-modal {
   color: #ef4444;
 }
 
+/* 浮动面板顶栏操作区与统一微型动作按钮 (导入、同步) */
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  min-width: 58px;
+  height: 26px;
+  box-sizing: border-box;
+  text-align: center;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease, transform 0.1s ease;
+}
+
+.card-action-btn:active {
+  transform: scale(0.96);
+}
+
+.card-action-btn.btn-import {
+  color: #166534;
+  background: rgba(22, 101, 52, 0.08);
+  border: 1px solid rgba(22, 101, 52, 0.25);
+}
+
+.card-action-btn.btn-import:hover {
+  background: rgba(22, 101, 52, 0.15);
+  border-color: rgba(22, 101, 52, 0.4);
+}
+
+.card-action-btn.btn-sync {
+  color: #0284c7;
+  background: rgba(2, 132, 199, 0.08);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+.card-action-btn.btn-sync:hover {
+  background: rgba(2, 132, 199, 0.15);
+  border-color: rgba(2, 132, 199, 0.4);
+}
+
 .card-body, .panel-body {
   padding: 12px 14px;
   display: flex;
@@ -4766,7 +4819,7 @@ body.web-mode .office-prov-group {
 
   .route-actions-row {
     display: grid !important;
-    grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-columns: repeat(4, 1fr) !important;
     gap: 5px !important;
     width: 100% !important;
     flex-shrink: 0 !important;

@@ -63,3 +63,4 @@ console.log('v1.8.8 test result: {', JSON.stringify({
 }, null, 2), '}');
 
 console.log('✅ ALL v1.8.8 TESTS PASSED PERFECTLY!');
+process.exit(0);

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.8.9';
+const APP_VERSION = '1.8.10';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -4671,7 +4671,7 @@ function setupCloudSync(map) {
     const originalHtml = btnEl ? btnEl.innerHTML : '';
     if (btnEl) {
       btnEl.disabled = true;
-      if (btnEl.id === 'btn-fav-drawer-sync') {
+      if (btnEl.id === 'btn-fav-drawer-sync' || btnEl.id === 'btn-route-sync') {
         btnEl.innerText = '同步中';
       } else {
         btnEl.innerText = '同步中...';
@@ -4693,6 +4693,9 @@ function setupCloudSync(map) {
 
   const btnFavDrawerSync = document.getElementById('btn-fav-drawer-sync');
   btnFavDrawerSync?.addEventListener('click', () => handleManualSync(btnFavDrawerSync));
+
+  const btnRouteSync = document.getElementById('btn-route-sync');
+  btnRouteSync?.addEventListener('click', () => handleManualSync(btnRouteSync));
 
   // 页面启动时：如果已记住登录状态，自动执行一次初始全量漫游同步
   const currentUser = getLoggedInUser();
@@ -7239,13 +7242,13 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#0f7135',
+        'line-color': '#0e4a23',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4, 17, 17.0],
         'line-opacity': 1.0
       }
     }, beforeLabelId);
 
-    // 2. Apple Maps 标志性原生高饱和纯实心翠绿路线丝带 (零透明度、零半透明外晕、零内嵌白条)
+    // 2. iOS 原生深绿风格实心路线丝带 (饱和纯正、柔和不刺眼，专为 OLED 屏幕深度优化防过度眩光)
     map.addLayer({
       id: 'outdoor-route-line',
       type: 'line',
@@ -7255,7 +7258,7 @@ function renderRouteGeometry(map, pathCoords) {
         'line-join': 'round'
       },
       paint: {
-        'line-color': '#32d15f',
+        'line-color': '#248a3d',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8, 17, 13.0],
         'line-opacity': 1.0
       }

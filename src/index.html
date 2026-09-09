@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.8.9" />
+  <link rel="stylesheet" href="style.css?v=1.8.10" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.9</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.8.10</span>
                 </div>
               </div>
             </div>
@@ -285,7 +285,12 @@
             <span>🛣️</span>
             <span>路线规划</span>
           </div>
-          <button class="card-close" id="btn-close-route-panel">✕</button>
+          <div class="panel-header-actions">
+            <button class="card-action-btn btn-import" id="btn-route-import-trigger" title="导入路线轨迹文件 (GPX / KML / GeoJSON / TCX)">导入</button>
+            <input type="file" id="route-panel-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
+            <button class="card-action-btn btn-sync" id="btn-route-sync" title="与云端双向同步收藏路线与数据">同步</button>
+            <button class="card-close" id="btn-close-route-panel">✕</button>
+          </div>
         </div>
 
         <div class="panel-body">
@@ -334,12 +339,9 @@
 
           <div class="route-actions-row">
             <button class="modal-btn primary" id="btn-calc-route">规划</button>
-            <button class="modal-btn secondary-sm" id="btn-route-import-trigger">导入</button>
-            <button class="modal-btn secondary-sm" id="btn-export-gpx">导出</button>
-            <button class="modal-btn secondary-sm" id="btn-save-route-trigger">收藏</button>
             <button class="modal-btn secondary-sm" id="btn-route-details-toggle">详情 ▾</button>
+            <button class="modal-btn secondary-sm" id="btn-save-route-trigger">收藏</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route">清空</button>
-            <input type="file" id="route-panel-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
           </div>
 
           <!-- 保存路线内联面板 (点击 收藏 后在下方顺滑展开) -->
@@ -440,14 +442,6 @@
         </div>
       </div>
 
-      
-        </div>
-        <div class="card-footer">
-          <button class="modal-btn secondary" id="btn-cancel-save-route">取消</button>
-          <button class="modal-btn primary" id="btn-confirm-save-route">确认保存</button>
-        </div>
-      </div>
-
       <!-- 收藏夹管理侧滑抽屉 -->
       <div id="favorites-drawer" class="floating-panel" style="display: none;">
         <div class="panel-header">
@@ -455,10 +449,10 @@
             <span>⭐</span>
             <span>我的收藏</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button class="card-action-btn" id="btn-fav-drawer-import-pts" title="导入具体点位文件 (GPX / KML / GeoJSON / JSON)" style="display: inline-flex; align-items: center; justify-content: center; width: 58px; min-width: 58px; box-sizing: border-box; text-align: center; padding: 4px 0; font-size: 12px; font-weight: 600; color: #166534; background: rgba(22, 101, 52, 0.08); border: 1px solid rgba(22, 101, 52, 0.25); border-radius: 6px; cursor: pointer; transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;">导入</button>
+          <div class="panel-header-actions">
+            <button class="card-action-btn btn-import" id="btn-fav-drawer-import-pts" title="导入具体点位文件 (GPX / KML / GeoJSON / JSON)">导入</button>
             <input type="file" id="waypoint-file-import-input" accept=".gpx,.kml,.geojson,.json" style="display: none;" />
-            <button class="card-action-btn" id="btn-fav-drawer-sync" title="与云端双向同步收藏夹与路线" style="display: inline-flex; align-items: center; justify-content: center; width: 58px; min-width: 58px; box-sizing: border-box; text-align: center; padding: 4px 0; font-size: 12px; font-weight: 600; color: #0284c7; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.25); border-radius: 6px; cursor: pointer; transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;">同步</button>
+            <button class="card-action-btn btn-sync" id="btn-fav-drawer-sync" title="与云端双向同步收藏夹与路线">同步</button>
             <button class="card-close" id="btn-close-favorites-drawer">✕</button>
           </div>
         </div>
@@ -786,8 +780,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.8.9"></script>
-  <script src="app.js?v=1.8.9"></script>
+  <script src="location-camera.js?v=1.8.10"></script>
+  <script src="app.js?v=1.8.10"></script>
 </body>
 </html>
 
