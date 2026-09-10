@@ -1281,7 +1281,7 @@ app.whenReady().then(async () => {
     // inventory has already validated these file names, so avoid one stat call
     // per ready tile. Explicit verify/update operations still validate size.
     const dirFileSets = new Map();
-    async function checkTileExistsFast(dirPath, fileName, verifySize = false) {
+    async function checkDirectoryFiles(dirPath) {
       let pending = dirFileSets.get(dirPath);
       if (!pending) {
         pending = fs.promises.readdir(dirPath).then(names => new Set(names)).catch(error => {
@@ -1291,14 +1291,17 @@ app.whenReady().then(async () => {
         dirFileSets.set(dirPath, pending);
         if (dirFileSets.size > 128) dirFileSets.delete(dirFileSets.keys().next().value);
       }
-      const names = await pending;
+      return pending;
+    }
+    async function checkTileExistsFast(dirPath, fileName, verifySize = false) {
+      const names = await checkDirectoryFiles(dirPath);
       if (!names.has(fileName)) return false;
       if (!verifySize) return true;
       try { return (await fs.promises.stat(path.join(dirPath, fileName))).size > 20; }
       catch (error) { if (error.code === 'ENOENT') return false; throw error; }
     }
 
-    const { enumerateTiles } = require('./src/offline-worker.cjs');
+    const { enumerateTiles, enumerateMissingTiles } = require('./src/offline-worker.cjs');
     const safeMinZ = Math.max(0, minZ || 0);
     const safeMaxZ = Math.min(14, maxZ);
     const requestedTypes = [downloadDem ? 'dem' : null, downloadVec ? 'vector' : null].filter(Boolean);
@@ -1325,9 +1328,9 @@ app.whenReady().then(async () => {
       }
     }
 
-    // Normal resume starts immediately from incomplete levels and uses the
-    // authoritative missing count. The expensive full enumeration pass is kept
-    // only for explicit verification/incremental-update or legacy manifests.
+    // Normal resume never feeds ready files into the network workers. Complete
+    // manifest levels are skipped outright; incomplete levels are differenced
+    // one physical z/x directory at a time below.
     const targetKeys = (isIncrementalUpdate || isVerify) ? null : missingTargetKeys;
     const plan = {
       provinces: provTasks,
@@ -1338,8 +1341,9 @@ app.whenReady().then(async () => {
       boxes: CHINA_TILES_BOXES,
       targetKeys
     };
-    let total = estimatedMissing;
-    if (isIncrementalUpdate || isVerify || hasUnknownInventory) {
+    const normalResume = !isIncrementalUpdate && !isVerify;
+    let total = normalResume ? 0 : estimatedMissing;
+    if (!normalResume && (isIncrementalUpdate || isVerify || hasUnknownInventory)) {
       total = 0;
       for (const task of enumerateTiles(plan)) {
         total++;
@@ -1349,7 +1353,6 @@ app.whenReady().then(async () => {
         }
       }
     }
-    const tileIterator = enumerateTiles(plan);
     let completed = 0;
     let existingCount = 0;
     let savedCount = 0;
@@ -1371,8 +1374,64 @@ app.whenReady().then(async () => {
     let lastTaskbarPct = -1;
     let activeProvName = '';
     let activeZ = 10;
+    let planningDone = !normalResume;
+    let plannedCandidates = 0;
+    let discoveredMissing = 0;
+    let scannedColumns = 0;
+    let lastPlanningProgressTime = 0;
 
     const speedSamples = [{ time: startTime, bytes: 0 }];
+
+    function sendPlanningProgress(force = false) {
+      if (!normalResume || !mainWindow || mainWindow.isDestroyed()) return;
+      const now = Date.now();
+      if (!force && now - lastPlanningProgressTime < 250) return;
+      lastPlanningProgressTime = now;
+      mainWindow.webContents.send('download-progress', {
+        completed,
+        total: discoveredMissing,
+        foundMissing: discoveredMissing,
+        scannedCandidates: plannedCandidates,
+        scannedColumns,
+        savedCount,
+        failedCount,
+        percent: planningDone && discoveredMissing > 0
+          ? Math.round(completed / discoveredMissing * 100)
+          : 0,
+        speed: 0,
+        byteSpeed: 0,
+        bytes: totalBytes,
+        done: false,
+        phase: planningDone ? 'downloading' : 'locating',
+        isVerify: false,
+        isIncrementalUpdate: false,
+        totalTiles: (baselineStats.totalTiles || 0) + newlySavedCount,
+        totalBytes: (baselineStats.totalBytes || 0) + totalBytes,
+        currentProvince: activeProvName || provTasks[0]?.name || '',
+        currentZ: activeZ
+      });
+    }
+
+    const tileIterator = normalResume
+      ? enumerateMissingTiles(plan, {
+          signal,
+          readColumnFiles: (type, z, x) => {
+            const root = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
+            return checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
+          },
+          onProgress: progress => {
+            scannedColumns = progress.scannedColumns;
+            plannedCandidates = progress.scannedCandidates;
+            discoveredMissing = progress.foundMissing;
+            total = discoveredMissing;
+            activeProvName = progress.currentProvince || activeProvName;
+            activeZ = progress.currentZ ?? activeZ;
+            if (progress.done) planningDone = true;
+            sendPlanningProgress(progress.done);
+          }
+        })
+      : enumerateTiles(plan);
+    if (normalResume) sendPlanningProgress(true);
 
     async function writeDownloadedTile(task, dirPath, localPath, fileName, buf) {
       const dirKey = `${task.type}/${task.z}/${task.x}`;
@@ -1413,7 +1472,7 @@ app.whenReady().then(async () => {
           await new Promise(resolve => setTimeout(resolve, 80));
         }
         if (signal.aborted) break;
-        const next = tileIterator.next();
+        const next = normalResume ? await tileIterator.next() : tileIterator.next();
         if (next.done) break;
         const task = next.value;
         if (task.provName) activeProvName = task.provName;
@@ -1424,7 +1483,11 @@ app.whenReady().then(async () => {
         const fileName = `${y}.${ext}`;
         const localPath = path.join(dirPath, fileName);
 
-        const existsLocally = await checkTileExistsFast(dirPath, fileName, Boolean(isVerify || isIncrementalUpdate));
+        // Normal resume has already removed ready files at directory-column
+        // granularity. Only explicit verify/update modes need a per-task check.
+        const existsLocally = normalResume
+          ? false
+          : await checkTileExistsFast(dirPath, fileName, Boolean(isVerify || isIncrementalUpdate));
 
         if (isIncrementalUpdate) {
           if (!existsLocally) {
@@ -1536,13 +1599,15 @@ app.whenReady().then(async () => {
         }
 
         const now = Date.now();
-        const isDone = completed >= total;
+        const isDone = planningDone && completed >= total;
         // 平滑节流进度广播 (250ms)，保持人眼感知流畅同时消除高频 IPC 与 DOM 重排带来的 CPU/GPU 负载
         if (isDone || (now - lastProgressTime >= 250)) {
           lastProgressTime = now;
           const elapsed = (now - startTime) / 1000;
           const speed = elapsed > 0 ? Math.round(completed / elapsed) : 0;
-          const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
+          const percent = planningDone
+            ? (total > 0 ? Math.round((completed / total) * 100) : 100)
+            : 0;
 
           // 滑动时间窗口 (1.5秒) 计算实际网络实时下行字节速率 (B/s)
           speedSamples.push({ time: now, bytes: totalBytes });
@@ -1565,7 +1630,9 @@ app.whenReady().then(async () => {
           // cancellations and failures. Never promote a whole province here.
 
           if (mainWindow && !mainWindow.isDestroyed()) {
-            const ratio = total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
+            const ratio = planningDone && total > 0
+              ? Math.min(1, Math.max(0, completed / total))
+              : 0;
             // 仅在任务栏百分比整数跳变时调用底层 Windows COM 接口，消除 DWM 窗口合成器持续重绘 GPU 占用
             const curPct = Math.floor(ratio * 100);
             if (curPct !== lastTaskbarPct || isDone) {
@@ -1591,7 +1658,10 @@ app.whenReady().then(async () => {
               percent,
               bytes: totalBytes,
               done: false,
-              scanning: isDone,
+              phase: planningDone ? 'downloading' : 'locating',
+              foundMissing: discoveredMissing,
+              scannedCandidates: plannedCandidates,
+              scannedColumns,
               isVerify,
               isIncrementalUpdate,
               totalTiles: curTiles,
@@ -1609,8 +1679,8 @@ app.whenReady().then(async () => {
       workers.push(worker(i));
     }
     await Promise.all(workers);
-    // Existing files were deliberately invisible to normal progress, so use
-    // the actual number of missing attempts for the final 100% denominator.
+    // The normal iterator contains missing files only; its final discovered
+    // count is the exact denominator and never includes ready local tiles.
     if (!isVerify && !isIncrementalUpdate) total = completed;
     const completedCleanly = !signal.aborted && failedCount === 0;
     const finalStats = applyOfflineDownloadManifest({
@@ -1626,6 +1696,7 @@ app.whenReady().then(async () => {
         completed, total, savedCount, failedCount, unchangedCount, updatedCount, newlyAddedCount,
         percent: total ? Math.round(completed / total * 100) : 100,
         speed: 0, byteSpeed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
+        phase: 'done', foundMissing: discoveredMissing, scannedCandidates: plannedCandidates, scannedColumns,
         isVerify, isIncrementalUpdate, ...finalStats
       });
     }

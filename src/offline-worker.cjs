@@ -179,41 +179,159 @@ function scan({ baseDir, provinces, boxes }) {
   return { stats, provinces: result, inventoryVersion: OFFLINE_INVENTORY_VERSION };
 }
 
-// Streaming enumeration bounds memory even for a nationwide L14 request. Overlaps
-// are removed geometrically instead of retaining millions of tile keys in a Set.
-function* enumerateTiles({ provinces, minZ, maxZ, downloadDem, downloadVec, boxes, targetKeys }) {
+function subtractClaimedInterval(start, end, claimed) {
+  const result = [];
+  let cursor = start;
+  for (const [claimedStart, claimedEnd] of claimed) {
+    if (claimedEnd < cursor) continue;
+    if (claimedStart > end) break;
+    if (claimedStart > cursor) result.push([cursor, Math.min(end, claimedStart - 1)]);
+    cursor = Math.max(cursor, claimedEnd + 1);
+    if (cursor > end) break;
+  }
+  if (cursor <= end) result.push([cursor, end]);
+  return result;
+}
+
+function addClaimedInterval(claimed, start, end) {
+  const next = [];
+  let mergedStart = start;
+  let mergedEnd = end;
+  let inserted = false;
+  for (const [currentStart, currentEnd] of claimed) {
+    if (currentEnd + 1 < mergedStart) {
+      next.push([currentStart, currentEnd]);
+    } else if (mergedEnd + 1 < currentStart) {
+      if (!inserted) {
+        next.push([mergedStart, mergedEnd]);
+        inserted = true;
+      }
+      next.push([currentStart, currentEnd]);
+    } else {
+      mergedStart = Math.min(mergedStart, currentStart);
+      mergedEnd = Math.max(mergedEnd, currentEnd);
+    }
+  }
+  if (!inserted) next.push([mergedStart, mergedEnd]);
+  return next;
+}
+
+// Enumerate one physical z/x directory at a time. This lets normal resume read
+// a directory once and subtract all ready y files before any task reaches the
+// download workers. It also keeps province overlap ownership deterministic.
+function* enumerateTileColumns({ provinces, minZ, maxZ, downloadDem, downloadVec, targetKeys }) {
   const allowedTargets = targetKeys instanceof Set
     ? targetKeys
     : (Array.isArray(targetKeys) ? new Set(targetKeys) : null);
   for (let z = minZ; z <= maxZ; z++) {
-    const previous = [];
-    for (const prov of provinces) {
-      const b = bounds(prov.bbox, z);
-      const includeDem = downloadDem && (!allowedTargets || allowedTargets.has(`${prov.key}:dem:${z}`));
-      const includeVector = downloadVec && (!allowedTargets || allowedTargets.has(`${prov.key}:vector:${z}`));
-      // Keep the rectangle in the overlap mask, but do not walk every x/y in a
-      // level that the manifest already marks complete.
-      if (!includeDem && !includeVector) {
-        previous.push(b);
-        continue;
-      }
-      for (let x = b[0]; x <= b[1]; x++) {
-        for (let y = b[2]; y <= b[3]; y++) {
-          if (previous.some(p => x >= p[0] && x <= p[1] && y >= p[2] && y <= p[3]) || !inChina(z, x, y, boxes)) continue;
-          if (includeDem) {
-            yield { provKey: prov.key, provName: prov.name, type: 'dem', z, x, y, ext: 'webp' };
-          }
-          if (includeVector) {
-            yield { provKey: prov.key, provName: prov.name, type: 'vector', z, x, y, ext: 'pbf' };
-          }
+    const ranges = provinces.map(prov => ({
+      prov,
+      b: bounds(prov.bbox, z),
+      includeDem: downloadDem && (!allowedTargets || allowedTargets.has(`${prov.key}:dem:${z}`)),
+      includeVector: downloadVec && (!allowedTargets || allowedTargets.has(`${prov.key}:vector:${z}`))
+    }));
+    if (ranges.length === 0 || !ranges.some(range => range.includeDem || range.includeVector)) continue;
+    const minX = Math.min(...ranges.map(range => range.b[0]));
+    const maxX = Math.max(...ranges.map(range => range.b[1]));
+
+    for (let x = minX; x <= maxX; x++) {
+      let claimed = [];
+      const segments = [];
+      for (const range of ranges) {
+        if (x < range.b[0] || x > range.b[1]) continue;
+        const uncovered = subtractClaimedInterval(range.b[2], range.b[3], claimed);
+        // Every earlier province claims its full rectangle even when its level
+        // is manifest-complete; shared physical tiles must never be downloaded
+        // again on behalf of a later overlapping province.
+        claimed = addClaimedInterval(claimed, range.b[2], range.b[3]);
+        if (!range.includeDem && !range.includeVector) continue;
+        for (const [startY, endY] of uncovered) {
+          segments.push({
+            provKey: range.prov.key,
+            provName: range.prov.name,
+            startY,
+            endY,
+            includeDem: range.includeDem,
+            includeVector: range.includeVector
+          });
         }
       }
-      previous.push(b);
+      if (segments.length > 0) yield { z, x, segments };
     }
   }
 }
 
-module.exports = { scan, bounds, inChina, enumerateTiles };
+// Async missing-only producer used by normal resume. `readColumnFiles` returns
+// one Set of file names for a physical layer/z/x directory, so millions of
+// ready files are discarded here instead of becoming download-worker tasks.
+async function* enumerateMissingTiles(plan, { readColumnFiles, signal, onProgress } = {}) {
+  if (typeof readColumnFiles !== 'function') {
+    throw new TypeError('readColumnFiles is required');
+  }
+  const progress = { scannedColumns: 0, scannedCandidates: 0, foundMissing: 0, currentProvince: '', currentZ: plan.minZ };
+  let columnsSinceYield = 0;
+  for (const column of enumerateTileColumns(plan)) {
+    if (signal?.aborted) break;
+    const needsDem = column.segments.some(segment => segment.includeDem);
+    const needsVector = column.segments.some(segment => segment.includeVector);
+    const [demFiles, vectorFiles] = await Promise.all([
+      needsDem ? readColumnFiles('dem', column.z, column.x) : null,
+      needsVector ? readColumnFiles('vector', column.z, column.x) : null
+    ]);
+
+    progress.scannedColumns++;
+    progress.currentZ = column.z;
+    for (const segment of column.segments) {
+      progress.currentProvince = segment.provName || progress.currentProvince;
+      for (let y = segment.startY; y <= segment.endY; y++) {
+        if (signal?.aborted) break;
+        if (!inChina(column.z, column.x, y, plan.boxes)) continue;
+        if (segment.includeDem) {
+          progress.scannedCandidates++;
+          if (!demFiles.has(`${y}.webp`)) {
+            progress.foundMissing++;
+            yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, y, ext: 'webp' };
+          }
+        }
+        if (segment.includeVector) {
+          progress.scannedCandidates++;
+          if (!vectorFiles.has(`${y}.pbf`)) {
+            progress.foundMissing++;
+            yield { provKey: segment.provKey, provName: segment.provName, type: 'vector', z: column.z, x: column.x, y, ext: 'pbf' };
+          }
+        }
+      }
+      if (signal?.aborted) break;
+    }
+
+    onProgress?.({ ...progress, done: false });
+    columnsSinceYield++;
+    if (columnsSinceYield >= 32) {
+      columnsSinceYield = 0;
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
+  onProgress?.({ ...progress, done: true });
+}
+
+// Streaming enumeration bounds memory even for a nationwide L14 request.
+function* enumerateTiles(plan) {
+  for (const column of enumerateTileColumns(plan)) {
+    for (const segment of column.segments) {
+      for (let y = segment.startY; y <= segment.endY; y++) {
+        if (!inChina(column.z, column.x, y, plan.boxes)) continue;
+        if (segment.includeDem) {
+          yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, y, ext: 'webp' };
+        }
+        if (segment.includeVector) {
+          yield { provKey: segment.provKey, provName: segment.provName, type: 'vector', z: column.z, x: column.x, y, ext: 'pbf' };
+        }
+      }
+    }
+  }
+}
+
+module.exports = { scan, bounds, inChina, enumerateTileColumns, enumerateMissingTiles, enumerateTiles };
 
 if (!isMainThread) {
   try {

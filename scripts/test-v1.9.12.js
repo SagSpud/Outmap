@@ -3,13 +3,13 @@ const fs = require('fs');
 const pkg = require('../package.json');
 const { enumerateTiles } = require('../src/offline-worker.cjs');
 
-assert.strictEqual(pkg.version, '1.9.12');
+assert(/^1\.9\.(?:1[2-9]|[2-9]\d)$/.test(pkg.version), 'version must retain the v1.9.12 fixes or newer');
 
 const main = fs.readFileSync(require.resolve('../main.js'), 'utf8');
 const app = fs.readFileSync(require.resolve('../src/app.js'), 'utf8');
 const worker = fs.readFileSync(require.resolve('../src/offline-worker.cjs'), 'utf8');
 
-assert(app.includes("const APP_VERSION = '1.9.12';"), 'renderer version must match package');
+assert(app.includes(`const APP_VERSION = '${pkg.version}';`), 'renderer version must match package');
 assert(main.includes('const targetKeys = (isIncrementalUpdate || isVerify) ? null : missingTargetKeys;'), 'normal downloads must use manifest-filtered targets');
 assert(main.includes('if (!isVerify && !isIncrementalUpdate) total = completed;'), 'normal progress must count missing attempts only');
 assert(main.includes('const finalStats = applyOfflineDownloadManifest({'), 'download completion must update the manifest incrementally');

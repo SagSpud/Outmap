@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.12';
+const APP_VERSION = '1.9.13';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -3246,8 +3246,9 @@ function setupPyramidModal(map) {
     Boolean(state) && layers.some(layer => Number(state?.layers?.[layer]?.levels?.[z]?.present || 0) > 0)
   );
 
-  const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false) => {
+  const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false, phase = '') => {
     if (isVerify) return '本地校验中';
+    if (phase === 'locating' && (!byteSpeed || byteSpeed <= 0)) return '正在定位缺片';
     if (!byteSpeed || byteSpeed <= 0) {
       return isExisting ? '本地已就绪' : '0 KB/s';
     }
@@ -3865,7 +3866,7 @@ function setupPyramidModal(map) {
     } else if (isVerify) {
       progressNum.innerText = '正在高速校验本地已缓存切片...';
     } else {
-      progressNum.innerText = '正在准备批量免重下载通道...';
+      progressNum.innerText = '正在定位未下载部分，不会逐块读取已有瓦片...';
     }
 
     if (window.electronAPI && window.electronAPI.startPyramidDownload) {
@@ -3947,7 +3948,8 @@ function setupPyramidModal(map) {
   // 监听后台批量下载进度广播与完成落盘
   if (window.electronAPI && window.electronAPI.onDownloadProgress) {
     window.electronAPI.onDownloadProgress(data => {
-      progressFill.style.setProperty('--progress', String(Math.max(0, Math.min(1, Number(data.percent || 0) / 100))));
+      const isLocating = data.phase === 'locating';
+      progressFill.style.setProperty('--progress', String(isLocating ? 0 : Math.max(0, Math.min(1, Number(data.percent || 0) / 100))));
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
       const provName = data.currentProvince || '目标省份';
       const zStr = data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`;
@@ -3979,6 +3981,8 @@ function setupPyramidModal(map) {
           progressTask.innerText = `⚡ 增量更新: ${provName}${zStr}`;
         } else if (data.isVerify) {
           progressTask.innerText = `🔍 正在校验: ${provName}${zStr}`;
+        } else if (isLocating) {
+          progressTask.innerText = `🔎 正在定位未下载部分: ${provName}${zStr}`;
         } else {
           progressTask.innerText = `${taskPrefix}: ${provName}${zStr}`;
         }
@@ -3987,7 +3991,14 @@ function setupPyramidModal(map) {
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)} 瓦片`;
       let detail = countPart;
       const readyCount = data.existingCount || data.skippedCount || 0;
-      if (data.isIncrementalUpdate) {
+      if (isLocating) {
+        const found = Number(data.foundMissing || data.total || 0);
+        detail = found > 0
+          ? `已定位 ${formatTileCount(found)} 块缺片 · 已补齐 ${formatTileCount(data.completed || 0)} 块`
+          : '正在读取目录索引，不会逐块读取已有瓦片';
+      } else if (data.done && Number(data.total || 0) === 0) {
+        detail = '未发现缺片，所选范围已全部就绪';
+      } else if (data.isIncrementalUpdate) {
         const unchanged = data.unchangedCount || 0;
         detail = (readyCount > 0 || unchanged > 0) ? `${countPart} (已就绪 ${formatTileCount(unchanged || readyCount)})` : countPart;
       } else if (readyCount > 0) {
@@ -4012,9 +4023,11 @@ function setupPyramidModal(map) {
         lastProgressTime = now;
       }
 
-      const isExisting = (!curByteSpeed || curByteSpeed <= 0) && (readyCount > 0 || (data.unchangedCount || 0) > 0 || (data.completed > 0 && (!data.bytes || data.bytes === 0)));
-      progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting);
-      progressPct.innerText = `${data.percent}%`;
+      // Zero traffic after failed requests is not evidence that a tile already
+      // existed. Only explicit verify/update counters may show "本地已就绪".
+      const isExisting = (!curByteSpeed || curByteSpeed <= 0) && (readyCount > 0 || (data.unchangedCount || 0) > 0);
+      progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting, data.phase);
+      progressPct.innerText = isLocating ? '定位中' : `${data.percent}%`;
 
       if (!data.done) {
         if (downloadDotState !== 'downloading') setDownloadDotState('downloading');
