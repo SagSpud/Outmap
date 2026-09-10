@@ -1929,22 +1929,20 @@ del "%~f0"
 
   ipcMain.handle('pull-cloud-sync-data', async (event, { syncKey }) => {
     const key = (syncKey || 'default').trim();
-    // 1. 优先从公网 CDN 拉取 (快速低延迟)
-    try {
-      const url = `https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(key)}.json?t=${Date.now()}`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (r.ok) {
-        const json = await r.json();
-        return { success: true, data: json };
-      } else if (r.status === 404) {
-        return { success: false, notFound: true, message: '云端暂未发现此账号的同步记录' };
-      }
-    } catch (_) {}
-
-    // 2. 兜底通过 S3 签名直连 Cloudflare R2 存储桶拉取
+    // 1. 直读 R2 源站，避免 CDN 尚未刷新时把另一端的新收藏误当作旧数据。
     try {
       const s3Key = `Outmap/sync/${encodeURIComponent(key)}.json`;
-      return await pullBufferFromR2(s3Key);
+      const direct = await pullBufferFromR2(s3Key);
+      if (direct.success || direct.notFound) return direct;
+    } catch (_) {}
+
+    // 2. 源站临时不可用时再走公网 CDN 兜底。
+    try {
+      const url = `https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(key)}.json?t=${Date.now()}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000), cache: 'no-store' });
+      if (r.ok) return { success: true, data: await r.json() };
+      if (r.status === 404) return { success: false, notFound: true, message: '云端暂未发现此账号的同步记录' };
+      return { success: false, message: `CDN GET HTTP ${r.status}` };
     } catch (err) {
       return { success: false, message: err.message };
     }

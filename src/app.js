@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.2';
+const APP_VERSION = '1.9.3';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -761,6 +761,8 @@ async function initApplication() {
   totalOfflineCount = 0;
   totalOfflineBytes = 0;
 
+  setupDockPanelStateSync();
+
 
   if (window.electronAPI) {
     try {
@@ -812,6 +814,7 @@ async function initApplication() {
             offlineProvCache = data.provinces;
             try { localStorage.setItem('outmap_offline_provinces', JSON.stringify(data.provinces)); } catch (e) {}
             window.refreshOfflineProvinceGrid?.();
+            window.refreshOfflineDownloadDot?.();
           }
         });
       }
@@ -3149,6 +3152,19 @@ function setupPyramidModal(map) {
     updateBtnTooltip();
   };
 
+  // 绿点来自真实磁盘清单，不再依赖“刚下载完”这一瞬时界面状态。
+  const hasPersistedCompleteProvince = () => Object.values(getOfflineProvState() || {}).some(province => {
+    const layers = province?.layers || {};
+    return Object.values(layers).some(layer =>
+      Object.entries(layer?.levels || {}).some(([z, level]) => Number(z) >= 10 && level?.complete === true)
+    );
+  });
+  const refreshDownloadDotFromManifest = () => {
+    if (downloadDotState === 'downloading') return;
+    setDownloadDotState(hasPersistedCompleteProvince() ? 'completed' : 'idle');
+  };
+  window.refreshOfflineDownloadDot = refreshDownloadDotFromManifest;
+
   const toggleDropdown = (show) => {
     if (!dropdownPanel) return;
     const isCurrentlyOpen = dropdownPanel.style.display === 'block';
@@ -3687,7 +3703,7 @@ function setupPyramidModal(map) {
   });
 
   btnDone?.addEventListener('click', () => {
-    setDownloadDotState('idle');
+    refreshDownloadDotFromManifest();
     closePyramidModal();
   });
 
@@ -3751,7 +3767,7 @@ function setupPyramidModal(map) {
       } catch (err) {
         document.body.classList.remove('is-downloading');
         activeDownloadSession = null;
-        setDownloadDotState('idle');
+        refreshDownloadDotFromManifest();
         progressNum.innerText = `下载遇到异常: ${err.message}`;
         updateEstimation();
       }
@@ -3797,7 +3813,7 @@ function setupPyramidModal(map) {
   btnCancel.addEventListener('click', async () => {
     document.body.classList.remove('is-downloading');
     activeDownloadSession = null;
-    setDownloadDotState('idle');
+    refreshDownloadDotFromManifest();
     if (window.electronAPI && window.electronAPI.cancelPyramidDownload) {
       await window.electronAPI.cancelPyramidDownload();
     }
@@ -3936,9 +3952,11 @@ function setupPyramidModal(map) {
         syncOfflineManifest().then(() => {
           renderProvinceGrid();
           updateEstimation();
+          refreshDownloadDotFromManifest();
         }).catch(() => {
           renderProvinceGrid();
           updateEstimation();
+          refreshDownloadDotFromManifest();
         });
 
         if (data.isIncrementalUpdate) {
@@ -3955,6 +3973,9 @@ function setupPyramidModal(map) {
       }
     });
   }
+
+  // 启动时从持久化清单恢复绿点；仅读取现有清单，不发起扫描或常驻任务。
+  syncOfflineManifest().then(refreshDownloadDotFromManifest).catch(refreshDownloadDotFromManifest);
 }
 
 // 软件版本在线微更新系统 (点击最左侧 Logo 原地 3D 翻转，底色为进度条，完成提示覆盖安装，0弹窗)
@@ -4156,7 +4177,16 @@ function setupAppUpdate() {
 let cloudSyncDebounceTimer = null;
 let cloudSyncUploading = false;
 let cloudSyncPending = false;
+let cloudSyncQueue = Promise.resolve();
+let lastFocusCloudSyncAt = 0;
 const USER_ACCOUNT_STORAGE_KEY = 'outmap_user_account';
+
+// 所有自动/手动同步都走同一条串行队列，避免两个端点同时拉取后互相覆盖旧快照。
+function enqueueCloudSync(task) {
+  const operation = cloudSyncQueue.catch(() => {}).then(task);
+  cloudSyncQueue = operation.catch(() => {});
+  return operation;
+}
 
 // Standalone Web & Desktop Cloudflare R2 Cloud Sync Engine
 const WEB_R2_SYNC = {
@@ -4215,9 +4245,56 @@ async function uploadWebCloudSyncData({ syncKey, data }) {
   }
   return { success: true };
 }
+async function pullWebCloudSyncData({ syncKey }) {
+  const key = (syncKey || 'default').trim();
+  const host = `${WEB_R2_SYNC.accountId}.r2.cloudflarestorage.com`;
+  const canonicalUri = `/${WEB_R2_SYNC.bucket}/Outmap/sync/${encodeURIComponent(key)}.json`;
+  const payloadHash = bytesToHex(await webCryptoSha256(''));
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+  const canonicalRequest = ['GET', canonicalUri, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const scope = `${dateStamp}/auto/s3/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, bytesToHex(await webCryptoSha256(canonicalRequest))].join('\n');
+  const kDate = await webCryptoHmac(`AWS4${WEB_R2_SYNC.secretAccessKey}`, dateStamp);
+  const kRegion = await webCryptoHmac(kDate, 'auto');
+  const kService = await webCryptoHmac(kRegion, 's3');
+  const kSigning = await webCryptoHmac(kService, 'aws4_request');
+  const signature = bytesToHex(await webCryptoHmac(kSigning, stringToSign));
+  const authorization = `AWS4-HMAC-SHA256 Credential=${WEB_R2_SYNC.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`https://${host}${canonicalUri}`, {
+    headers: {
+      'x-amz-date': amzDate,
+      'x-amz-content-sha256': payloadHash,
+      Authorization: authorization
+    },
+    cache: 'no-store'
+  });
+  if (response.status === 404) return { success: false, notFound: true };
+  if (!response.ok) throw new Error(`网页同步拉取失败 (HTTP ${response.status})`);
+  return { success: true, data: await response.json() };
+}
 async function uploadCloudSyncPayload(payload) {
   if (window.electronAPI?.uploadCloudSyncData) return window.electronAPI.uploadCloudSyncData(payload);
   return uploadWebCloudSyncData(payload);
+}
+async function pullCloudSyncPayload(syncKey) {
+  if (window.electronAPI?.pullCloudSyncData) {
+    const result = await window.electronAPI.pullCloudSyncData({ syncKey });
+    if (result?.success || result?.notFound) return result;
+  } else {
+    try {
+      const result = await pullWebCloudSyncData({ syncKey });
+      if (result?.success || result?.notFound) return result;
+    } catch (_) {}
+  }
+  try {
+    const response = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (response.ok) return { success: true, data: await response.json() };
+    if (response.status === 404) return { success: false, notFound: true };
+  } catch (_) {}
+  return { success: false };
 }
 window.uploadCloudSyncPayload = uploadCloudSyncPayload;
 
@@ -4246,23 +4323,18 @@ async function triggerRealtimeCloudSync(reason = 'change') {
     }
     cloudSyncUploading = true;
     try {
+      await enqueueCloudSync(async () => {
       const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
 
-      // 1. 若是数据增删改操作，上传前优先拉取云端最新存档执行双向智能合并，防止覆盖手机/网页端新增地标
+      // 1. 上传的是整份数据，所以即便只改变视角也必须先拉取合并；
+      // 否则“桌面 2 个收藏 + 网页 4 个收藏”时，拖一下地图就会把云端覆盖回 2 个。
       let cloudData = null;
-      if (reason !== 'view_changed' && reason !== 'pitch_lock_changed') {
-        if (window.electronAPI?.pullCloudSyncData) {
-          try {
-            const pullRes = await window.electronAPI.pullCloudSyncData({ syncKey });
-            if (pullRes?.success && pullRes.data) cloudData = pullRes.data;
-          } catch (_) {}
-        }
-        if (!cloudData) {
-          try {
-            const r = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`);
-            if (r.ok) cloudData = await r.json();
-          } catch (_) {}
-        }
+      try {
+        const pullRes = await pullCloudSyncPayload(syncKey);
+        if (pullRes?.success && pullRes.data) cloudData = pullRes.data;
+        if (!pullRes?.success && !pullRes?.notFound) throw new Error('暂时无法确认云端最新数据');
+      } catch (error) {
+        throw new Error(error?.message || '暂时无法确认云端最新数据');
       }
 
       // 读取本地数据
@@ -4341,6 +4413,7 @@ async function triggerRealtimeCloudSync(reason = 'change') {
           }
         }
       }
+      });
     } catch (e) {
       console.warn('[CloudSync] 实时自动同步后台提示:', e.message);
     } finally {
@@ -4416,25 +4489,16 @@ function setupCloudSync(map) {
   window.openSyncModal = openSyncModal;
 
   // 执行全量双向智能合并与云端同步
-  const executeFullSync = async (user, isUserInitiated = true) => {
+  const performFullSync = async (user, isUserInitiated = true) => {
     const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
     if (isUserInitiated) showStatus('正在同步云端数据...');
 
     try {
       // 1. 从云端拉取存档
       let cloudData = null;
-      if (window.electronAPI && window.electronAPI.pullCloudSyncData) {
-        const pullRes = await window.electronAPI.pullCloudSyncData({ syncKey });
-        if (pullRes && pullRes.success && pullRes.data) {
-          cloudData = pullRes.data;
-        }
-      }
-      if (!cloudData) {
-        try {
-          const r = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`);
-          if (r.ok) cloudData = await r.json();
-        } catch (e) {}
-      }
+      const pullRes = await pullCloudSyncPayload(syncKey);
+      if (pullRes?.success && pullRes.data) cloudData = pullRes.data;
+      if (!pullRes?.success && !pullRes?.notFound) throw new Error('暂时无法确认云端最新数据，请稍后重试');
 
       // 密码核验 (若云端已有且设置了密码)
       if (cloudData && cloudData.password && user.password && cloudData.password !== user.password) {
@@ -4531,6 +4595,8 @@ function setupCloudSync(map) {
       return false;
     }
   };
+  const executeFullSync = (user, isUserInitiated = true) =>
+    enqueueCloudSync(() => performFullSync(user, isUserInitiated));
   window.executeFullSync = executeFullSync;
 
   // 登录表单回车键快捷登录支持
@@ -4671,6 +4737,15 @@ function setupCloudSync(map) {
     setTimeout(() => {
       executeFullSync(currentUser, false);
     }, 1200);
+
+    // 从另一台设备或网页切回时重新合并，双端无需靠刷新页面才能看到新增收藏。
+    const syncWhenActiveAgain = () => {
+      if (document.hidden || Date.now() - lastFocusCloudSyncAt < 15000) return;
+      lastFocusCloudSyncAt = Date.now();
+      executeFullSync(getLoggedInUser() || currentUser, false);
+    };
+    window.addEventListener('focus', syncWhenActiveAgain);
+    document.addEventListener('visibilitychange', syncWhenActiveAgain);
   }
 }
 
@@ -5046,6 +5121,29 @@ let favoriteLayersVisible = true;
 let selectedFavoriteFeatureId = null;
 let favoriteLayerEventsBound = false;
 let favoriteLayerInitPending = false;
+
+// 三个工具面板按钮与三个视角按钮共用相同的 active 语义和视觉反馈。
+// MutationObserver 只响应面板自身开关，不轮询、不触发地图重绘。
+function setupDockPanelStateSync() {
+  const bindings = [
+    ['btn-fab-layers', 'layers-popover'],
+    ['btn-fab-route', 'route-panel'],
+    ['btn-fab-fav', 'favorites-drawer']
+  ];
+  bindings.forEach(([buttonId, panelId]) => {
+    const button = document.getElementById(buttonId);
+    const panel = document.getElementById(panelId);
+    if (!button || !panel || panel.dataset.dockStateBound === '1') return;
+    panel.dataset.dockStateBound = '1';
+    const update = () => {
+      const isOpen = panel.style.display !== 'none' && !panel.classList.contains('panel-closing') && !panel.classList.contains('popover-closing');
+      button.classList.toggle('active', isOpen);
+      button.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
+    };
+    new MutationObserver(update).observe(panel, { attributes: true, attributeFilter: ['style', 'class'] });
+    update();
+  });
+}
 
 // 右下角悬浮面板统一互斥调度管理 (收藏抽屉、新建地标收藏弹窗、路线规划面板互斥关闭，杜绝界面重叠)
 function closeConflictingBottomPanels(exceptId = null) {
