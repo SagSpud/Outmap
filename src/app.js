@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.9.2';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -6136,7 +6136,10 @@ let profileCursorMarker = null;
 let currentProfileData = [];
 let routePlanTimer = null;
 const ROUTE_POINTS_SOURCE_ID = 'outmap-route-points';
-const ROUTE_POINT_LAYER_IDS = ['outmap-route-point-halo', 'outmap-route-point-circles', 'outmap-route-point-labels'];
+const ROUTE_POINT_LAYER_IDS = [
+  'outmap-route-point-halo', 'outmap-route-point-circles', 'outmap-route-point-labels',
+  'outmap-route-point-clusters', 'outmap-route-point-cluster-count'
+];
 let routePointLayersVisible = true;
 let routePointLayerEventsBound = false;
 let activeRouteMapDrag = null;
@@ -6562,7 +6565,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   });
 }
 
-function getRoutePointFeatures(map) {
+function getRoutePointFeatures() {
   const features = [];
   const add = (id, role, coords, name, label, zoom) => {
     if (!coords || !Number.isFinite(Number(coords[0])) || !Number.isFinite(Number(coords[1]))) return;
@@ -6576,64 +6579,6 @@ function getRoutePointFeatures(map) {
   routeViaPoints.forEach((via, index) => add(`route-via-${via.id || index}`, 'via', via.coords, via.name, String(index + 1), via.zoom));
   add('route-end', 'end', routeEndCoord, routeEndName, '终', routeEndZoom);
 
-  // Keep the route topology untouched while separating close markers in
-  // viewport pixels. MapLibre still renders and hit-tests one native source;
-  // project/unproject also keeps the result correct in pitched 3D views.
-  if (map?.project && map?.unproject && features.length > 1) {
-    const ordered = [...features].sort((a, b) => {
-      const priority = { start: 0, end: 1, via: 2 };
-      return (priority[a.properties.role] ?? 3) - (priority[b.properties.role] ?? 3)
-        || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
-    });
-    const projected = ordered.map(feature => ({ feature, point: map.project(feature.geometry.coordinates) }));
-    const visited = new Set();
-    for (let seedIndex = 0; seedIndex < projected.length; seedIndex++) {
-      if (visited.has(seedIndex)) continue;
-      const group = [seedIndex];
-      visited.add(seedIndex);
-      // Transitive grouping prevents a chain of nearby markers from leaving
-      // its middle labels overlapped.
-      for (let cursor = 0; cursor < group.length; cursor++) {
-        const a = projected[group[cursor]].point;
-        for (let i = 0; i < projected.length; i++) {
-          if (visited.has(i)) continue;
-          const b = projected[i].point;
-          if (Math.hypot(a.x - b.x, a.y - b.y) < 30) {
-            visited.add(i);
-            group.push(i);
-          }
-        }
-      }
-      if (group.length < 2) continue;
-      const center = group.reduce((acc, index) => {
-        acc.x += projected[index].point.x;
-        acc.y += projected[index].point.y;
-        return acc;
-      }, { x: 0, y: 0 });
-      center.x /= group.length;
-      center.y /= group.length;
-      let consumed = 0;
-      let ring = 0;
-      while (consumed < group.length) {
-        const radius = 26 + ring * 44;
-        const capacity = Math.max(4, Math.floor((Math.PI * 2 * radius) / 40));
-        const ringCount = Math.min(capacity, group.length - consumed);
-        for (let ringPosition = 0; ringPosition < ringCount; ringPosition++) {
-          const index = group[consumed + ringPosition];
-          const angle = -Math.PI / 2 + (Math.PI * 2 * ringPosition / ringCount);
-          const displayPoint = {
-            x: center.x + Math.cos(angle) * radius,
-            y: center.y + Math.sin(angle) * radius
-          };
-          const lngLat = map.unproject(displayPoint);
-          projected[index].feature.geometry.coordinates = [lngLat.lng, lngLat.lat];
-          projected[index].feature.properties.overlapGroupSize = group.length;
-        }
-        consumed += ringCount;
-        ring++;
-      }
-    }
-  }
   return { type: 'FeatureCollection', features };
 }
 
@@ -6650,9 +6595,17 @@ function findRoutePointByFeature(feature) {
 function ensureRoutePointLayers(map) {
   if (!map || !map.__outmapStyleReady) return false;
   if (!map.getSource(ROUTE_POINTS_SOURCE_ID)) {
-    map.addSource(ROUTE_POINTS_SOURCE_ID, { type: 'geojson', data: getRoutePointFeatures(map), promoteId: 'id' });
+    map.addSource(ROUTE_POINTS_SOURCE_ID, {
+      type: 'geojson',
+      data: getRoutePointFeatures(),
+      promoteId: 'id',
+      cluster: true,
+      clusterMaxZoom: 13,
+      clusterRadius: 26
+    });
     map.addLayer({
       id: 'outmap-route-point-halo', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
       paint: {
         'circle-radius': ['case', ['boolean', ['feature-state', 'dragging'], false], 21, ['boolean', ['feature-state', 'hover'], false], 19, 0],
         'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#0284c7'],
@@ -6663,6 +6616,7 @@ function ensureRoutePointLayers(map) {
     });
     map.addLayer({
       id: 'outmap-route-point-circles', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
       layout: {
         'circle-sort-key': ['match', ['get', 'role'], 'via', 1, 'end', 2, 3]
       },
@@ -6678,6 +6632,7 @@ function ensureRoutePointLayers(map) {
     });
     map.addLayer({
       id: 'outmap-route-point-labels', type: 'symbol', source: ROUTE_POINTS_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
       layout: {
         'text-field': ['get', 'label'],
         'text-font': ['Noto Sans Regular'],
@@ -6695,6 +6650,35 @@ function ensureRoutePointLayers(map) {
         'text-halo-width': 0.5
       }
     });
+    map.addLayer({
+      id: 'outmap-route-point-clusters', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': ['step', ['get', 'point_count'], '#0f8fbf', 10, '#087aa8', 30, '#075f83'],
+        'circle-radius': ['step', ['get', 'point_count'], 15, 10, 18, 30, 21],
+        'circle-stroke-width': 3,
+        'circle-stroke-color': 'rgba(255,255,255,0.96)',
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport'
+      }
+    });
+    map.addLayer({
+      id: 'outmap-route-point-cluster-count', type: 'symbol', source: ROUTE_POINTS_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': ['get', 'point_count_abbreviated'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 11,
+        'text-allow-overlap': true,
+        'text-pitch-alignment': 'viewport',
+        'text-rotation-alignment': 'viewport'
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(7,95,131,0.35)',
+        'text-halo-width': 0.5
+      }
+    });
   }
   ROUTE_POINT_LAYER_IDS.forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routePointLayersVisible ? 'visible' : 'none');
@@ -6707,6 +6691,24 @@ function bindRoutePointLayerEvents(map) {
   routePointLayerEventsBound = true;
   let hoveredId = null;
   let suppressNextClick = false;
+
+  map.on('mouseenter', 'outmap-route-point-clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'outmap-route-point-clusters', () => { if (!activeRouteMapDrag) map.getCanvas().style.cursor = ''; });
+  map.on('click', 'outmap-route-point-clusters', async e => {
+    if (pickingRoutePt || isPickingPoint) return;
+    const feature = e.features?.[0];
+    const source = map.getSource(ROUTE_POINTS_SOURCE_ID);
+    if (!feature || !source?.getClusterExpansionZoom) return;
+    try {
+      const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
+      map.easeTo({
+        center: feature.geometry.coordinates,
+        zoom: Math.min(15.5, zoom),
+        duration: 420,
+        easing: t => 1 - Math.pow(1 - t, 3)
+      });
+    } catch (_) {}
+  });
 
   map.on('mouseenter', 'outmap-route-point-circles', e => {
     map.getCanvas().style.cursor = 'pointer';
@@ -6726,10 +6728,6 @@ function bindRoutePointLayerEvents(map) {
     if (!point?.coords) return;
     flyToLocationPrecisely(map, point.coords, { zoom: point.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
   });
-  map.on('moveend', () => {
-    const source = map.getSource(ROUTE_POINTS_SOURCE_ID);
-    if (source && routePointLayersVisible) source.setData(getRoutePointFeatures(map));
-  });
   map.on('mousedown', 'outmap-route-point-circles', e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint) return;
     const feature = e.features?.[0];
@@ -6740,7 +6738,7 @@ function bindRoutePointLayerEvents(map) {
     const el = document.createElement('div');
     el.className = point.role === 'start' ? 'route-start-marker-pin' : point.role === 'end' ? 'route-end-marker-pin' : 'route-via-marker-pin';
     el.innerText = feature.properties?.label || '';
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(feature.geometry.coordinates).addTo(map);
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(point.coords).addTo(map);
     const featureId = feature.id;
     map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
     const origin = e.point;
@@ -6805,7 +6803,7 @@ function syncRouteMarkersVisualState(mapInstance) {
   }
   routePointLayerInitPending = false;
   bindRoutePointLayerEvents(m);
-  m.getSource(ROUTE_POINTS_SOURCE_ID)?.setData(getRoutePointFeatures(m));
+  m.getSource(ROUTE_POINTS_SOURCE_ID)?.setData(getRoutePointFeatures());
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
