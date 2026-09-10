@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.9.1';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -835,7 +835,6 @@ async function initApplication() {
   }
 
   // 瓦片 API 体系：在 Electron 下默认使用本地离线服务；在 Web 纯网页端直连在线瓦片 CDN
-  // 瓦片 API 体系：在 Electron 下默认使用本地离线服务；在 Web 纯网页端直连在线瓦片 CDN
   let demUrl = `http://127.0.0.1:${port}/dem/{z}/{x}/{y}.webp`;
   let vecUrl = `http://127.0.0.1:${port}/vector/{z}/{x}/{y}.pbf`;
   let glyphsUrl = `http://127.0.0.1:${port}/fonts/{fontstack}/{range}.pbf`;
@@ -946,8 +945,14 @@ async function initApplication() {
   // 鼠标按压拖拽地图时实时切换为紧握拳头手型，松手恢复平展打开手掌 (0 毫秒延迟，无缝跟随)
   map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });
   map.on('dragend', () => { document.body.classList.remove('map-is-dragging'); });
-  map.on('movestart', () => { document.body.classList.add('map-is-moving'); });
-  map.on('moveend', () => { document.body.classList.remove('map-is-moving'); });
+  map.on('movestart', () => {
+    document.body.classList.add('map-is-moving');
+    window.electronAPI?.setMapInteractionState?.(true);
+  });
+  map.on('moveend', () => {
+    document.body.classList.remove('map-is-moving');
+    window.electronAPI?.setMapInteractionState?.(false);
+  });
 
   map.on('load', () => {
     // `isStyleLoaded()` can temporarily turn false again while this handler adds
@@ -1690,17 +1695,8 @@ async function initApplication() {
       }
     } catch (e) {}
 
-    // MapLibre 默认 trackResize 会原生处理窗口尺寸变化，避免再注册一套重复 WebGL 重排。
-    map.resize();
-
-    // 首次空闲后补一帧，确保异步地形资源及时呈现。
-    map.once('idle', () => {
-      try {
-        if (typeof map.triggerRepaint === 'function') {
-          map.triggerRepaint();
-        }
-      } catch (e) {}
-    });
+    // MapLibre 的 trackResize 和 source lifecycle 会自行完成首屏尺寸与地形渲染；
+    // 不再额外 resize/补帧，避免加载完成后多一次昂贵的 WebGL 全量重排。
   });
 
   setupOfficeHeaderInteractions(map);
@@ -4927,7 +4923,8 @@ function setupStatusBar(map) {
   let moveRafPending = false;
   let lastPitchVal = -1, lastBearingVal = -1, lastZoomVal = '';
 
-  map.on('mousemove', e => {
+  const supportsHoverPointer = !window.matchMedia?.('(pointer: coarse)').matches;
+  if (supportsHoverPointer) map.on('mousemove', e => {
     // 拖拽平移或正在飞行时彻底跳过主线程坐标与高程计算，杜绝掉帧
     if (document.body.classList.contains('map-is-dragging') || (map.isMoving && map.isMoving())) return;
     latestMouseEvt = e;
@@ -4991,24 +4988,36 @@ function setupStatusBar(map) {
     fpsSampleStartedAt = now;
   };
   const startFpsSampling = () => {
-    if (!fpsTimer && !document.hidden) fpsTimer = setInterval(updateFps, 1000);
+    if (!fpsTimer && !document.hidden && map.isMoving?.()) {
+      renderedFrames = 0;
+      fpsSampleStartedAt = performance.now();
+      fpsTimer = setInterval(updateFps, 1000);
+    }
   };
-  const stopFpsSampling = () => {
+  const stopFpsSampling = (showIdle = true) => {
     if (fpsTimer) clearInterval(fpsTimer);
     fpsTimer = null;
+    if (showIdle) {
+      const el = document.getElementById('status-fps');
+      if (el) el.innerText = '— FPS';
+    }
   };
-  startFpsSampling();
+  map.on('movestart', startFpsSampling);
+  map.on('moveend', () => {
+    if (fpsTimer) updateFps();
+    stopFpsSampling(true);
+  });
   document.addEventListener('visibilitychange', () => {
     renderedFrames = 0;
     fpsSampleStartedAt = performance.now();
     if (document.hidden) stopFpsSampling();
-    else startFpsSampling();
+    else if (map.isMoving?.()) startFpsSampling();
   });
 
   if (window.electronAPI && window.electronAPI.onPowerStateChange) {
     window.electronAPI.onPowerStateChange((info) => {
       if (info.mode === 'performance') {
-        startFpsSampling();
+        if (map.isMoving?.()) startFpsSampling();
         if (mapInstance) {
           mapInstance.triggerRepaint();
         }
@@ -5045,11 +5054,10 @@ function closeConflictingBottomPanels(exceptId = null) {
   panelIds.forEach(id => {
     if (id !== exceptId) {
       const el = document.getElementById(id);
-      if (el) {
-        cancelPendingElementClose(el);
-        el.style.display = 'none';
-        el.classList.remove('active');
-      }
+      if (!el || el.style.display === 'none') return;
+      const finish = () => el.classList.remove('active');
+      if (id === 'layers-popover') smoothClosePopover(el, finish);
+      else smoothClosePanel(el, finish);
     }
   });
 }
@@ -6265,14 +6273,19 @@ function positionRouteFloatingDropdown(inputEl) {
 
 // 容器或窗口滚动/调整尺寸时自动重定位浮动下拉框
 if (typeof window !== 'undefined') {
+  let dropdownRepositionRaf = null;
   const handleDropdownReposition = () => {
-    if (activeFloatingTarget && activeFloatingTarget.inputEl) {
-      if (!document.body.contains(activeFloatingTarget.inputEl)) {
-        hideRouteFloatingDropdown();
-      } else {
-        positionRouteFloatingDropdown(activeFloatingTarget.inputEl);
+    if (dropdownRepositionRaf) return;
+    dropdownRepositionRaf = requestAnimationFrame(() => {
+      dropdownRepositionRaf = null;
+      if (activeFloatingTarget && activeFloatingTarget.inputEl) {
+        if (!document.body.contains(activeFloatingTarget.inputEl)) {
+          hideRouteFloatingDropdown();
+        } else {
+          positionRouteFloatingDropdown(activeFloatingTarget.inputEl);
+        }
       }
-    }
+    });
   };
   window.addEventListener('scroll', handleDropdownReposition, true);
   window.addEventListener('resize', handleDropdownReposition);
@@ -6549,7 +6562,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   });
 }
 
-function getRoutePointFeatures() {
+function getRoutePointFeatures(map) {
   const features = [];
   const add = (id, role, coords, name, label, zoom) => {
     if (!coords || !Number.isFinite(Number(coords[0])) || !Number.isFinite(Number(coords[1]))) return;
@@ -6562,6 +6575,65 @@ function getRoutePointFeatures() {
   add('route-start', 'start', routeStartCoord, routeStartName, '起', routeStartZoom);
   routeViaPoints.forEach((via, index) => add(`route-via-${via.id || index}`, 'via', via.coords, via.name, String(index + 1), via.zoom));
   add('route-end', 'end', routeEndCoord, routeEndName, '终', routeEndZoom);
+
+  // Keep the route topology untouched while separating close markers in
+  // viewport pixels. MapLibre still renders and hit-tests one native source;
+  // project/unproject also keeps the result correct in pitched 3D views.
+  if (map?.project && map?.unproject && features.length > 1) {
+    const ordered = [...features].sort((a, b) => {
+      const priority = { start: 0, end: 1, via: 2 };
+      return (priority[a.properties.role] ?? 3) - (priority[b.properties.role] ?? 3)
+        || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+    });
+    const projected = ordered.map(feature => ({ feature, point: map.project(feature.geometry.coordinates) }));
+    const visited = new Set();
+    for (let seedIndex = 0; seedIndex < projected.length; seedIndex++) {
+      if (visited.has(seedIndex)) continue;
+      const group = [seedIndex];
+      visited.add(seedIndex);
+      // Transitive grouping prevents a chain of nearby markers from leaving
+      // its middle labels overlapped.
+      for (let cursor = 0; cursor < group.length; cursor++) {
+        const a = projected[group[cursor]].point;
+        for (let i = 0; i < projected.length; i++) {
+          if (visited.has(i)) continue;
+          const b = projected[i].point;
+          if (Math.hypot(a.x - b.x, a.y - b.y) < 30) {
+            visited.add(i);
+            group.push(i);
+          }
+        }
+      }
+      if (group.length < 2) continue;
+      const center = group.reduce((acc, index) => {
+        acc.x += projected[index].point.x;
+        acc.y += projected[index].point.y;
+        return acc;
+      }, { x: 0, y: 0 });
+      center.x /= group.length;
+      center.y /= group.length;
+      let consumed = 0;
+      let ring = 0;
+      while (consumed < group.length) {
+        const radius = 26 + ring * 44;
+        const capacity = Math.max(4, Math.floor((Math.PI * 2 * radius) / 40));
+        const ringCount = Math.min(capacity, group.length - consumed);
+        for (let ringPosition = 0; ringPosition < ringCount; ringPosition++) {
+          const index = group[consumed + ringPosition];
+          const angle = -Math.PI / 2 + (Math.PI * 2 * ringPosition / ringCount);
+          const displayPoint = {
+            x: center.x + Math.cos(angle) * radius,
+            y: center.y + Math.sin(angle) * radius
+          };
+          const lngLat = map.unproject(displayPoint);
+          projected[index].feature.geometry.coordinates = [lngLat.lng, lngLat.lat];
+          projected[index].feature.properties.overlapGroupSize = group.length;
+        }
+        consumed += ringCount;
+        ring++;
+      }
+    }
+  }
   return { type: 'FeatureCollection', features };
 }
 
@@ -6578,7 +6650,7 @@ function findRoutePointByFeature(feature) {
 function ensureRoutePointLayers(map) {
   if (!map || !map.__outmapStyleReady) return false;
   if (!map.getSource(ROUTE_POINTS_SOURCE_ID)) {
-    map.addSource(ROUTE_POINTS_SOURCE_ID, { type: 'geojson', data: getRoutePointFeatures(), promoteId: 'id' });
+    map.addSource(ROUTE_POINTS_SOURCE_ID, { type: 'geojson', data: getRoutePointFeatures(map), promoteId: 'id' });
     map.addLayer({
       id: 'outmap-route-point-halo', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
       paint: {
@@ -6591,6 +6663,9 @@ function ensureRoutePointLayers(map) {
     });
     map.addLayer({
       id: 'outmap-route-point-circles', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
+      layout: {
+        'circle-sort-key': ['match', ['get', 'role'], 'via', 1, 'end', 2, 3]
+      },
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 8, 11, 10, 15, ['match', ['get', 'role'], 'via', 12, 13]],
         'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#0284c7'],
@@ -6607,8 +6682,11 @@ function ensureRoutePointLayers(map) {
         'text-field': ['get', 'label'],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 6, 9, 14, 11],
+        'text-pitch-alignment': 'viewport',
+        'text-rotation-alignment': 'viewport',
         'text-allow-overlap': true,
-        'text-ignore-placement': true
+        'text-ignore-placement': true,
+        'symbol-sort-key': ['match', ['get', 'role'], 'via', 1, 'end', 2, 3]
       },
       paint: {
         'text-color': '#ffffff',
@@ -6648,6 +6726,10 @@ function bindRoutePointLayerEvents(map) {
     if (!point?.coords) return;
     flyToLocationPrecisely(map, point.coords, { zoom: point.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
   });
+  map.on('moveend', () => {
+    const source = map.getSource(ROUTE_POINTS_SOURCE_ID);
+    if (source && routePointLayersVisible) source.setData(getRoutePointFeatures(map));
+  });
   map.on('mousedown', 'outmap-route-point-circles', e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint) return;
     const feature = e.features?.[0];
@@ -6658,7 +6740,7 @@ function bindRoutePointLayerEvents(map) {
     const el = document.createElement('div');
     el.className = point.role === 'start' ? 'route-start-marker-pin' : point.role === 'end' ? 'route-end-marker-pin' : 'route-via-marker-pin';
     el.innerText = feature.properties?.label || '';
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(point.coords).addTo(map);
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(feature.geometry.coordinates).addTo(map);
     const featureId = feature.id;
     map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
     const origin = e.point;
@@ -6723,7 +6805,7 @@ function syncRouteMarkersVisualState(mapInstance) {
   }
   routePointLayerInitPending = false;
   bindRoutePointLayerEvents(m);
-  m.getSource(ROUTE_POINTS_SOURCE_ID)?.setData(getRoutePointFeatures());
+  m.getSource(ROUTE_POINTS_SOURCE_ID)?.setData(getRoutePointFeatures(m));
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 

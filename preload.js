@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uploadCloudSyncData: (payload) => ipcRenderer.invoke('upload-cloud-sync-data', payload),
   pullCloudSyncData: (payload) => ipcRenderer.invoke('pull-cloud-sync-data', payload),
   rescanOfflineTiles: () => ipcRenderer.invoke('rescan-offline-tiles'),
+  setMapInteractionState: (active) => ipcRenderer.send('map-interaction-state', Boolean(active)),
   onOfflineScanProgress: (callback) => {
     const listener = (event, data) => callback(data);
     ipcRenderer.on('offline-scan-progress', listener);

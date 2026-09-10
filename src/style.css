@@ -23,6 +23,14 @@
   --cursor-grabbing: grabbing;
   --cursor-crosshair: crosshair;
   --cursor-pointer: pointer;
+  --glass-surface: rgba(255, 255, 255, 0.91);
+  --glass-surface-solid: rgba(255, 255, 255, 0.96);
+  --glass-blur: 20px;
+  --glass-saturation: 160%;
+  --glass-border: rgba(255, 255, 255, 0.78);
+  --motion-enter: 220ms;
+  --motion-exit: 160ms;
+  --motion-standard: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {
@@ -5743,17 +5751,82 @@ body.map-is-moving .fluent-alert-box {
   -webkit-backdrop-filter: none !important;
 }
 
+/* One visual/motion vocabulary for desktop and web. Each floating component
+   owns exactly one acrylic compositor surface; its children remain translucent
+   fills, so the map is sampled once instead of once per nested control. */
+#unified-header,
+.search-popover,
+.route-floating-dropdown,
+.fluent-context-menu,
+.fav-route-context-menu,
+.floating-card,
+.floating-panel,
+.layers-popover-panel,
+.modal-card,
+#pyramid-modal .modal-card,
+#sync-modal .modal-card,
+#update-modal .modal-card,
+.fluent-alert-box {
+  background-color: var(--glass-surface) !important;
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
+}
+
+.floating-card,
+.floating-panel,
+.modal-card,
+.fluent-alert-box,
+.layers-popover-panel {
+  animation-duration: var(--motion-enter);
+  animation-timing-function: var(--motion-standard);
+}
+
+.panel-closing,
+.modal-overlay-closing,
+.modal-overlay-closing .modal-card,
+.modal-overlay-closing .fluent-alert-box,
+.popover-closing,
+.ctx-closing,
+.fav-route-context-menu.closing {
+  animation-duration: var(--motion-exit) !important;
+}
+
+body.is-downloading #unified-header,
+body.is-downloading #pyramid-modal .modal-card,
+body.is-downloading .modal-card,
+body.map-is-moving .search-popover,
+body.map-is-moving .fluent-context-menu,
+body.map-is-moving .floating-card,
+body.map-is-moving .floating-panel,
+body.map-is-moving .modal-card,
+body.map-is-moving .fluent-alert-box,
+body.map-is-moving .layers-popover-panel {
+  background-color: var(--glass-surface-solid) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 @media (max-width: 768px), (pointer: coarse) {
+  :root {
+    --glass-blur: 10px;
+    --glass-saturation: 140%;
+    --motion-enter: 200ms;
+  }
+
   .search-popover,
+  .route-floating-dropdown,
   .fluent-context-menu,
+  .fav-route-context-menu,
   .floating-card,
   .floating-panel,
+  .layers-popover-panel,
   .fluent-alert-box,
   #pyramid-modal .modal-card,
   #sync-modal .modal-card,
   #update-modal .modal-card {
-    backdrop-filter: blur(11px) saturate(140%) !important;
-    -webkit-backdrop-filter: blur(11px) saturate(140%) !important;
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
   }
 
   body.map-is-moving #pyramid-modal .modal-card,

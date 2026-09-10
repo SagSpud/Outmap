@@ -9,16 +9,9 @@ try {
   originalFs = require('original-fs');
 } catch (e) {}
 
-// 启用工业 GIS 工作站级极限硬件与多核加速架构 (前台满血 60FPS+ 硬件加速，性能优先，多占内存与硬盘；后台/最小化自适应节能)
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('high-dpi-support', '1'); // 启用 Windows 高分屏原生 DPI 硬件级抗锯齿与精准光标缩放
-app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
-app.commandLine.appendSwitch('num-raster-threads', '6'); // 启用 6 个并发光栅化渲染线程，加速 DEM 高程图与等高线解码
-app.commandLine.appendSwitch('disk-cache-size', '8589934592'); // 8GB 磁盘缓存，确保大范围切片永久极速留存
-app.commandLine.appendSwitch('media-cache-size', '1073741824'); // 1GB 多媒体/纹理缓存
-app.commandLine.appendSwitch('disable-features', 'Win32kLockdown'); // 禁用 Win32k 系统调用拦截锁定，完全允许底层系统调用
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192'); // 解锁 V8 8GB 超大堆内存，彻底消除 GC 停顿与性能惩罚
+// Electron/Chromium 默认已经启用硬件加速、GPU 光栅化与自适应线程数。
+// 不覆盖 GPU 黑名单、安全沙箱、V8 堆和缓存上限：这些“强制加速”开关会在
+// 不同显卡/驱动上造成纹理抖动、内存常驻和渲染进程崩溃，反而降低稳定性。
 
 let mainWindow;
 
@@ -397,7 +390,7 @@ function startLocalTileServer() {
           const fontDir = path.join(OFFLINE_FONT_DIR, fontName);
           const localPath = path.join(fontDir, rangeFile);
 
-          if (fs.existsSync(localPath)) {
+          try {
             const stat = await fs.promises.stat(localPath);
             if (stat.size > 0) {
               const buf = await fs.promises.readFile(localPath);
@@ -411,6 +404,8 @@ function startLocalTileServer() {
               res.end(buf);
               return;
             }
+          } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
           }
 
           try {
@@ -419,8 +414,8 @@ function startLocalTileServer() {
             if (fontResp.ok) {
               const buf = Buffer.from(await fontResp.arrayBuffer());
               try {
-                fs.mkdirSync(fontDir, { recursive: true });
-                fs.writeFileSync(localPath, buf);
+                await fs.promises.mkdir(fontDir, { recursive: true });
+                await fs.promises.writeFile(localPath, buf);
               } catch (e) {}
               setCachedTile(cacheKey, buf);
               res.writeHead(200, {
@@ -700,7 +695,7 @@ function startLocalTileServer() {
           // 2. 本地独立存储目录文件读取
           const localPath = path.join(localDir, `${z}`, `${x}`, yFile);
 
-          if (fs.existsSync(localPath)) {
+          try {
             const stat = await fs.promises.stat(localPath);
             if (stat.size > 20) {
               const buf = await fs.promises.readFile(localPath);
@@ -715,8 +710,10 @@ function startLocalTileServer() {
               return;
             } else {
               // 自动清理小于 20 字节的损坏或残留空文件，防止离线库中毒
-              try { fs.unlinkSync(localPath); } catch (e) {}
+              fs.promises.unlink(localPath).catch(() => {});
             }
+          } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
           }
 
           // 3. 瓦片策略限制：非中国区域，L1~L10 预览层级允许在线加载并缓存；
@@ -789,6 +786,7 @@ let memoryTileStats = null;
 
 let inventoryScan = null;
 let offlineDownloadRunning = false;
+let mapInteractionActive = false;
 
 function refreshOfflineInventory() {
   if (inventoryScan) return inventoryScan;
@@ -865,6 +863,7 @@ function createWindow() {
     // 1. 前台运行时：保持 60FPS+ 满血硬件加速与即时响应
     // 2. 最小化或隐藏到后台时：Chromium 自动限频休眠，释放 CPU/GPU 资源节能降温
     mainWindow.on('minimize', () => {
+      mapInteractionActive = false;
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'minimized' });
       }
@@ -898,6 +897,7 @@ function createWindow() {
 
     // 工业级稳定性守护：渲染进程崩溃自愈与热重载
     mainWindow.webContents.on('render-process-gone', (event, details) => {
+      mapInteractionActive = false;
       console.warn('[Renderer Process Gone]', details.reason);
       if (details.reason !== 'clean-exit' && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.reload();
@@ -945,6 +945,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('rescan-offline-tiles', () => {
     return refreshOfflineInventory();
+  });
+
+  // 地图交互期间把后台下载主动让路给 WebGL 与本地切片服务。
+  // 只保留少量下载 worker，不暂停任务；结束拖动/缩放后自动恢复满速。
+  ipcMain.on('map-interaction-state', (_event, active) => {
+    mapInteractionActive = Boolean(active);
   });
 
   ipcMain.handle('get-offline-manifest', async () => {
@@ -1127,6 +1133,7 @@ app.whenReady().then(async () => {
     // These counters are also read by finally after every early return.
     let newlySavedCount = 0;
     let newlyAddedCount = 0;
+    let finalInventoryRefreshed = false;
     try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
@@ -1190,7 +1197,8 @@ app.whenReady().then(async () => {
     let unchangedCount = 0;
     let updatedCount = 0;
     const startTime = Date.now();
-    const concurrency = 32;
+    const concurrency = 24;
+    const interactiveConcurrency = 4;
     const createdDirs = new Set();
     let lastProgressTime = 0;
     let lastTaskbarPct = -1;
@@ -1199,8 +1207,15 @@ app.whenReady().then(async () => {
 
     const speedSamples = [{ time: startTime, bytes: 0 }];
 
-    async function worker() {
+    async function worker(workerIndex) {
       while (!signal.aborted) {
+        // Disk writes, decompression and network callbacks from dozens of
+        // workers can contend with MapLibre. Keep four lanes alive so progress
+        // remains continuous while reserving the machine for the active map.
+        while (mapInteractionActive && workerIndex >= interactiveConcurrency && !signal.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 80));
+        }
+        if (signal.aborted) break;
         const next = tileIterator.next();
         if (next.done) break;
         const task = next.value;
@@ -1399,12 +1414,13 @@ app.whenReady().then(async () => {
 
     const workers = [];
     for (let i = 0; i < concurrency; i++) {
-      workers.push(worker());
+      workers.push(worker(i));
     }
     await Promise.all(workers);
     // Discard any in-flight scan snapshot from before the last tile write.
     if (inventoryScan) await inventoryScan;
     const finalStats = await refreshOfflineInventory();
+    finalInventoryRefreshed = true;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
       mainWindow.webContents.send('download-progress', {
@@ -1429,7 +1445,7 @@ app.whenReady().then(async () => {
       }
       offlineDownloadRunning = false;
       activeDownloadAbort = null;
-      if (newlySavedCount > 0 || newlyAddedCount > 0) {
+      if (!finalInventoryRefreshed && (newlySavedCount > 0 || newlyAddedCount > 0)) {
         refreshOfflineInventory().catch(() => {});
       }
     }

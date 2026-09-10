@@ -60,6 +60,7 @@ function scan({ baseDir, provinces, boxes }) {
   }
 
   let lastReportCount = 0;
+  let lastReportTime = 0;
 
   // 1. 全图层立体扫描：覆盖 dem, vector 以及巨幅卫星图 sat / satellite
   const TILE_LAYERS = [
@@ -113,8 +114,10 @@ function scan({ baseDir, provinces, boxes }) {
           }
 
           const currentTotal = stats.demCount + stats.vectorCount + stats.satCount;
-          if (parentPort && (currentTotal - lastReportCount >= 2500)) {
+          const reportNow = Date.now();
+          if (parentPort && (currentTotal - lastReportCount >= 2500) && (reportNow - lastReportTime >= 400)) {
             lastReportCount = currentTotal;
+            lastReportTime = reportNow;
             parentPort.postMessage({ type: 'progress', count: currentTotal, layer: layerCfg.dirName, z });
           }
         }
