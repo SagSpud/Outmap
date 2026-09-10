@@ -718,7 +718,7 @@ function startLocalTileServer() {
           try {
             const buf = await fs.promises.readFile(localPath);
             const minTileBytes = type === 'vector' ? 0 : 20;
-            if (buf.length > minTileBytes) {
+            if (type === 'vector' ? buf.length >= minTileBytes : buf.length > minTileBytes) {
               setCachedTile(cacheKey, buf);
               res.writeHead(200, {
                 'Content-Type': contentType,
@@ -1299,8 +1299,9 @@ app.whenReady().then(async () => {
       if (!names.has(fileName)) return false;
       if (!verifySize) return true;
       try {
-        const minSize = /\.(pbf|mvt)$/i.test(fileName) ? 0 : 20;
-        return (await fs.promises.stat(path.join(dirPath, fileName))).size > minSize;
+        const isVectorFile = /\.(pbf|mvt)$/i.test(fileName);
+        const size = (await fs.promises.stat(path.join(dirPath, fileName))).size;
+        return isVectorFile ? size >= 0 : size > 20;
       }
       catch (error) { if (error.code === 'ENOENT') return false; throw error; }
     }
@@ -1463,12 +1464,11 @@ app.whenReady().then(async () => {
             const isVectorTile = type === 'vector'
               && (contentType.includes('vector-tile') || contentType.includes('protobuf') || contentType.includes('octet-stream'));
             const isTextError = contentType.includes('text/html') || contentType.includes('text/plain');
-            if (!isTextError && ((isVectorTile && buffer.length > 0) || (!isVectorTile && buffer.length > 20))) {
+            if (!isTextError && (isVectorTile || (!isVectorTile && buffer.length > 20))) {
               return buffer;
             }
             const emptyError = new Error('empty tile response');
             emptyError.status = response.status;
-            if (isVectorTile && buffer.length === 0) emptyError.permanentMissing = true;
             throw emptyError;
           }
           const statusError = new Error(`tile request failed (${response.status})`);
