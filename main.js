@@ -1357,6 +1357,7 @@ app.whenReady().then(async () => {
     let existingCount = 0;
     let savedCount = 0;
     let failedCount = 0;
+    let unavailableCount = 0;
     let totalBytes = 0;
     let unchangedCount = 0;
     let updatedCount = 0;
@@ -1385,6 +1386,106 @@ app.whenReady().then(async () => {
 
     const speedSamples = [{ time: startTime, bytes: 0 }];
 
+    class DownloadLane {
+      constructor(limit) {
+        this.limit = limit;
+        this.active = 0;
+        this.waiters = [];
+        this.cooldownUntil = 0;
+      }
+      async acquire() {
+        // A CDN 429/5xx response briefly cools this origin down. Waiting here
+        // prevents all workers from retrying in lock-step and getting rejected
+        // again while still allowing the other layer to make progress.
+        const waitMs = this.cooldownUntil - Date.now();
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 3000)));
+        if (this.active < this.limit) {
+          this.active++;
+          return Promise.resolve(() => this.release());
+        }
+        return new Promise(resolve => this.waiters.push(resolve));
+      }
+      coolDown(ms) {
+        this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + Math.max(0, ms));
+      }
+      release() {
+        const next = this.waiters.shift();
+        if (next) {
+          const grant = () => next(() => this.release());
+          const waitMs = this.cooldownUntil - Date.now();
+          if (waitMs > 0) setTimeout(grant, Math.min(waitMs, 5000));
+          else grant();
+        }
+        else this.active = Math.max(0, this.active - 1);
+      }
+    }
+
+    // Keep DEM and vector origins from stampeding independently. This preserves
+    // the measured 36 total workers while capping each CDN at 18 connections.
+    const downloadLanes = { dem: new DownloadLane(18), vector: new DownloadLane(18) };
+    const failureReasons = new Map();
+    function recordFailure(error, type) {
+      const status = error?.status
+        ? `HTTP ${error.status}`
+        : (error?.name === 'TimeoutError' || error?.code === 'ETIMEDOUT' ? '超时' : '网络错误');
+      const key = `${type}: ${status}`;
+      failureReasons.set(key, (failureReasons.get(key) || 0) + 1);
+    }
+    function getFailureSummary() {
+      return [...failureReasons.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([reason, count]) => `${reason} ${count}`)
+        .join(' · ');
+    }
+
+    async function fetchMissingTile(url, type) {
+      const lane = downloadLanes[type] || downloadLanes.vector;
+      let lastError = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const release = await lane.acquire();
+        try {
+          const timeout = AbortSignal.timeout(12000);
+          const fetchSignal = typeof AbortSignal.any === 'function'
+            ? AbortSignal.any([signal, timeout])
+            : timeout;
+          const response = await fetch(url, { signal: fetchSignal });
+          if (response.ok) {
+            const buffer = Buffer.from(await response.arrayBuffer());
+            if (buffer.length > 20) return buffer;
+            const emptyError = new Error('empty tile response');
+            emptyError.status = response.status;
+            throw emptyError;
+          }
+          const statusError = new Error(`tile request failed (${response.status})`);
+          statusError.status = response.status;
+          lastError = statusError;
+          // Missing/forbidden source tiles are permanent. Rate limits and
+          // gateway errors are transient and get a short per-origin cooldown.
+          const retryable = [408, 425, 429, 500, 502, 503, 504].includes(response.status);
+          if (!retryable) {
+            if (response.status === 404 || response.status === 410) statusError.permanentMissing = true;
+            break;
+          }
+          if (response.status === 429 || response.status >= 500) {
+            const retryAfter = Number(response.headers.get('retry-after'));
+            lane.coolDown(Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(5000, retryAfter * 1000)
+              : 600 + attempt * 700);
+          }
+        } catch (error) {
+          lastError = error;
+          if (signal.aborted) break;
+        } finally {
+          release();
+        }
+        if (attempt < 2 && !signal.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1) ** 2 + Math.random() * 180));
+        }
+      }
+      throw lastError || new Error('tile request failed');
+    }
+
     function sendPlanningProgress(force = false) {
       if (!normalResume || !mainWindow || mainWindow.isDestroyed() || completed > 0) return;
       const now = Date.now();
@@ -1411,7 +1512,8 @@ app.whenReady().then(async () => {
         totalTiles: (baselineStats.totalTiles || 0) + newlySavedCount,
         totalBytes: (baselineStats.totalBytes || 0) + totalBytes,
         currentProvince: activeProvName || provTasks[0]?.name || '',
-        currentZ: activeZ
+        currentZ: activeZ,
+        failureReason: getFailureSummary()
       });
     }
 
@@ -1566,26 +1668,21 @@ app.whenReady().then(async () => {
               let onlineUrl = type === 'dem'
                 ? `https://tiles.mapterhorn.com/${z}/${x}/${fileName}`
                 : ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
-              const r = await fetch(onlineUrl, { signal: AbortSignal.timeout(6000) });
-              if (r.ok) {
-                const buf = Buffer.from(await r.arrayBuffer());
-                if (buf.length > 20) {
-                  await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
-                  totalBytes += buf.length;
-                  savedCount++;
-                  newlyAddedCount++;
-                  newLayerStats[type].count++;
-                  newLayerStats[type].bytes += buf.length;
-                  const targetKey = `${task.provKey}:${type}:${z}`;
-                  successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
-                } else {
-                  failedCount++;
-                }
-              } else {
+              const buf = await fetchMissingTile(onlineUrl, type);
+              await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
+              totalBytes += buf.length;
+              savedCount++;
+              newlyAddedCount++;
+              newLayerStats[type].count++;
+              newLayerStats[type].bytes += buf.length;
+              const targetKey = `${task.provKey}:${type}:${z}`;
+              successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
+            } catch (e) {
+              if (e?.permanentMissing) unavailableCount++;
+              else {
+                if (!signal.aborted) recordFailure(e, type);
                 failedCount++;
               }
-            } catch (e) {
-              failedCount++;
             }
           } else {
             // 本地已有切片 -> 方案 A：通过 If-Modified-Since 请求进行 304 条件比对
@@ -1639,26 +1736,21 @@ app.whenReady().then(async () => {
             } else {
               onlineUrl = ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
             }
-            const r = await fetch(onlineUrl, { signal: AbortSignal.timeout(6000) });
-            if (r.ok) {
-              const buf = Buffer.from(await r.arrayBuffer());
-              if (buf.length > 20) {
-                await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
-                totalBytes += buf.length;
-                savedCount++;
-                newlySavedCount++;
-                newLayerStats[type].count++;
-                newLayerStats[type].bytes += buf.length;
-                const targetKey = `${task.provKey}:${type}:${z}`;
-                successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
-              } else {
-                failedCount++;
-              }
-            } else {
+            const buf = await fetchMissingTile(onlineUrl, type);
+            await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
+            totalBytes += buf.length;
+            savedCount++;
+            newlySavedCount++;
+            newLayerStats[type].count++;
+            newLayerStats[type].bytes += buf.length;
+            const targetKey = `${task.provKey}:${type}:${z}`;
+            successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
+          } catch (e) {
+            if (e?.permanentMissing) unavailableCount++;
+            else {
+              if (!signal.aborted) recordFailure(e, type);
               failedCount++;
             }
-          } catch (e) {
-            failedCount++;
           }
           completed++;
         }
@@ -1720,6 +1812,7 @@ app.whenReady().then(async () => {
                 ? existingCount
                 : (isIncrementalUpdate ? unchangedCount + updatedCount : 0),
               failedCount,
+              unavailableCount,
               unchangedCount,
               updatedCount,
               newlyAddedCount,
@@ -1734,6 +1827,7 @@ app.whenReady().then(async () => {
               scannedColumns,
               isVerify,
               isIncrementalUpdate,
+              failureReason: getFailureSummary(),
               totalTiles: curTiles,
               totalBytes: curBytes,
               currentProvince: activeProvName,
@@ -1765,11 +1859,11 @@ app.whenReady().then(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
       mainWindow.webContents.send('download-progress', {
-        completed, total, savedCount, failedCount, unchangedCount, updatedCount, newlyAddedCount,
+        completed, total, savedCount, failedCount, unavailableCount, unchangedCount, updatedCount, newlyAddedCount,
         percent: total ? Math.round(completed / total * 100) : 100,
         speed: 0, byteSpeed: 0, bytes: totalBytes, done: true, aborted: signal.aborted,
         phase: 'done', foundMissing: discoveredMissing, scannedCandidates: plannedCandidates, scannedColumns,
-        isVerify, isIncrementalUpdate, ...finalStats
+        isVerify, isIncrementalUpdate, failureReason: getFailureSummary(), ...finalStats
       });
     }
 
@@ -1779,7 +1873,9 @@ app.whenReady().then(async () => {
       total,
       completed,
       savedCount,
-      failedCount
+      failedCount,
+      unavailableCount,
+      failureReason: getFailureSummary()
     };
     } finally {
       if (mainWindow && !mainWindow.isDestroyed()) {

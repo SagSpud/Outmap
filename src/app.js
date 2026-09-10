@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.14';
+const APP_VERSION = '1.9.15';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -3989,14 +3989,16 @@ function setupPyramidModal(map) {
       }
 
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)} 瓦片`;
+      const failurePart = data.failureReason ? ` · ${data.failureReason}` : '';
       let detail = countPart;
       const readyCount = data.existingCount || data.skippedCount || 0;
       if (isLocating) {
         const found = Number(data.foundMissing || data.total || 0);
         const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
         const failed = Number(data.failedCount || 0);
+        const unavailable = Number(data.unavailableCount || 0);
         detail = found > 0
-          ? `已定位 ${formatTileCount(found)} 块缺片 · 已补齐 ${formatTileCount(saved)} 块${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块` : ''}`
+          ? `已定位 ${formatTileCount(found)} 块缺片 · 已补齐 ${formatTileCount(saved)} 块${unavailable > 0 ? ` · 无数据 ${formatTileCount(unavailable)} 块` : ''}${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块${failurePart}` : ''}`
           : '正在读取目录索引，不会逐块读取已有瓦片';
       } else if (data.done && Number(data.total || 0) === 0) {
         detail = '未发现缺片，所选范围已全部就绪';
@@ -4008,7 +4010,8 @@ function setupPyramidModal(map) {
       } else if (!data.isVerify) {
         const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
         const failed = Number(data.failedCount || 0);
-        detail = `${countPart} · 已补齐 ${formatTileCount(saved)} 块${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块` : ''}`;
+        const unavailable = Number(data.unavailableCount || 0);
+        detail = `${countPart} · 已补齐 ${formatTileCount(saved)} 块${unavailable > 0 ? ` · 无数据 ${formatTileCount(unavailable)} 块` : ''}${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块${failurePart}` : ''}`;
       }
 
       progressNum.innerText = detail;
@@ -4032,7 +4035,11 @@ function setupPyramidModal(map) {
       // Zero traffic after failed requests is not evidence that a tile already
       // existed. Only explicit verify/update counters may show "本地已就绪".
       const isExisting = (!curByteSpeed || curByteSpeed <= 0) && (readyCount > 0 || (data.unchangedCount || 0) > 0);
-      progressSpeed.innerText = data.done ? '' : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting, data.phase);
+      progressSpeed.innerText = data.done
+        ? ''
+        : (Number(data.failedCount || 0) > 0 && (!curByteSpeed || curByteSpeed <= 0)
+          ? '请求失败，可继续补齐'
+          : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting, data.phase));
       progressPct.innerText = isLocating ? '定位中' : `${data.percent}%`;
 
       if (!data.done) {
