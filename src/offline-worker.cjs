@@ -181,16 +181,31 @@ function scan({ baseDir, provinces, boxes }) {
 
 // Streaming enumeration bounds memory even for a nationwide L14 request. Overlaps
 // are removed geometrically instead of retaining millions of tile keys in a Set.
-function* enumerateTiles({ provinces, minZ, maxZ, downloadDem, downloadVec, boxes }) {
+function* enumerateTiles({ provinces, minZ, maxZ, downloadDem, downloadVec, boxes, targetKeys }) {
+  const allowedTargets = targetKeys instanceof Set
+    ? targetKeys
+    : (Array.isArray(targetKeys) ? new Set(targetKeys) : null);
   for (let z = minZ; z <= maxZ; z++) {
     const previous = [];
     for (const prov of provinces) {
       const b = bounds(prov.bbox, z);
+      const includeDem = downloadDem && (!allowedTargets || allowedTargets.has(`${prov.key}:dem:${z}`));
+      const includeVector = downloadVec && (!allowedTargets || allowedTargets.has(`${prov.key}:vector:${z}`));
+      // Keep the rectangle in the overlap mask, but do not walk every x/y in a
+      // level that the manifest already marks complete.
+      if (!includeDem && !includeVector) {
+        previous.push(b);
+        continue;
+      }
       for (let x = b[0]; x <= b[1]; x++) {
         for (let y = b[2]; y <= b[3]; y++) {
           if (previous.some(p => x >= p[0] && x <= p[1] && y >= p[2] && y <= p[3]) || !inChina(z, x, y, boxes)) continue;
-          if (downloadDem) yield { provKey: prov.key, provName: prov.name, type: 'dem', z, x, y, ext: 'webp' };
-          if (downloadVec) yield { provKey: prov.key, provName: prov.name, type: 'vector', z, x, y, ext: 'pbf' };
+          if (includeDem) {
+            yield { provKey: prov.key, provName: prov.name, type: 'dem', z, x, y, ext: 'webp' };
+          }
+          if (includeVector) {
+            yield { provKey: prov.key, provName: prov.name, type: 'vector', z, x, y, ext: 'pbf' };
+          }
         }
       }
       previous.push(b);

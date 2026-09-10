@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.11';
+const APP_VERSION = '1.9.12';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -920,7 +920,14 @@ async function initApplication() {
         });
       }
 
-      titleStat.addEventListener('click', async () => {
+      titleStat.title = '打开离线下载；按住 Shift 点击可重新扫描外部复制的地图文件';
+      titleStat.addEventListener('click', async (event) => {
+        // 普通点击只打开下载面板。全国全盘扫描属于显式维护操作，避免
+        // 用户查看数量时意外占满磁盘并影响地图拖动、缩放和飞掠。
+        if (!event.shiftKey) {
+          window.openPyramidModal?.();
+          return;
+        }
         titleStat.innerText = '离线: 扫描中...';
         try {
           if (window.electronAPI && window.electronAPI.rescanOfflineTiles) {
@@ -3441,8 +3448,17 @@ function setupPyramidModal(map) {
         const k = keys[0];
         const name = PROVINCES_DATA[k]?.name || k;
         const s = offlineState[k];
-        const maxZ = s ? (s.maxZ || 0) : 0;
-        let statusText = maxZ >= 14 ? ' · 已全量就绪 (L14)' : (maxZ >= 10 ? ` · 已就绪 (L${maxZ})` : ' · 未下载');
+        const targetZ = parseInt(zoomInput?.value || '10', 10) || 10;
+        const requestedLayers = getRequestedLayers();
+        const targetLevels = Array.from({ length: Math.max(0, targetZ - 9) }, (_, index) => index + 10);
+        const isReady = targetLevels.length > 0 && targetLevels.every(z => isLevelCompleteForLayers(s, z, requestedLayers));
+        let highestPresentZ = 0;
+        for (let z = 10; z <= targetZ; z++) {
+          if (isLevelPartialForLayers(s, z, requestedLayers)) highestPresentZ = z;
+        }
+        let statusText = isReady
+          ? ` · 已全部就绪 (L${targetZ})`
+          : (highestPresentZ >= 10 ? ` · 部分就绪 (至 L${highestPresentZ})` : ' · 未下载');
         if (isViewingActiveTask) {
           statusText = ' · 下载进行中';
         }
@@ -4907,13 +4923,18 @@ function setupCloudSync(map) {
     setTimeout(() => {
       executeFullSync(currentUser, false);
     }, 1200);
+  }
 
-    // 从另一台设备或网页切回时重新合并，双端无需靠刷新页面才能看到新增收藏。
-    const syncWhenActiveAgain = () => {
-      if (document.hidden || Date.now() - lastFocusCloudSyncAt < 15000) return;
-      lastFocusCloudSyncAt = Date.now();
-      executeFullSync(getLoggedInUser() || currentUser, false);
-    };
+  // 登录可能发生在应用初始化之后，因此焦点同步监听器不能只在启动时
+  // 已登录的分支内注册。一个页面只绑定一次，不轮询、不增加后台进程。
+  const syncWhenActiveAgain = () => {
+    const activeUser = getLoggedInUser();
+    if (!activeUser || document.hidden || Date.now() - lastFocusCloudSyncAt < 15000) return;
+    lastFocusCloudSyncAt = Date.now();
+    executeFullSync(activeUser, false);
+  };
+  if (!window.__outmapFocusSyncBound) {
+    window.__outmapFocusSyncBound = true;
     window.addEventListener('focus', syncWhenActiveAgain);
     document.addEventListener('visibilitychange', syncWhenActiveAgain);
   }
@@ -5994,17 +6015,24 @@ function setupWaypointAndFavoritesSystem(map) {
     }
 
     if (filtered.length === 0) {
-      favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:20px 0;">该文件夹下暂无收藏地点<br>可在右下角点击“选点”添加</div>`;
+      favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:20px 0;">该文件夹下暂无收藏地点<br>可在地图上右键选择“收藏”</div>`;
       return;
     }
 
     filtered.forEach(wp => {
       const item = document.createElement('div');
       item.className = 'fav-item-card';
+      const safeLng = Number(wp.lng);
+      const safeLat = Number(wp.lat);
+      const safeEle = Number(wp.ele);
+      const coordText = Number.isFinite(safeLng) && Number.isFinite(safeLat)
+        ? `${safeLng.toFixed(3)}°E, ${safeLat.toFixed(3)}°N`
+        : '坐标不可用';
+      const elevationText = Number.isFinite(safeEle) ? `${Math.round(safeEle)}m` : '--m';
       item.innerHTML = `
         <div class="fav-item-info">
-          <div class="fav-item-name">${wp.name}</div>
-          <div class="fav-item-meta">${wp.lng.toFixed(3)}°E, ${wp.lat.toFixed(3)}°N · ${wp.ele}m</div>
+          <div class="fav-item-name">${escapeHtml(wp.name || '未命名地点')}</div>
+          <div class="fav-item-meta">${coordText} · ${elevationText}</div>
         </div>
       `;
 
@@ -6064,7 +6092,7 @@ function setupWaypointAndFavoritesSystem(map) {
     if (favRoutesCount) favRoutesCount.innerText = savedRoutes.length;
 
     if (!savedRoutes || savedRoutes.length === 0) {
-      favRoutesList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:30px 10px; font-size:12px; line-height:1.8;">暂无保存的路线<br>在“路线规划”面板中生成路线后<br>点击【💾 存路线】即可永久保存在此</div>`;
+      favRoutesList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:30px 10px; font-size:12px; line-height:1.8;">暂无保存的路线<br>在“路线规划”面板中生成路线后<br>点击“收藏”即可保存在此</div>`;
       return;
     }
 
@@ -6074,9 +6102,11 @@ function setupWaypointAndFavoritesSystem(map) {
       const card = document.createElement('div');
       card.className = 'fav-route-card';
       const m = route.metrics || {};
-      const distStr = m.distKm ? `${m.distKm.toFixed(1)} km` : '-- km';
-      const timeStr = m.timeStr ? `⏱ ${m.timeStr}` : '';
-      const climbStr = m.ascent ? `▲ +${m.ascent}m` : '';
+      const distanceKm = Number(m.distKm);
+      const ascent = Number(m.ascent);
+      const distStr = Number.isFinite(distanceKm) && distanceKm > 0 ? `${distanceKm.toFixed(1)} km` : '-- km';
+      const timeStr = m.timeStr ? `⏱ ${escapeHtml(m.timeStr)}` : '';
+      const climbStr = Number.isFinite(ascent) && ascent > 0 ? `▲ +${Math.round(ascent)}m` : '';
       const viaCount = route.viaPoints ? route.viaPoints.length : 0;
       const viaText = viaCount > 0 ? `途经点 ${viaCount}个` : '直达路线';
 
@@ -6085,9 +6115,9 @@ function setupWaypointAndFavoritesSystem(map) {
         <div class="fav-route-header">
           <div class="fav-route-title-box">
             <span class="fav-route-mode-tag">${modeNames[route.mode] || '🛣️ 路线'}</span>
-            <span class="fav-route-name">${route.name}</span>
+            <span class="fav-route-name">${escapeHtml(route.name || '未命名路线')}</span>
           </div>
-          <span class="fav-route-date">${route.createdAt || ''}</span>
+          <span class="fav-route-date">${escapeHtml(route.createdAt || '')}</span>
         </div>
         <div class="fav-route-stats">
           <span>📏 ${distStr}</span>

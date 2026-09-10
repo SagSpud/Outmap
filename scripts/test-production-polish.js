@@ -12,7 +12,9 @@ assert(!mainSource.includes("appendSwitch('disable-features', 'Win32kLockdown')"
 assert(!mainSource.includes("appendSwitch('js-flags'"), 'desktop must use adaptive V8 memory limits');
 assert(mainSource.includes('mapInteractionActive && workerIndex >= interactiveConcurrency'),
   'downloads must yield CPU/disk lanes while the map is moving');
-assert(mainSource.includes('!finalInventoryRefreshed &&'), 'download completion must not start a duplicate full inventory scan');
+assert(mainSource.includes('!finalInventoryUpdated &&'), 'exception recovery must avoid a duplicate full inventory scan');
+assert(mainSource.includes('const finalStats = applyOfflineDownloadManifest({'),
+  'normal download completion must update inventory incrementally instead of walking the whole disk');
 assert(!/startFpsSampling\(\);\s*document\.addEventListener\(['"]visibilitychange/.test(appSource),
   'FPS sampling must not run permanently while the map is idle');
 assert(!appSource.includes("map.once('idle', () => {\n      try {\n        if (typeof map.triggerRepaint"),

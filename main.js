@@ -341,10 +341,15 @@ async function fetchTileWithDedupe(cacheKey, onlineUrl, localPath, localDir, z, 
         const resp = await fetch(onlineUrl, { signal: AbortSignal.timeout(12000) });
         if (resp.ok) {
           const buf = Buffer.from(await resp.arrayBuffer());
+          let tempPath = null;
           try {
-            fs.mkdirSync(path.join(localDir, `${z}`, `${x}`), { recursive: true });
-            fs.writeFileSync(localPath, buf);
-          } catch (e) {}
+            await fs.promises.mkdir(path.join(localDir, `${z}`, `${x}`), { recursive: true });
+            tempPath = `${localPath}.${process.pid}.${Date.now()}.tmp`;
+            await fs.promises.writeFile(tempPath, buf);
+            await fs.promises.rename(tempPath, localPath);
+          } catch (e) {
+            if (tempPath) fs.promises.rm(tempPath, { force: true }).catch(() => {});
+          }
           return buf;
         }
       } catch (e) {
@@ -711,9 +716,8 @@ function startLocalTileServer() {
           const localPath = path.join(localDir, `${z}`, `${x}`, yFile);
 
           try {
-            const stat = await fs.promises.stat(localPath);
-            if (stat.size > 20) {
-              const buf = await fs.promises.readFile(localPath);
+            const buf = await fs.promises.readFile(localPath);
+            if (buf.length > 20) {
               setCachedTile(cacheKey, buf);
               res.writeHead(200, {
                 'Content-Type': contentType,
@@ -843,6 +847,98 @@ function getQuickTileCount(forceRefresh = false) {
     refreshOfflineInventory().catch(error => console.warn('[Offline Scan]', error.message));
   }
   return { ...memoryTileStats, scanning: Boolean(inventoryScan) };
+}
+
+function recomputeOfflineProvinceSummary(province) {
+  const next = province || { layers: {} };
+  next.layers ||= {};
+  for (const layer of ['dem', 'vector']) {
+    const state = (next.layers[layer] ||= { levels: {} });
+    state.levels ||= {};
+    state.maxZ = 0;
+    state.partialZ = 0;
+    for (const [z, level] of Object.entries(state.levels)) {
+      const expected = Math.max(0, Number(level?.expected) || 0);
+      const present = Math.max(0, Math.min(expected || Infinity, Number(level?.present) || 0));
+      level.expected = expected;
+      level.present = present;
+      level.complete = expected > 0 && present >= expected;
+      if (level.complete) state.maxZ = Math.max(state.maxZ, Number(z));
+      if (present > 0) state.partialZ = Math.max(state.partialZ, Number(z));
+    }
+  }
+  next.dem = Object.values(next.layers.dem.levels).some(level => Number(level.present) > 0);
+  next.vec = Object.values(next.layers.vector.levels).some(level => Number(level.present) > 0);
+  const activeMaxZs = [];
+  if (next.dem) activeMaxZs.push(next.layers.dem.maxZ || 0);
+  if (next.vec) activeMaxZs.push(next.layers.vector.maxZ || 0);
+  next.maxZ = activeMaxZs.length > 0 ? Math.min(...activeMaxZs) : 0;
+  next.partialZ = Math.max(next.layers.dem.partialZ || 0, next.layers.vector.partialZ || 0);
+  next.updatedAt = Date.now();
+  return next;
+}
+
+// Normal downloads already know every file they added. Updating the manifest
+// from that delta avoids a second nationwide directory walk after every task.
+// A manual rescan remains available for tiles copied in from another program.
+function applyOfflineDownloadManifest({ targetKeys, successfulByTarget, completedCleanly, newLayerStats }) {
+  const manifest = loadOfflineManifest();
+  const changedProvinces = {};
+  for (const targetKey of targetKeys || []) {
+    const [provinceKey, layer, zText] = String(targetKey).split(':');
+    const z = Number(zText);
+    if (!provinceKey || !['dem', 'vector'].includes(layer) || !Number.isInteger(z)) continue;
+    const sourceProvince = changedProvinces[provinceKey]
+      || manifest.provinces?.[provinceKey]
+      || { layers: { dem: { levels: {} }, vector: { levels: {} } } };
+    const province = changedProvinces[provinceKey]
+      || JSON.parse(JSON.stringify(sourceProvince));
+    province.layers ||= {};
+    province.layers[layer] ||= { levels: {} };
+    province.layers[layer].levels ||= {};
+    const level = (province.layers[layer].levels[z] ||= { expected: 0, present: 0, complete: false });
+    const expected = Math.max(0, Number(level.expected) || 0);
+    const added = Math.max(0, Number(successfulByTarget?.get(targetKey)) || 0);
+    level.present = completedCleanly && expected > 0
+      ? expected
+      : Math.min(expected || Infinity, Math.max(0, Number(level.present) || 0) + added);
+    level.complete = expected > 0 && level.present >= expected;
+    changedProvinces[provinceKey] = province;
+  }
+
+  for (const key of Object.keys(changedProvinces)) {
+    changedProvinces[key] = recomputeOfflineProvinceSummary(changedProvinces[key]);
+  }
+
+  const stats = {
+    ...(manifest.stats || memoryTileStats || {}),
+    lastScannedAt: Date.now(),
+    exact: true
+  };
+  let addedCount = 0;
+  let addedBytes = 0;
+  for (const layer of ['dem', 'vector']) {
+    const count = Math.max(0, Number(newLayerStats?.[layer]?.count) || 0);
+    const bytes = Math.max(0, Number(newLayerStats?.[layer]?.bytes) || 0);
+    stats[`${layer}Count`] = Math.max(0, Number(stats[`${layer}Count`]) || 0) + count;
+    stats[`${layer}Bytes`] = Math.max(0, Number(stats[`${layer}Bytes`]) || 0) + bytes;
+    addedCount += count;
+    addedBytes += bytes;
+  }
+  stats.totalTiles = Math.max(0, Number(stats.totalTiles) || 0) + addedCount;
+  stats.totalBytes = Math.max(0, Number(stats.totalBytes) || 0) + addedBytes;
+
+  saveOfflineManifest({
+    inventoryVersion: OFFLINE_INVENTORY_VERSION,
+    provinces: changedProvinces,
+    stats
+  });
+  memoryTileStats = stats;
+  const updatedManifest = loadOfflineManifest();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('offline-inventory-updated', updatedManifest);
+  }
+  return stats;
 }
 
 function createWindow() {
@@ -1152,7 +1248,7 @@ app.whenReady().then(async () => {
     // These counters are also read by finally after every early return.
     let newlySavedCount = 0;
     let newlyAddedCount = 0;
-    let finalInventoryRefreshed = false;
+    let finalInventoryUpdated = false;
     try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
@@ -1161,7 +1257,8 @@ app.whenReady().then(async () => {
     const signal = activeDownloadAbort.signal;
     if (inventoryScan) await inventoryScan;
     if (loadOfflineManifest().inventoryVersion !== OFFLINE_INVENTORY_VERSION) await refreshOfflineInventory();
-    const baselineStats = { ...(memoryTileStats || loadOfflineManifest().stats || {}) };
+    const initialManifest = loadOfflineManifest();
+    const baselineStats = { ...(memoryTileStats || initialManifest.stats || {}) };
 
     // 规整目标省份列表 (支持多选批量下载)
     const provTasks = [];
@@ -1180,9 +1277,11 @@ app.whenReady().then(async () => {
     }
 
     // A bounded async directory cache preserves existing tiles without blocking
-    // the main event loop or trusting historical maxZ completion guesses.
+    // the main event loop. Normal resume only needs the directory index: the v4
+    // inventory has already validated these file names, so avoid one stat call
+    // per ready tile. Explicit verify/update operations still validate size.
     const dirFileSets = new Map();
-    async function checkTileExistsFast(dirPath, fileName) {
+    async function checkTileExistsFast(dirPath, fileName, verifySize = false) {
       let pending = dirFileSets.get(dirPath);
       if (!pending) {
         pending = fs.promises.readdir(dirPath).then(names => new Set(names)).catch(error => {
@@ -1194,37 +1293,116 @@ app.whenReady().then(async () => {
       }
       const names = await pending;
       if (!names.has(fileName)) return false;
+      if (!verifySize) return true;
       try { return (await fs.promises.stat(path.join(dirPath, fileName))).size > 20; }
       catch (error) { if (error.code === 'ENOENT') return false; throw error; }
     }
 
     const { enumerateTiles } = require('./src/offline-worker.cjs');
-    const plan = { provinces: provTasks, minZ: Math.max(0, minZ || 0), maxZ: Math.min(14, maxZ), downloadDem, downloadVec, boxes: CHINA_TILES_BOXES };
-    let total = 0;
-    for (const task of enumerateTiles(plan)) {
-      total++;
-      if (total % 4096 === 0) {
-        await new Promise(resolve => setImmediate(resolve));
-        if (signal.aborted) return { success: false, aborted: true, total: 0 };
+    const safeMinZ = Math.max(0, minZ || 0);
+    const safeMaxZ = Math.min(14, maxZ);
+    const requestedTypes = [downloadDem ? 'dem' : null, downloadVec ? 'vector' : null].filter(Boolean);
+    const manifestTargetKeys = new Set();
+    const missingTargetKeys = new Set();
+    let estimatedMissing = 0;
+    let hasUnknownInventory = false;
+    for (const prov of provTasks) {
+      for (const type of requestedTypes) {
+        for (let z = safeMinZ; z <= safeMaxZ; z++) {
+          const targetKey = `${prov.key}:${type}:${z}`;
+          manifestTargetKeys.add(targetKey);
+          const level = initialManifest.provinces?.[prov.key]?.layers?.[type]?.levels?.[z];
+          if (!isIncrementalUpdate && !isVerify && level?.complete === true) continue;
+          missingTargetKeys.add(targetKey);
+          const expected = Number(level?.expected);
+          const present = Number(level?.present);
+          if (Number.isFinite(expected) && expected > 0 && Number.isFinite(present)) {
+            estimatedMissing += Math.max(0, expected - present);
+          } else {
+            hasUnknownInventory = true;
+          }
+        }
+      }
+    }
+
+    // Normal resume starts immediately from incomplete levels and uses the
+    // authoritative missing count. The expensive full enumeration pass is kept
+    // only for explicit verification/incremental-update or legacy manifests.
+    const targetKeys = (isIncrementalUpdate || isVerify) ? null : missingTargetKeys;
+    const plan = {
+      provinces: provTasks,
+      minZ: safeMinZ,
+      maxZ: safeMaxZ,
+      downloadDem,
+      downloadVec,
+      boxes: CHINA_TILES_BOXES,
+      targetKeys
+    };
+    let total = estimatedMissing;
+    if (isIncrementalUpdate || isVerify || hasUnknownInventory) {
+      total = 0;
+      for (const task of enumerateTiles(plan)) {
+        total++;
+        if (total % 4096 === 0) {
+          await new Promise(resolve => setImmediate(resolve));
+          if (signal.aborted) return { success: false, aborted: true, total: 0 };
+        }
       }
     }
     const tileIterator = enumerateTiles(plan);
     let completed = 0;
+    let existingCount = 0;
     let savedCount = 0;
     let failedCount = 0;
     let totalBytes = 0;
     let unchangedCount = 0;
     let updatedCount = 0;
+    const successfulByTarget = new Map();
+    const newLayerStats = {
+      dem: { count: 0, bytes: 0 },
+      vector: { count: 0, bytes: 0 }
+    };
     const startTime = Date.now();
     const concurrency = 24;
     const interactiveConcurrency = 4;
     const createdDirs = new Set();
+    let atomicWriteSerial = 0;
     let lastProgressTime = 0;
     let lastTaskbarPct = -1;
     let activeProvName = '';
     let activeZ = 10;
 
     const speedSamples = [{ time: startTime, bytes: 0 }];
+
+    async function writeDownloadedTile(task, dirPath, localPath, fileName, buf) {
+      const dirKey = `${task.type}/${task.z}/${task.x}`;
+      if (!createdDirs.has(dirKey)) {
+        await fs.promises.mkdir(dirPath, { recursive: true });
+        createdDirs.add(dirKey);
+      }
+      const tempPath = `${localPath}.${process.pid}.${++atomicWriteSerial}.tmp`;
+      try {
+        await fs.promises.writeFile(tempPath, buf);
+        await fs.promises.rename(tempPath, localPath);
+      } catch (error) {
+        // The live map may have cached the same missing tile while the batch
+        // request was in flight. Keep that valid winner and discard our temp.
+        try {
+          if ((error.code === 'EEXIST' || error.code === 'EPERM')
+            && (await fs.promises.stat(localPath)).size > 20) {
+            await fs.promises.rm(tempPath, { force: true });
+          } else {
+            throw error;
+          }
+        } catch (recoveryError) {
+          await fs.promises.rm(tempPath, { force: true }).catch(() => {});
+          throw recoveryError;
+        }
+      }
+      if (dirFileSets.has(dirPath)) {
+        (await dirFileSets.get(dirPath)).add(fileName);
+      }
+    }
 
     async function worker(workerIndex) {
       while (!signal.aborted) {
@@ -1246,7 +1424,7 @@ app.whenReady().then(async () => {
         const fileName = `${y}.${ext}`;
         const localPath = path.join(dirPath, fileName);
 
-        const existsLocally = await checkTileExistsFast(dirPath, fileName);
+        const existsLocally = await checkTileExistsFast(dirPath, fileName, Boolean(isVerify || isIncrementalUpdate));
 
         if (isIncrementalUpdate) {
           if (!existsLocally) {
@@ -1259,18 +1437,14 @@ app.whenReady().then(async () => {
               if (r.ok) {
                 const buf = Buffer.from(await r.arrayBuffer());
                 if (buf.length > 20) {
-                  const dirKey = `${type}/${z}/${x}`;
-                  if (!createdDirs.has(dirKey)) {
-                    await fs.promises.mkdir(dirPath, { recursive: true });
-                    createdDirs.add(dirKey);
-                  }
-                  await fs.promises.writeFile(localPath, buf);
-                  if (dirFileSets.has(dirPath)) {
-                    (await dirFileSets.get(dirPath)).add(fileName);
-                  }
+                  await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
                   totalBytes += buf.length;
                   savedCount++;
                   newlyAddedCount++;
+                  newLayerStats[type].count++;
+                  newLayerStats[type].bytes += buf.length;
+                  const targetKey = `${task.provKey}:${type}:${z}`;
+                  successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
                 } else {
                   failedCount++;
                 }
@@ -1300,7 +1474,7 @@ app.whenReady().then(async () => {
               } else if (r.ok) {
                 const buf = Buffer.from(await r.arrayBuffer());
                 if (buf.length > 20) {
-                  await fs.promises.writeFile(localPath, buf);
+                  await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
                   totalBytes += buf.length;
                   updatedCount++;
                   savedCount++;
@@ -1321,7 +1495,8 @@ app.whenReady().then(async () => {
           }
           completed++;
         } else if (existsLocally) {
-          completed++;
+          if (isVerify) completed++;
+          else existingCount++;
           savedCount++;
         } else {
           try {
@@ -1335,18 +1510,14 @@ app.whenReady().then(async () => {
             if (r.ok) {
               const buf = Buffer.from(await r.arrayBuffer());
               if (buf.length > 20) {
-                const dirKey = `${type}/${z}/${x}`;
-                if (!createdDirs.has(dirKey)) {
-                  await fs.promises.mkdir(dirPath, { recursive: true });
-                  createdDirs.add(dirKey);
-                }
-                await fs.promises.writeFile(localPath, buf);
-                if (dirFileSets.has(dirPath)) {
-                  (await dirFileSets.get(dirPath)).add(fileName);
-                }
+                await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
                 totalBytes += buf.length;
                 savedCount++;
                 newlySavedCount++;
+                newLayerStats[type].count++;
+                newLayerStats[type].bytes += buf.length;
+                const targetKey = `${task.provKey}:${type}:${z}`;
+                successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
               } else {
                 failedCount++;
               }
@@ -1408,7 +1579,9 @@ app.whenReady().then(async () => {
               total,
               savedCount,
               newlySavedCount,
-              existingCount: Math.max(0, savedCount - newlySavedCount - newlyAddedCount - updatedCount),
+              existingCount: isVerify
+                ? existingCount
+                : (isIncrementalUpdate ? unchangedCount + updatedCount : 0),
               failedCount,
               unchangedCount,
               updatedCount,
@@ -1436,10 +1609,17 @@ app.whenReady().then(async () => {
       workers.push(worker(i));
     }
     await Promise.all(workers);
-    // Discard any in-flight scan snapshot from before the last tile write.
-    if (inventoryScan) await inventoryScan;
-    const finalStats = await refreshOfflineInventory();
-    finalInventoryRefreshed = true;
+    // Existing files were deliberately invisible to normal progress, so use
+    // the actual number of missing attempts for the final 100% denominator.
+    if (!isVerify && !isIncrementalUpdate) total = completed;
+    const completedCleanly = !signal.aborted && failedCount === 0;
+    const finalStats = applyOfflineDownloadManifest({
+      targetKeys: manifestTargetKeys,
+      successfulByTarget,
+      completedCleanly,
+      newLayerStats
+    });
+    finalInventoryUpdated = true;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
       mainWindow.webContents.send('download-progress', {
@@ -1464,7 +1644,7 @@ app.whenReady().then(async () => {
       }
       offlineDownloadRunning = false;
       activeDownloadAbort = null;
-      if (!finalInventoryRefreshed && (newlySavedCount > 0 || newlyAddedCount > 0)) {
+      if (!finalInventoryUpdated && (newlySavedCount > 0 || newlyAddedCount > 0)) {
         refreshOfflineInventory().catch(() => {});
       }
     }
