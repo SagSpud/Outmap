@@ -8,7 +8,10 @@ const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'u
 const app = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 
-assert.strictEqual(pkg.version, '1.9.6');
+const versionParts = pkg.version.split('.').map(Number);
+assert(versionParts.length === 3 && versionParts.every(Number.isFinite), 'package version must be semver');
+assert(versionParts[0] > 1 || (versionParts[0] === 1 && versionParts[1] > 9)
+  || (versionParts[0] === 1 && versionParts[1] === 9 && versionParts[2] >= 6), 'package version must include the v1.9.6 behavior');
 assert.strictEqual(lock.version, pkg.version);
 assert.strictEqual(lock.packages[''].version, pkg.version);
 assert(app.includes(`const APP_VERSION = '${pkg.version}';`), 'app.js must declare current APP_VERSION');
