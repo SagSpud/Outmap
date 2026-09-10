@@ -31,5 +31,8 @@ assert(!app.includes('class="fav-item-del"'), 'favorite point cards must not ren
 assert(!app.includes("item.querySelector('.fav-item-del')"), 'favorite point cards must use the context menu for deletion');
 assert(css.includes('.fav-route-context-menu {\n  position: fixed;'), 'route context menu should share fixed viewport positioning');
 assert(css.includes('width: max-content;\n  min-width: 0;'), 'route context menu should size to its content without a wide empty gutter');
+assert(css.includes('.fav-point-type-menu {\n  position: fixed;') && css.includes('.fav-point-type-menu .ctx-item {\n  width: auto;'), 'waypoint menu should use content-sized shared items');
+assert(css.includes('.fav-point-type-menu .fav-type-delete {\n  position: sticky;'), 'waypoint delete action should remain pinned and visible at the bottom');
+assert(!css.includes('.fav-type-check {\n  width: 13px;\n  margin-left: auto;'), 'waypoint selection check must not stretch a large right gutter');
 
 console.log('v1.9.7 unified favorite context-menu checks passed');

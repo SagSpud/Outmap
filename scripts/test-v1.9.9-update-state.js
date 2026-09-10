@@ -19,12 +19,12 @@ ipcMain.handle('get-offline-manifest', () => ({ inventoryVersion: 3, stats: {}, 
 ipcMain.handle('get-power-state', () => ({ powerSource: 'ac', isLowPower: false }));
 ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false }));
 ipcMain.handle('rescan-offline-tiles', () => ({ totalTiles: 0, totalBytes: 0 }));
-ipcMain.handle('get-app-version', () => '1.9.9');
+  ipcMain.handle('get-app-version', () => '1.9.10');
 ipcMain.handle('check-for-updates', async () => {
   checkCount += 1;
   return {
     hasUpdate: true,
-    currentVersion: '1.9.9',
+    currentVersion: '1.9.10',
     version: '2.0.0',
     downloadUrl: 'https://example.invalid/outmap/app.asar',
     backupUrl: 'https://example.invalid/outmap/app-backup.asar',

@@ -5901,9 +5901,9 @@ body.map-is-moving .layers-popover-panel {
 .fav-point-type-menu {
   position: fixed;
   z-index: 10000;
-  width: 172px;
-  min-width: 172px;
-  max-width: min(210px, calc(100vw - 20px));
+  width: max-content;
+  min-width: 0;
+  max-width: min(190px, calc(100vw - 20px));
   max-height: calc(100vh - 20px);
   max-height: calc(100dvh - 20px);
   box-sizing: border-box;
@@ -5932,6 +5932,11 @@ body.map-is-moving .layers-popover-panel {
   padding: 6px 7px;
 }
 
+.fav-point-type-menu .ctx-item {
+  width: auto;
+  min-width: 0;
+}
+
 .fav-route-context-menu .ctx-icon {
   min-width: 14px;
   text-align: center;
@@ -5944,6 +5949,20 @@ body.map-is-moving .layers-popover-panel {
 .fav-route-context-menu .btn-ctx-del:hover {
   color: #b91c1c;
   background: rgba(254, 226, 226, 0.88);
+}
+
+/* 类型菜单过长时只滚动类型项，删除保持在底部可见，避免被视口裁切。 */
+.fav-point-type-menu .fav-type-delete {
+  position: sticky;
+  bottom: -1px;
+  z-index: 2;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(226, 232, 240, 0.72);
+}
+
+.fav-point-type-menu .fav-type-delete:hover {
+  background: rgba(254, 226, 226, 0.96);
 }
 
 .fav-type-menu-item.active {
@@ -5966,8 +5985,8 @@ body.map-is-moving .layers-popover-panel {
 }
 
 .fav-type-check {
-  width: 13px;
-  margin-left: auto;
+  width: 14px;
+  margin-left: 4px;
   color: #0284c7;
   font-size: 11px;
   font-weight: 800;
@@ -5976,13 +5995,14 @@ body.map-is-moving .layers-popover-panel {
 
 @media (max-width: 768px), (pointer: coarse) {
   .fav-point-type-menu {
-    width: 168px;
-    min-width: 168px;
+    width: max-content;
+    min-width: 0;
+    max-width: min(190px, calc(100vw - 20px));
   }
 
   .fav-point-type-menu .ctx-item {
-    min-height: 38px;
-    padding: 8px 10px;
-    font-size: 13px;
+    min-height: 32px;
+    padding: 5px 8px;
+    font-size: 12px;
   }
 }

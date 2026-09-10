@@ -1,7 +1,7 @@
 {
   "name": "outmap",
   "productName": "Outmap",
-  "version": "1.9.9",
+  "version": "1.9.10",
   "description": "Outmap - High Performance 3D Outdoor Terrain GIS",
   "main": "main.js",
   "scripts": {

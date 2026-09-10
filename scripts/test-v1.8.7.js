@@ -123,6 +123,7 @@ app.whenReady().then(async () => {
 
       const typeMenu = document.querySelector('.fav-point-type-menu');
       res.hasTypeMenu = !!typeMenu;
+      res.typeMenuWidth = typeMenu ? Math.round(typeMenu.getBoundingClientRect().width) : 0;
 
       // Select 'view' (景点)
       const viewItem = typeMenu?.querySelector('.fav-type-menu-item[data-type="view"]');
@@ -138,9 +139,11 @@ app.whenReady().then(async () => {
       const bottomMenu = document.querySelector('.fav-point-type-menu');
       const bottomRect = bottomMenu?.getBoundingClientRect();
       const bottomDelete = bottomMenu?.querySelector('.fav-type-delete');
+      const bottomDeleteRect = bottomDelete?.getBoundingClientRect();
       res.typeMenuBottom = bottomRect ? Math.round(bottomRect.bottom) : 0;
       res.viewportBottom = Math.round(window.visualViewport?.height || window.innerHeight);
       res.bottomDeleteVisible = Boolean(bottomDelete && bottomDelete.getBoundingClientRect().height > 0);
+      res.bottomDeleteBottom = bottomDeleteRect ? Math.round(bottomDeleteRect.bottom) : 0;
       document.body.click();
       await sleep(150);
 
@@ -189,9 +192,11 @@ app.whenReady().then(async () => {
 
   // Change waypoint type
   assert.strictEqual(result.hasTypeMenu, true, 'Desktop and web must share the in-app Fluent waypoint menu');
+  assert(result.typeMenuWidth > 0 && result.typeMenuWidth <= 130, 'Waypoint menu should size to its content without a wide right gutter');
   assert.strictEqual(result.updatedType, 'view', 'Fluent menu selection must update the waypoint type immediately');
   assert(result.typeMenuBottom > 0 && result.typeMenuBottom <= result.viewportBottom, 'Waypoint menu must stay within the viewport near the bottom edge');
   assert.strictEqual(result.bottomDeleteVisible, true, 'Waypoint delete action must remain visible when opened near the bottom edge');
+  assert(result.bottomDeleteBottom > 0 && result.bottomDeleteBottom <= result.viewportBottom, 'Waypoint delete action must not be clipped below the viewport');
 
   // Sync button & modal width
   assert.strictEqual(result.syncNowBtnText, '立即同步', 'Sync now button must be pure text without icon');
