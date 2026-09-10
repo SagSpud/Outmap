@@ -717,7 +717,8 @@ function startLocalTileServer() {
 
           try {
             const buf = await fs.promises.readFile(localPath);
-            if (buf.length > 20) {
+            const minTileBytes = type === 'vector' ? 0 : 20;
+            if (buf.length > minTileBytes) {
               setCachedTile(cacheKey, buf);
               res.writeHead(200, {
                 'Content-Type': contentType,
@@ -728,7 +729,7 @@ function startLocalTileServer() {
               res.end(buf);
               return;
             } else {
-              // 自动清理小于 20 字节的损坏或残留空文件，防止离线库中毒
+              // 仅清理真正为空/过小的文件；小尺寸矢量 PBF 可能是合法瓦片。
               fs.promises.unlink(localPath).catch(() => {});
             }
           } catch (error) {
@@ -1297,7 +1298,10 @@ app.whenReady().then(async () => {
       const names = await checkDirectoryFiles(dirPath);
       if (!names.has(fileName)) return false;
       if (!verifySize) return true;
-      try { return (await fs.promises.stat(path.join(dirPath, fileName))).size > 20; }
+      try {
+        const minSize = /\.(pbf|mvt)$/i.test(fileName) ? 0 : 20;
+        return (await fs.promises.stat(path.join(dirPath, fileName))).size > minSize;
+      }
       catch (error) { if (error.code === 'ENOENT') return false; throw error; }
     }
 
@@ -1452,9 +1456,19 @@ app.whenReady().then(async () => {
           const response = await fetch(url, { signal: fetchSignal });
           if (response.ok) {
             const buffer = Buffer.from(await response.arrayBuffer());
-            if (buffer.length > 20) return buffer;
+            const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+            // Small vector PBFs are valid (water/empty-label tiles can be only
+            // a few bytes). Validate by MIME type instead of an arbitrary
+            // 20-byte cutoff; keep the size guard only for raster/unknown data.
+            const isVectorTile = type === 'vector'
+              && (contentType.includes('vector-tile') || contentType.includes('protobuf') || contentType.includes('octet-stream'));
+            const isTextError = contentType.includes('text/html') || contentType.includes('text/plain');
+            if (!isTextError && ((isVectorTile && buffer.length > 0) || (!isVectorTile && buffer.length > 20))) {
+              return buffer;
+            }
             const emptyError = new Error('empty tile response');
             emptyError.status = response.status;
+            if (isVectorTile && buffer.length === 0) emptyError.permanentMissing = true;
             throw emptyError;
           }
           const statusError = new Error(`tile request failed (${response.status})`);
@@ -1620,7 +1634,7 @@ app.whenReady().then(async () => {
         // request was in flight. Keep that valid winner and discard our temp.
         try {
           if ((error.code === 'EEXIST' || error.code === 'EPERM')
-            && (await fs.promises.stat(localPath)).size > 20) {
+            && (await fs.promises.stat(localPath)).size > (task.type === 'vector' ? 0 : 20)) {
             await fs.promises.rm(tempPath, { force: true });
           } else {
             throw error;
@@ -1703,7 +1717,7 @@ app.whenReady().then(async () => {
                 savedCount++;
               } else if (r.ok) {
                 const buf = Buffer.from(await r.arrayBuffer());
-                if (buf.length > 20) {
+                if (buf.length > (type === 'vector' ? 0 : 20)) {
                   await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
                   totalBytes += buf.length;
                   updatedCount++;
