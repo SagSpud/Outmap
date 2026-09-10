@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parentPort, workerData, isMainThread } = require('worker_threads');
+const OFFLINE_INVENTORY_VERSION = 4;
 
 function bounds(bbox, z) {
   const n = 2 ** z;
@@ -175,7 +176,7 @@ function scan({ baseDir, provinces, boxes }) {
   stats.totalTiles = stats.demCount + stats.vectorCount + stats.satCount + stats.fontCount;
   stats.totalBytes = stats.demBytes + stats.vectorBytes + stats.satBytes + stats.fontBytes;
   stats.lastScannedAt = Date.now();
-  return { stats, provinces: result, inventoryVersion: 3 };
+  return { stats, provinces: result, inventoryVersion: OFFLINE_INVENTORY_VERSION };
 }
 
 // Streaming enumeration bounds memory even for a nationwide L14 request. Overlaps

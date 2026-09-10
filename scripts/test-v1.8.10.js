@@ -58,7 +58,8 @@ assert(appJs.includes("btnRouteSync?.addEventListener('click'"), 'app.js must wi
 assert(appJs.includes("btnEl.id === 'btn-fav-drawer-sync' || btnEl.id === 'btn-route-sync'"), 'app.js handleManualSync must handle btn-route-sync');
 assert(appJs.includes('fadeDuration: 180'), 'app.js must preserve smooth native symbol fading');
 assert(appJs.includes('prefetch: 1'), 'app.js must bound speculative desktop tile prefetch');
-assert(appJs.includes("menu.className = 'fluent-context-menu fav-point-type-menu ctx-opening'"), 'app.js must use the shared Fluent context-menu surface');
+assert(appJs.includes("menu.className = 'fluent-context-menu fav-point-type-menu'"), 'app.js must use the shared Fluent context-menu surface');
+assert(appJs.includes("menu.classList.add('ctx-opening')"), 'context-menu animation must begin after final-size positioning');
 assert(!appJs.includes('showToast(`已将“${wp.name}”类型修改为'), 'app.js must not show toast when changing waypoint type');
 
 // Verify location-camera.js

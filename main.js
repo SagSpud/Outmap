@@ -124,8 +124,11 @@ function saveOfflineManifest(data, replaceProvinces = false) {
 
 // 高频切片内存 LRU：同时限制数量和真实字节数，避免少量大瓦片把进程推入换页。
 const memoryTileCache = new Map();
-const MAX_MEMORY_TILES = 50000;
-const MAX_MEMORY_TILE_BYTES = 2048 * 1024 * 1024; // 2GB 内存专用高速热缓存，零磁盘 IO 延迟
+// MapLibre/Chromium and Windows already maintain their own decoded/file caches.
+// Keep this server-side cache bounded so it cannot duplicate 2GB of tile data
+// and push the renderer into paging during long 3D sessions.
+const MAX_MEMORY_TILES = 20000;
+const MAX_MEMORY_TILE_BYTES = 512 * 1024 * 1024;
 let memoryTileCacheBytes = 0;
 
 function getCachedTile(key) {
@@ -209,40 +212,43 @@ const CHINA_TILES_BOXES = [
 ];
 
 const CHINA_PROVINCE_BBOX_ENTRIES = [
-  ['anhui', [114.6, 119.8, 29.5, 34.8]],
-  ['aomen', [113.4, 113.7, 22.0, 22.3]],
-  ['beijing', [115.2, 117.7, 39.2, 41.3]],
-  ['chongqing', [105.1, 110.4, 28.0, 32.4]],
-  ['fujian', [115.6, 120.9, 23.3, 28.5]],
-  ['gansu', [92.0, 108.9, 32.3, 43.0]],
-  ['guangdong', [109.4, 117.5, 20.0, 25.7]],
-  ['guangxi', [104.2, 112.3, 20.7, 26.6]],
-  ['guizhou', [103.4, 109.8, 24.4, 29.4]],
-  ['hainan', [108.4, 111.3, 18.0, 20.4]],
-  ['hebei', [113.2, 120.0, 35.8, 42.8]],
-  ['heilongjiang', [121.0, 135.3, 43.2, 53.8]],
-  ['henan', [110.1, 116.8, 31.2, 36.6]],
-  ['hubei', [108.1, 116.3, 28.8, 33.5]],
-  ['hunan', [108.6, 114.4, 24.4, 30.3]],
-  ['jilin', [121.4, 131.5, 40.6, 46.5]],
-  ['jiangsu', [116.1, 122.1, 30.5, 35.3]],
-  ['jiangxi', [113.3, 118.7, 24.3, 30.3]],
-  ['liaoning', [118.6, 126.0, 38.5, 43.7]],
-  ['neimenggu', [97.0, 126.5, 37.4, 53.5]],
-  ['ningxia', [104.1, 107.9, 35.0, 39.6]],
-  ['qinghai', [89.2, 103.3, 31.4, 39.5]],
-  ['shandong', [114.6, 122.9, 34.1, 38.6]],
-  ['shanxi', [110.0, 114.7, 34.4, 40.9]],
-  ['shaanxi', [105.3, 111.4, 31.5, 39.8]],
-  ['shanghai', [120.6, 122.4, 30.5, 32.1]],
-  ['sichuan', [97.1, 108.7, 25.8, 34.5]],
-  ['taiwan', [119.5, 124.0, 21.5, 26.0]],
-  ['tianjin', [116.5, 118.3, 38.3, 40.5]],
-  ['xizang', [78.2, 99.3, 26.6, 36.7]],
-  ['xianggang', [113.8, 114.5, 22.1, 22.6]],
-  ['xinjiang', [73.3, 96.6, 34.1, 49.4]],
-  ['yunnan', [97.3, 106.4, 20.9, 29.4]],
-  ['zhejiang', [117.8, 123.2, 26.8, 31.5]]
+  // These bounds are deliberately identical to PROVINCES_DATA in src/app.js.
+  // The UI downloads this exact rectangle, so inventory must verify the same
+  // rectangle rather than a larger buffered one that can never become green.
+  ['anhui', [114.8, 119.6, 29.7, 34.6]],
+  ['aomen', [113.52, 113.60, 22.10, 22.22]],
+  ['beijing', [115.4, 117.5, 39.4, 41.1]],
+  ['chongqing', [105.3, 110.2, 28.2, 32.2]],
+  ['fujian', [115.8, 120.7, 23.5, 28.3]],
+  ['gansu', [92.2, 108.7, 32.5, 42.8]],
+  ['guangdong', [109.6, 117.3, 20.2, 25.5]],
+  ['guangxi', [104.4, 112.1, 20.9, 26.4]],
+  ['guizhou', [103.6, 109.6, 24.6, 29.2]],
+  ['hainan', [108.6, 111.1, 18.1, 20.2]],
+  ['hebei', [113.4, 119.8, 36.0, 42.6]],
+  ['heilongjiang', [121.2, 135.1, 43.4, 53.6]],
+  ['henan', [110.3, 116.6, 31.4, 36.4]],
+  ['hubei', [108.3, 116.1, 29.0, 33.3]],
+  ['hunan', [108.8, 114.2, 24.6, 30.1]],
+  ['jilin', [121.6, 131.3, 40.8, 46.3]],
+  ['jiangsu', [116.3, 121.9, 30.7, 35.1]],
+  ['jiangxi', [113.5, 118.5, 24.5, 30.1]],
+  ['liaoning', [118.8, 125.8, 38.7, 43.5]],
+  ['neimenggu', [97.2, 126.1, 37.4, 53.4]],
+  ['ningxia', [104.3, 107.7, 35.2, 39.4]],
+  ['qinghai', [89.4, 103.1, 31.6, 39.3]],
+  ['shandong', [114.8, 122.7, 34.3, 38.4]],
+  ['shanxi', [110.2, 114.5, 34.6, 40.7]],
+  ['shaanxi', [105.5, 111.2, 31.7, 39.6]],
+  ['shanghai', [120.8, 122.2, 30.7, 31.9]],
+  ['sichuan', [97.3, 108.5, 26.0, 34.3]],
+  ['taiwan', [119.9, 122.1, 21.8, 25.4]],
+  ['tianjin', [116.7, 118.1, 38.5, 40.3]],
+  ['xizang', [78.4, 99.1, 26.8, 36.5]],
+  ['xianggang', [113.83, 114.44, 22.15, 22.56]],
+  ['xinjiang', [73.5, 96.4, 34.3, 49.2]],
+  ['yunnan', [97.5, 106.2, 21.1, 29.2]],
+  ['zhejiang', [118.0, 123.0, 27.0, 31.3]]
 ];
 
 function tile2lon(x, z) {
@@ -796,6 +802,7 @@ let memoryTileStats = null;
 let inventoryScan = null;
 let offlineDownloadRunning = false;
 let mapInteractionActive = false;
+const OFFLINE_INVENTORY_VERSION = 4;
 
 function refreshOfflineInventory() {
   if (inventoryScan) return inventoryScan;
@@ -828,8 +835,11 @@ function refreshOfflineInventory() {
 function getQuickTileCount(forceRefresh = false) {
   const manifest = loadOfflineManifest();
   if (!memoryTileStats) memoryTileStats = manifest.stats || { totalTiles: 0, totalBytes: 0 };
-  const isStale = !manifest.stats?.lastScannedAt || (Date.now() - manifest.stats.lastScannedAt > 24 * 3600 * 1000);
-  if (forceRefresh || manifest.inventoryVersion !== 3 || isStale) {
+  // A full inventory walk can touch millions of directory entries. Once a
+  // schema-current manifest exists, downloads update it themselves and an
+  // explicit status-bar click remains available for externally copied files.
+  // Do not start another disk-heavy scan merely because 24 hours elapsed.
+  if (forceRefresh || manifest.inventoryVersion !== OFFLINE_INVENTORY_VERSION) {
     refreshOfflineInventory().catch(error => console.warn('[Offline Scan]', error.message));
   }
   return { ...memoryTileStats, scanning: Boolean(inventoryScan) };
@@ -963,7 +973,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('get-offline-manifest', async () => {
-    if (loadOfflineManifest().inventoryVersion !== 3) await refreshOfflineInventory();
+    if (loadOfflineManifest().inventoryVersion !== OFFLINE_INVENTORY_VERSION) await refreshOfflineInventory();
     return loadOfflineManifest();
   });
 
@@ -1150,7 +1160,7 @@ app.whenReady().then(async () => {
     activeDownloadAbort = new AbortController();
     const signal = activeDownloadAbort.signal;
     if (inventoryScan) await inventoryScan;
-    if (loadOfflineManifest().inventoryVersion !== 3) await refreshOfflineInventory();
+    if (loadOfflineManifest().inventoryVersion !== OFFLINE_INVENTORY_VERSION) await refreshOfflineInventory();
     const baselineStats = { ...(memoryTileStats || loadOfflineManifest().stats || {}) };
 
     // 规整目标省份列表 (支持多选批量下载)

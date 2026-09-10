@@ -46,11 +46,11 @@ assert(htmlSrc.includes('<span class="ctx-text">设为路线终点</span>'), 'Co
 // 离线统计与卫星图层检查 (针对 88万 / 9G vs 20+G Bug 的修复断言)
 assert(workerSrc.includes("dirName: 'sat'"), 'offline-worker.cjs must scan sat layer');
 assert(workerSrc.includes("dirName: 'satellite'"), 'offline-worker.cjs must scan satellite layer');
-assert(workerSrc.includes('inventoryVersion: 3'), 'offline-worker.cjs must yield inventoryVersion: 3');
+assert(workerSrc.includes('OFFLINE_INVENTORY_VERSION = 4'), 'offline-worker.cjs must yield the current inventory schema');
 assert(workerSrc.includes('stats.satCount'), 'offline-worker.cjs must accumulate satCount');
 assert(workerSrc.includes('stats.satBytes'), 'offline-worker.cjs must accumulate satBytes');
 assert(mainSrc.includes('satCount: stats.satCount || 0'), 'main.js get-tile-server-info must propagate actual satCount');
-assert(mainSrc.includes('inventoryVersion !== 3'), 'main.js getQuickTileCount must check inventoryVersion !== 3');
+assert(mainSrc.includes('manifest.inventoryVersion !== OFFLINE_INVENTORY_VERSION'), 'main.js getQuickTileCount must check the current inventory schema');
 assert(appSrc.includes('onOfflineInventoryUpdated'), 'app.js must listen to onOfflineInventoryUpdated event');
 
 // 控件与视角优化断言

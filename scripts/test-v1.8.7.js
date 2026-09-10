@@ -8,11 +8,12 @@ const watchdog = setTimeout(() => {
 }, 35000);
 
 app.commandLine.appendSwitch('disable-features', 'Win32kLockdown');
+app.commandLine.appendSwitch('force-device-scale-factor', '2');
 
 // Mock IPC
 ipcMain.handle('get-tile-server-info', () => ({ port: 28795, totalTiles: 0, totalBytes: 0 }));
 ipcMain.handle('get-offline-status', () => ({ totalTiles: 0, totalBytes: 0 }));
-ipcMain.handle('get-offline-manifest', () => ({ inventoryVersion: 3, stats: {}, provinces: {} }));
+ipcMain.handle('get-offline-manifest', () => ({ inventoryVersion: 4, stats: {}, provinces: {} }));
 ipcMain.handle('get-power-state', () => ({ powerSource: 'ac', isLowPower: false }));
 ipcMain.handle('get-cloud-sync-config', () => ({ autoSync: false }));
 ipcMain.handle('rescan-offline-tiles', () => ({ totalTiles: 0, totalBytes: 0 }));
@@ -40,7 +41,7 @@ app.whenReady().then(async () => {
     while (!window.mapInstance) await sleep(25);
     const map = window.mapInstance;
 
-    const res = {};
+    const res = { devicePixelRatio: window.devicePixelRatio };
 
     // 1. Version
     res.version = window.OUTMAP_APP_VERSION;
@@ -119,9 +120,10 @@ app.whenReady().then(async () => {
     if (favItem) {
       const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 });
       favItem.dispatchEvent(evt);
-      await sleep(50);
+      await sleep(220);
 
       const typeMenu = document.querySelector('.fav-point-type-menu');
+      typeMenu?.getAnimations().forEach(animation => animation.finish());
       res.hasTypeMenu = !!typeMenu;
       res.typeMenuWidth = typeMenu ? Math.round(typeMenu.getBoundingClientRect().width) : 0;
 
@@ -135,8 +137,11 @@ app.whenReady().then(async () => {
       // 贴近窗口底部打开时，菜单必须自动向上定位且删除项仍在可滚动区域内。
       const bottomEvt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 780 });
       favItem.dispatchEvent(bottomEvt);
-      await sleep(50);
+      // Verify the final 100% animation frame, not the temporarily scaled
+      // opening frame that caused the real high-DPI clipping regression.
+      await sleep(220);
       const bottomMenu = document.querySelector('.fav-point-type-menu');
+      bottomMenu?.getAnimations().forEach(animation => animation.finish());
       const bottomRect = bottomMenu?.getBoundingClientRect();
       const bottomDelete = bottomMenu?.querySelector('.fav-type-delete');
       const bottomDeleteRect = bottomDelete?.getBoundingClientRect();
@@ -144,6 +149,8 @@ app.whenReady().then(async () => {
       res.viewportBottom = Math.round(window.visualViewport?.height || window.innerHeight);
       res.bottomDeleteVisible = Boolean(bottomDelete && bottomDelete.getBoundingClientRect().height > 0);
       res.bottomDeleteBottom = bottomDeleteRect ? Math.round(bottomDeleteRect.bottom) : 0;
+      res.bottomDeleteTop = bottomDeleteRect ? Math.round(bottomDeleteRect.top) : 0;
+      res.viewportTop = Math.round(window.visualViewport?.offsetTop || 0);
       document.body.click();
       await sleep(150);
 
@@ -164,6 +171,7 @@ app.whenReady().then(async () => {
   console.log('v1.8.7 test result:', JSON.stringify(result, null, 2));
 
   // Assertions
+  assert(result.devicePixelRatio >= 1.9, 'Waypoint menu regression must run at Windows 200% scale');
   assert(/^\d+\.\d+\.\d+$/.test(result.version), 'Version should remain valid semver');
   assert.strictEqual(result.badgeText, `v${result.version}`, 'Badge text should match the runtime version');
   assert.strictEqual(result.hasFabImport, false, 'Standalone import button must be removed from right dock');
@@ -192,11 +200,12 @@ app.whenReady().then(async () => {
 
   // Change waypoint type
   assert.strictEqual(result.hasTypeMenu, true, 'Desktop and web must share the in-app Fluent waypoint menu');
-  assert(result.typeMenuWidth > 0 && result.typeMenuWidth <= 130, 'Waypoint menu should size to its content without a wide right gutter');
+  assert(result.typeMenuWidth > 0 && result.typeMenuWidth <= 96, 'Waypoint menu should remain narrow without a right gutter');
   assert.strictEqual(result.updatedType, 'view', 'Fluent menu selection must update the waypoint type immediately');
   assert(result.typeMenuBottom > 0 && result.typeMenuBottom <= result.viewportBottom, 'Waypoint menu must stay within the viewport near the bottom edge');
   assert.strictEqual(result.bottomDeleteVisible, true, 'Waypoint delete action must remain visible when opened near the bottom edge');
   assert(result.bottomDeleteBottom > 0 && result.bottomDeleteBottom <= result.viewportBottom, 'Waypoint delete action must not be clipped below the viewport');
+  assert(result.bottomDeleteTop >= result.viewportTop, 'Waypoint delete action must not be clipped above the viewport');
 
   // Sync button & modal width
   assert.strictEqual(result.syncNowBtnText, '立即同步', 'Sync now button must be pure text without icon');

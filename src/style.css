@@ -5901,19 +5901,31 @@ body.map-is-moving .layers-popover-panel {
 .fav-point-type-menu {
   position: fixed;
   z-index: 10000;
-  width: max-content;
+  width: 88px;
   min-width: 0;
-  max-width: min(190px, calc(100vw - 20px));
+  max-width: calc(100vw - 20px);
   max-height: calc(100vh - 20px);
   max-height: calc(100dvh - 20px);
   box-sizing: border-box;
   overflow-x: hidden;
-  overflow-y: auto;
-  padding-bottom: 9px;
+  overflow-y: hidden;
+  padding-bottom: 5px;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
+}
+
+.fav-point-type-menu .fav-type-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
+}
+
+.fav-point-type-menu .fav-type-footer {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.96);
 }
 
 /* 路线右键菜单与收藏点菜单使用同一 Fluent 表面与内容自适应宽度，
@@ -5933,8 +5945,11 @@ body.map-is-moving .layers-popover-panel {
 }
 
 .fav-point-type-menu .ctx-item {
-  width: auto;
+  position: relative;
+  width: 100%;
   min-width: 0;
+  gap: 5px;
+  padding: 6px 17px 6px 6px;
 }
 
 .fav-route-context-menu .ctx-icon {
@@ -5951,14 +5966,9 @@ body.map-is-moving .layers-popover-panel {
   background: rgba(254, 226, 226, 0.88);
 }
 
-/* 类型菜单过长时只滚动类型项，删除保持在底部可见，避免被视口裁切。 */
+/* 类型菜单过长时只滚动类型项，删除使用独立固定页脚。 */
 .fav-point-type-menu .fav-type-delete {
-  position: sticky;
-  bottom: -1px;
-  z-index: 2;
-  flex: 0 0 auto;
-  background: rgba(255, 255, 255, 0.96);
-  border-top: 1px solid rgba(226, 232, 240, 0.72);
+  padding-right: 6px;
 }
 
 .fav-point-type-menu .fav-type-delete:hover {
@@ -5985,8 +5995,9 @@ body.map-is-moving .layers-popover-panel {
 }
 
 .fav-type-check {
-  width: 14px;
-  margin-left: 4px;
+  position: absolute;
+  right: 4px;
+  width: 11px;
   color: #0284c7;
   font-size: 11px;
   font-weight: 800;
@@ -5995,9 +6006,9 @@ body.map-is-moving .layers-popover-panel {
 
 @media (max-width: 768px), (pointer: coarse) {
   .fav-point-type-menu {
-    width: max-content;
+    width: 94px;
     min-width: 0;
-    max-width: min(190px, calc(100vw - 20px));
+    max-width: calc(100vw - 20px);
   }
 
   .fav-point-type-menu .ctx-item {

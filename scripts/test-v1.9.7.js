@@ -21,7 +21,8 @@ assert(html.includes(`app.js?v=${pkg.version}`), 'index.html must reference curr
 
 const routeMenuBlock = app.match(/const showCardContextMenu = \(x, y\) => \{[\s\S]*?\n\s*\};\n\n\s*card\.addEventListener\('contextmenu'/);
 assert(routeMenuBlock, 'route context-menu handler should remain present');
-assert(routeMenuBlock[0].includes("fluent-context-menu fav-route-context-menu ctx-opening"), 'route menu must use the shared Fluent surface');
+assert(routeMenuBlock[0].includes("fluent-context-menu fav-route-context-menu"), 'route menu must use the shared Fluent surface');
+assert(routeMenuBlock[0].includes("menu.classList.add('ctx-opening')"), 'route menu animation must start after final-size positioning');
 assert(routeMenuBlock[0].includes('class="ctx-item fav-route-context-item btn-ctx-export"'), 'route export action must use shared ctx-item styling');
 assert(routeMenuBlock[0].includes('class="ctx-item fav-route-context-item danger btn-ctx-del"'), 'route delete action must use shared ctx-item styling');
 assert(routeMenuBlock[0].includes('class="ctx-icon" aria-hidden="true">📤</span>'), 'route export action must have a leading icon');
@@ -31,8 +32,8 @@ assert(!app.includes('class="fav-item-del"'), 'favorite point cards must not ren
 assert(!app.includes("item.querySelector('.fav-item-del')"), 'favorite point cards must use the context menu for deletion');
 assert(css.includes('.fav-route-context-menu {\n  position: fixed;'), 'route context menu should share fixed viewport positioning');
 assert(css.includes('width: max-content;\n  min-width: 0;'), 'route context menu should size to its content without a wide empty gutter');
-assert(css.includes('.fav-point-type-menu {\n  position: fixed;') && css.includes('.fav-point-type-menu .ctx-item {\n  width: auto;'), 'waypoint menu should use content-sized shared items');
-assert(css.includes('.fav-point-type-menu .fav-type-delete {\n  position: sticky;'), 'waypoint delete action should remain pinned and visible at the bottom');
+assert(css.includes('.fav-point-type-menu {\n  position: fixed;') && css.includes('width: 88px;'), 'waypoint menu should use the compact fixed visual width');
+assert(css.includes('.fav-point-type-menu .fav-type-scroll {') && css.includes('.fav-point-type-menu .fav-type-footer {'), 'waypoint menu should split scrolling types from its fixed delete footer');
 assert(!css.includes('.fav-type-check {\n  width: 13px;\n  margin-left: auto;'), 'waypoint selection check must not stretch a large right gutter');
 
 console.log('v1.9.7 unified favorite context-menu checks passed');

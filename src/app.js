@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.10';
+const APP_VERSION = '1.9.11';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -2931,6 +2931,7 @@ function setupOfficeHeaderInteractions(map) {
 
 // 本地已下载离线省份包持久化记录 (双重持久化：优先同步磁盘 manifest.json，兼容 localStorage)
 let offlineProvCache = null;
+const OFFLINE_INVENTORY_VERSION = 4;
 
 async function syncOfflineManifest() {
   let diskManifest = null;
@@ -2949,9 +2950,11 @@ async function syncOfflineManifest() {
     localProvinces = JSON.parse(localStorage.getItem('outmap_offline_provinces') || '{}');
   } catch (e) {}
 
-  // inventoryVersion 3 来自 worker 对真实文件的扫描，必须覆盖旧的浏览器快照；
+  // Current inventory comes from a worker scan of real files and must replace
+  // the browser snapshot. Version 4 also invalidates the old mismatched-bounds
+  // inventory once, without touching any tile file.
   // 否则已删除/未完成的瓦片会被 localStorage 再次“复活”为绿色完成状态。
-  const hasAuthoritativeInventory = diskManifest?.inventoryVersion === 3;
+  const hasAuthoritativeInventory = diskManifest?.inventoryVersion === OFFLINE_INVENTORY_VERSION;
   const merged = hasAuthoritativeInventory ? diskProvinces : { ...localProvinces, ...diskProvinces };
 
   offlineProvCache = merged;
@@ -3217,6 +3220,24 @@ function setupPyramidModal(map) {
   let lastProgressBytes = 0;
   let lastProgressTime = 0;
   let lastTitleStatUpdate = 0;
+  // Keep the user's download selection independently from the rendered grid.
+  // Rebuilding the grid after an inventory scan must not erase the selection
+  // and infer a new province from the map center (which commonly matched Gansu).
+  let selectedProvinceKeys = null;
+
+  const getRequestedLayers = () => {
+    const layers = [];
+    if (chkDem?.checked) layers.push('dem');
+    if (chkVec?.checked) layers.push('vector');
+    return layers;
+  };
+  const isLayerLevelComplete = (state, layer, z) => Boolean(state?.layers?.[layer]?.levels?.[z]?.complete);
+  const isLevelCompleteForLayers = (state, z, layers = getRequestedLayers()) => (
+    Boolean(state) && layers.length > 0 && layers.every(layer => isLayerLevelComplete(state, layer, z))
+  );
+  const isLevelPartialForLayers = (state, z, layers = getRequestedLayers()) => (
+    Boolean(state) && layers.some(layer => Number(state?.layers?.[layer]?.levels?.[z]?.present || 0) > 0)
+  );
 
   const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false) => {
     if (isVerify) return '本地校验中';
@@ -3390,6 +3411,10 @@ function setupPyramidModal(map) {
     return Array.from(chks).map(c => c.value);
   };
 
+  const rememberSelectedKeys = () => {
+    selectedProvinceKeys = new Set(getSelectedKeys());
+  };
+
   const updateCounter = () => {
     const keys = getSelectedKeys();
     const totalCount = Object.keys(PROVINCES_DATA).filter(k => k !== 'china').length;
@@ -3441,35 +3466,16 @@ function setupPyramidModal(map) {
     multiGrid.innerHTML = '';
     const offlineState = getOfflineProvState();
 
-    // 确定选区：
-    // 1. 若后台正在下载，严禁选区偏移，精准选中当前正在下载的任务省份；
-    // 2. 若无下载但已有用户选区，完整保留用户的当前选区；
-    // 3. 仅在初始未选时，按地图视口定位单个省份。
-    let defaultKey = (currentSelectedProvKey && currentSelectedProvKey !== 'china') ? currentSelectedProvKey : null;
-    if (!defaultKey && map) {
-      const c = map.getCenter();
-      if (c) {
-        for (const [k, p] of Object.entries(PROVINCES_DATA)) {
-          if (k === 'china' || !p.bbox) continue;
-          if (c.lng >= p.bbox[0] && c.lng <= p.bbox[1] && c.lat >= p.bbox[2] && c.lat <= p.bbox[3]) {
-            defaultKey = k;
-            break;
-          }
-        }
-      }
-    }
-    if (!defaultKey) defaultKey = 'shandong';
-
     let selectedKeySet = new Set();
     if (activeDownloadSession && Array.isArray(activeDownloadSession.keys) && activeDownloadSession.keys.length > 0) {
       selectedKeySet = new Set(activeDownloadSession.keys);
+    } else if (selectedProvinceKeys !== null) {
+      selectedKeySet = new Set(selectedProvinceKeys);
     } else {
-      const existing = getSelectedKeys();
-      if (existing.length > 0) {
-        selectedKeySet = new Set(existing);
-      } else if (defaultKey) {
-        selectedKeySet = new Set([defaultKey]);
-      }
+      // On the first opening, a specifically selected map province is useful;
+      // the nationwide view intentionally starts empty instead of guessing.
+      if (currentSelectedProvKey && currentSelectedProvKey !== 'china') selectedKeySet.add(currentSelectedProvKey);
+      selectedProvinceKeys = new Set(selectedKeySet);
     }
 
     // 按拼音排序省份 (排除 china)
@@ -3481,24 +3487,8 @@ function setupPyramidModal(map) {
         return (pa.pinyin || pa.name).localeCompare(pb.pinyin || pb.name, 'zh-Hans-CN');
       });
 
-    const isLayerLevelComplete = (s, layer, z) => Boolean(s?.layers?.[layer]?.levels?.[z]?.complete);
-    const isLevelComplete = (s, z) => {
-      if (!s) return false;
-      const hasDem = Boolean(s.dem || (s.layers?.dem && Object.values(s.layers.dem.levels || {}).some(l => (l.present || 0) > 0)));
-      const hasVec = Boolean(s.vec || (s.layers?.vector && Object.values(s.layers.vector.levels || {}).some(l => (l.present || 0) > 0)));
-      if (hasDem && hasVec) {
-        return isLayerLevelComplete(s, 'dem', z) && isLayerLevelComplete(s, 'vector', z);
-      }
-      if (hasVec) return isLayerLevelComplete(s, 'vector', z);
-      if (hasDem) return isLayerLevelComplete(s, 'dem', z);
-      return false;
-    };
-    const isLevelPartial = (s, z) => {
-      if (!s) return false;
-      const layerStates = ['dem', 'vector'].map(layer => s.layers?.[layer]?.levels?.[z]).filter(Boolean);
-      if (layerStates.length > 0) return layerStates.some(level => (level.present || 0) > 0);
-      return (s.partialZ || s.maxZ || 0) >= z;
-    };
+    const targetZ = parseInt(zoomInput?.value || '10', 10) || 10;
+    const requestedLayers = getRequestedLayers();
 
     sortedKeys.forEach(k => {
       const p = PROVINCES_DATA[k];
@@ -3506,15 +3496,16 @@ function setupPyramidModal(map) {
       const maxZ = saved ? (saved.maxZ || 0) : 0;
       const partialZ = saved ? (saved.partialZ || 0) : 0;
 
-      // 科学判定全量就绪 (绿点/绿徽章)：
-      // 1. 已达到 L10~L14 任一已就绪层级 (maxZ >= 10)，且自 L10 至 maxZ 连续完整，且无未完成的高层级半途切片 (partialZ <= maxZ)；
-      // 2. 或者全部 10~14 层级已全量完整。
-      const hasContiguousComplete = maxZ >= 10 && [10, 11, 12, 13, 14].filter(z => z <= maxZ).every(z => isLevelComplete(saved, z));
-      const isFull = hasContiguousComplete && (partialZ <= maxZ || [10, 11, 12, 13, 14].every(z => isLevelComplete(saved, z)));
-
-      // 判断部分下载 (蓝点/蓝徽章)：
-      // 存在切片但尚未达到完整连续就绪状态 (如 4/10 切片，或 partialZ > maxZ)
-      const isPartial = !isFull && ((partialZ >= 10) || (maxZ >= 10) || [10, 11, 12, 13, 14].some(z => isLevelPartial(saved, z)));
+      // Province colour describes the currently selected target level. Stray
+      // tiles at a higher level must not turn a complete L10 province blue.
+      const targetLevels = [10, 11, 12, 13, 14].filter(z => z <= targetZ);
+      const isFull = targetLevels.length > 0 && targetLevels.every(z => isLevelCompleteForLayers(saved, z, requestedLayers));
+      const isPartial = !isFull && [10, 11, 12, 13, 14].some(z => isLevelPartialForLayers(saved, z, requestedLayers));
+      let completeThroughZ = 9;
+      for (let z = 10; z <= 14; z++) {
+        if (!isLevelCompleteForLayers(saved, z, requestedLayers)) break;
+        completeThroughZ = z;
+      }
       const isChecked = selectedKeySet.has(k);
 
       const label = document.createElement('label');
@@ -3529,6 +3520,7 @@ function setupPyramidModal(map) {
 
       chk.addEventListener('change', () => {
         label.classList.toggle('checked', chk.checked);
+        rememberSelectedKeys();
         updateCounter();
         updateEstimation();
       });
@@ -3543,7 +3535,7 @@ function setupPyramidModal(map) {
       const badge = document.createElement('span');
       if (isFull) {
         badge.className = 'prov-chip-badge full';
-        badge.innerText = `L${maxZ || 14}`;
+        badge.innerText = `L${Math.max(targetZ, completeThroughZ)}`;
       } else if (isPartial) {
         badge.className = 'prov-chip-badge partial';
         const displayZ = Math.max(maxZ, partialZ || 0);
@@ -3572,6 +3564,7 @@ function setupPyramidModal(map) {
       if (chk) chk.checked = true;
       item.classList.add('checked');
     });
+    rememberSelectedKeys();
     updateCounter();
     updateEstimation();
   });
@@ -3583,6 +3576,7 @@ function setupPyramidModal(map) {
       if (chk) chk.checked = !chk.checked;
       item.classList.toggle('checked', chk ? chk.checked : false);
     });
+    rememberSelectedKeys();
     updateCounter();
     updateEstimation();
   });
@@ -3594,6 +3588,7 @@ function setupPyramidModal(map) {
       if (chk) chk.checked = false;
       item.classList.remove('checked');
     });
+    rememberSelectedKeys();
     updateCounter();
     updateEstimation();
   });
@@ -3605,6 +3600,7 @@ function setupPyramidModal(map) {
       pill.classList.add('active');
       const val = pill.dataset.value || '10';
       if (zoomInput) zoomInput.value = val;
+      renderProvinceGrid();
       updateEstimation();
     });
   });
@@ -3614,19 +3610,17 @@ function setupPyramidModal(map) {
     const selectedKeys = getSelectedKeys();
     const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
     const offlineState = getOfflineProvState();
-    const requestedLayers = [];
-    if (chkDem?.checked) requestedLayers.push('dem');
-    if (chkVec?.checked) requestedLayers.push('vector');
+    const requestedLayers = getRequestedLayers();
 
     const isLevelComplete = (s, z) => {
       if (!s) return false;
       if (requestedLayers.length === 0) return false;
-      return requestedLayers.every(layer => Boolean(s.layers?.[layer]?.levels?.[z]?.complete));
+      return isLevelCompleteForLayers(s, z, requestedLayers);
     };
     const isLevelPartial = (s, z) => {
       if (!s) return false;
       const layerStates = requestedLayers.map(layer => s.layers?.[layer]?.levels?.[z]).filter(Boolean);
-      if (layerStates.length > 0) return layerStates.some(level => (level.present || 0) > 0);
+      if (layerStates.length > 0) return isLevelPartialForLayers(s, z, requestedLayers);
       return (s.partialZ || s.maxZ || 0) >= z;
     };
 
@@ -3808,8 +3802,12 @@ function setupPyramidModal(map) {
     closePyramidModal();
   });
 
-  chkDem.addEventListener('change', updateEstimation);
-  chkVec.addEventListener('change', updateEstimation);
+  const handleRequestedLayersChange = () => {
+    renderProvinceGrid();
+    updateEstimation();
+  };
+  chkDem.addEventListener('change', handleRequestedLayersChange);
+  chkVec.addEventListener('change', handleRequestedLayersChange);
 
   // 触发多省批量下载任务 (isVerify 为 true 时极速本地校验，isIncrementalUpdate 为 true 时执行方案 A 增量更新)
   const triggerDownload = async (isVerify = false, isIncrementalUpdate = false) => {
@@ -5870,7 +5868,10 @@ function setupWaypointAndFavoritesSystem(map) {
     document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
     smoothCloseContextMenu();
     const menu = document.createElement('div');
-    menu.className = 'fluent-context-menu fav-point-type-menu ctx-opening';
+    // Measure the final, untransformed menu first. Measuring while the opening
+    // scale animation is active returns a smaller rectangle and lets the final
+    // frame grow below the viewport.
+    menu.className = 'fluent-context-menu fav-point-type-menu';
 
     const typeList = [
       { key: 'view', name: '景点', icon: '🏔️' },
@@ -5884,28 +5885,37 @@ function setupWaypointAndFavoritesSystem(map) {
     ];
 
     menu.innerHTML = `
-      ${typeList.map(t => `
-        <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
-          <span class="ctx-icon">${t.icon}</span>
-          <span class="ctx-text">${t.name}</span>
-          <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
+      <div class="fav-type-scroll">
+        ${typeList.map(t => `
+          <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
+            <span class="ctx-icon">${t.icon}</span>
+            <span class="ctx-text">${t.name}</span>
+            <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="fav-type-footer">
+        <div class="ctx-divider"></div>
+        <button class="ctx-item danger fav-type-delete" type="button">
+          <span class="ctx-icon">🗑️</span>
+          <span class="ctx-text">删除</span>
         </button>
-      `).join('')}
-      <div class="ctx-divider"></div>
-      <button class="ctx-item danger fav-type-delete" type="button">
-        <span class="ctx-icon">🗑️</span>
-        <span class="ctx-text">删除</span>
-      </button>
+      </div>
     `;
     document.body.appendChild(menu);
 
     const rect = menu.getBoundingClientRect();
-    const viewportW = Math.max(0, window.visualViewport?.width || window.innerWidth);
-    const viewportH = Math.max(0, window.visualViewport?.height || window.innerHeight);
-    const safeX = Math.max(10, Math.min(Number(x) || 10, viewportW - rect.width - 10));
-    const safeY = Math.max(10, Math.min(Number(y) || 10, viewportH - rect.height - 10));
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportRight = viewportLeft + Math.max(0, viewport?.width || window.innerWidth);
+    const viewportBottom = viewportTop + Math.max(0, viewport?.height || window.innerHeight);
+    const safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
+    const safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
     menu.style.left = `${safeX}px`;
     menu.style.top = `${safeY}px`;
+    void menu.offsetWidth;
+    menu.classList.add('ctx-opening');
 
     const closeMenu = () => {
       if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;
@@ -6098,7 +6108,7 @@ function setupWaypointAndFavoritesSystem(map) {
         smoothCloseContextMenu();
         const menu = document.createElement('div');
         // 路线与地点共用 Fluent 上下文菜单表面、动画、键盘/地图移动关闭逻辑。
-        menu.className = 'fluent-context-menu fav-route-context-menu ctx-opening';
+        menu.className = 'fluent-context-menu fav-route-context-menu';
 
         menu.innerHTML = `
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
@@ -6113,12 +6123,17 @@ function setupWaypointAndFavoritesSystem(map) {
         document.body.appendChild(menu);
 
         const rect = menu.getBoundingClientRect();
-        const viewportW = Math.max(0, window.visualViewport?.width || window.innerWidth);
-        const viewportH = Math.max(0, window.visualViewport?.height || window.innerHeight);
-        const safeX = Math.max(10, Math.min(Number(x) || 10, viewportW - rect.width - 10));
-        const safeY = Math.max(10, Math.min(Number(y) || 10, viewportH - rect.height - 10));
+        const viewport = window.visualViewport;
+        const viewportLeft = viewport?.offsetLeft || 0;
+        const viewportTop = viewport?.offsetTop || 0;
+        const viewportRight = viewportLeft + Math.max(0, viewport?.width || window.innerWidth);
+        const viewportBottom = viewportTop + Math.max(0, viewport?.height || window.innerHeight);
+        const safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
+        const safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
         menu.style.left = `${safeX}px`;
         menu.style.top = `${safeY}px`;
+        void menu.offsetWidth;
+        menu.classList.add('ctx-opening');
 
         const closeMenu = () => {
           if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;

@@ -60,7 +60,7 @@ console.log('  [PASS] 3. Streamlined login form and clean user profile (no avata
 
 // 1.4 Offline Manifest Persistence (Never wipe on startup)
 assert(!appJs.includes('hasSuspiciousL14'), 'app.js must not contain destructive hasSuspiciousL14 wipe logic');
-assert(appJs.includes('const hasAuthoritativeInventory = diskManifest?.inventoryVersion === 3'), 'worker inventory must be authoritative over stale UI state');
+assert(appJs.includes('const hasAuthoritativeInventory = diskManifest?.inventoryVersion === OFFLINE_INVENTORY_VERSION'), 'worker inventory must be authoritative over stale UI state');
 assert(appJs.includes('hasAuthoritativeInventory ? diskProvinces'), 'disk scan must clear false completed states without deleting tiles');
 console.log('  [PASS] 4. Offline manifest authority and non-destructive persistence verified');
 

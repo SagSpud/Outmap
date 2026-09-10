@@ -16,7 +16,7 @@ let cloudPulls = 0;
 ipcMain.handle('get-tile-server-info', () => ({ port: 28795, totalTiles: 0, totalBytes: 0 }));
 ipcMain.handle('get-offline-status', () => ({ totalTiles: 0, totalBytes: 0 }));
 ipcMain.handle('get-offline-manifest', () => ({
-  inventoryVersion: 3,
+  inventoryVersion: 4,
   stats: {},
   provinces: {
     shandong: {
@@ -74,6 +74,8 @@ app.whenReady().then(async () => {
     await sleep(30);
     document.getElementById('btn-open-pyramid-dl').click();
     await sleep(80);
+    document.querySelector('.zoom-pill[data-value="14"]')?.click();
+    await sleep(30);
     const shandong = document.querySelector('.prov-chip-item[data-key="shandong"]');
     const cursor = getComputedStyle(document.documentElement);
     const answer = {
