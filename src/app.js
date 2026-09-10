@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.13';
+const APP_VERSION = '1.9.14';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -3993,8 +3993,10 @@ function setupPyramidModal(map) {
       const readyCount = data.existingCount || data.skippedCount || 0;
       if (isLocating) {
         const found = Number(data.foundMissing || data.total || 0);
+        const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
+        const failed = Number(data.failedCount || 0);
         detail = found > 0
-          ? `已定位 ${formatTileCount(found)} 块缺片 · 已补齐 ${formatTileCount(data.completed || 0)} 块`
+          ? `已定位 ${formatTileCount(found)} 块缺片 · 已补齐 ${formatTileCount(saved)} 块${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块` : ''}`
           : '正在读取目录索引，不会逐块读取已有瓦片';
       } else if (data.done && Number(data.total || 0) === 0) {
         detail = '未发现缺片，所选范围已全部就绪';
@@ -4003,6 +4005,10 @@ function setupPyramidModal(map) {
         detail = (readyCount > 0 || unchanged > 0) ? `${countPart} (已就绪 ${formatTileCount(unchanged || readyCount)})` : countPart;
       } else if (readyCount > 0) {
         detail = `${countPart} (已就绪 ${formatTileCount(readyCount)})`;
+      } else if (!data.isVerify) {
+        const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
+        const failed = Number(data.failedCount || 0);
+        detail = `${countPart} · 已补齐 ${formatTileCount(saved)} 块${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块` : ''}`;
       }
 
       progressNum.innerText = detail;
@@ -5260,31 +5266,35 @@ function setupStatusBar(map) {
   const updateFps = () => {
     const now = performance.now();
     const elapsed = Math.max(1, now - fpsSampleStartedAt);
-    const fps = document.hidden ? 0 : Math.round((renderedFrames * 1000) / elapsed);
-    const el = document.getElementById('status-fps');
-    if (el) el.innerText = `${fps} FPS`;
+    // A moveend can arrive immediately after the one-second sample reset. Do
+    // not replace the last useful value with a synthetic 0 FPS in that gap.
+    if (!document.hidden && renderedFrames > 0) {
+      const fps = Math.round((renderedFrames * 1000) / elapsed);
+      const el = document.getElementById('status-fps');
+      if (el) el.innerText = `${fps} FPS`;
+    }
     renderedFrames = 0;
     fpsSampleStartedAt = now;
   };
   const startFpsSampling = () => {
-    if (!fpsTimer && !document.hidden && map.isMoving?.()) {
+    // `movestart` fires just before some MapLibre camera implementations flip
+    // isMoving(), so the event itself is the authority here.
+    if (!fpsTimer && !document.hidden) {
       renderedFrames = 0;
       fpsSampleStartedAt = performance.now();
       fpsTimer = setInterval(updateFps, 1000);
     }
   };
-  const stopFpsSampling = (showIdle = true) => {
+  const stopFpsSampling = () => {
     if (fpsTimer) clearInterval(fpsTimer);
     fpsTimer = null;
-    if (showIdle) {
-      const el = document.getElementById('status-fps');
-      if (el) el.innerText = '— FPS';
-    }
   };
   map.on('movestart', startFpsSampling);
   map.on('moveend', () => {
     if (fpsTimer) updateFps();
-    stopFpsSampling(true);
+    // Keep the last real interaction sample visible in the status bar. The
+    // timer still stops completely, so idle GPU/CPU usage remains unchanged.
+    stopFpsSampling();
   });
   document.addEventListener('visibilitychange', () => {
     renderedFrames = 0;

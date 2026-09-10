@@ -261,10 +261,10 @@ function* enumerateTileColumns({ provinces, minZ, maxZ, downloadDem, downloadVec
   }
 }
 
-// Async missing-only producer used by normal resume. `readColumnFiles` returns
-// one Set of file names for a physical layer/z/x directory, so millions of
-// ready files are discarded here instead of becoming download-worker tasks.
-async function* enumerateMissingTiles(plan, { readColumnFiles, signal, onProgress } = {}) {
+// Produce compressed missing y runs. A fully absent nationwide column becomes
+// one tiny range object rather than thousands of task objects, so directory
+// discovery can run independently from slower network downloads.
+async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onProgress } = {}) {
   if (typeof readColumnFiles !== 'function') {
     throw new TypeError('readColumnFiles is required');
   }
@@ -283,23 +283,39 @@ async function* enumerateMissingTiles(plan, { readColumnFiles, signal, onProgres
     progress.currentZ = column.z;
     for (const segment of column.segments) {
       progress.currentProvince = segment.provName || progress.currentProvince;
+      let demRunStart = null;
+      let vectorRunStart = null;
       for (let y = segment.startY; y <= segment.endY; y++) {
         if (signal?.aborted) break;
-        if (!inChina(column.z, column.x, y, plan.boxes)) continue;
+        const validTile = inChina(column.z, column.x, y, plan.boxes);
         if (segment.includeDem) {
-          progress.scannedCandidates++;
-          if (!demFiles.has(`${y}.webp`)) {
+          const missing = validTile && !demFiles.has(`${y}.webp`);
+          if (validTile) progress.scannedCandidates++;
+          if (missing) {
             progress.foundMissing++;
-            yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, y, ext: 'webp' };
+            if (demRunStart === null) demRunStart = y;
+          } else if (demRunStart !== null) {
+            yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, startY: demRunStart, endY: y - 1, ext: 'webp' };
+            demRunStart = null;
           }
         }
         if (segment.includeVector) {
-          progress.scannedCandidates++;
-          if (!vectorFiles.has(`${y}.pbf`)) {
+          const missing = validTile && !vectorFiles.has(`${y}.pbf`);
+          if (validTile) progress.scannedCandidates++;
+          if (missing) {
             progress.foundMissing++;
-            yield { provKey: segment.provKey, provName: segment.provName, type: 'vector', z: column.z, x: column.x, y, ext: 'pbf' };
+            if (vectorRunStart === null) vectorRunStart = y;
+          } else if (vectorRunStart !== null) {
+            yield { provKey: segment.provKey, provName: segment.provName, type: 'vector', z: column.z, x: column.x, startY: vectorRunStart, endY: y - 1, ext: 'pbf' };
+            vectorRunStart = null;
           }
         }
+      }
+      if (!signal?.aborted && demRunStart !== null) {
+        yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, startY: demRunStart, endY: segment.endY, ext: 'webp' };
+      }
+      if (!signal?.aborted && vectorRunStart !== null) {
+        yield { provKey: segment.provKey, provName: segment.provName, type: 'vector', z: column.z, x: column.x, startY: vectorRunStart, endY: segment.endY, ext: 'pbf' };
       }
       if (signal?.aborted) break;
     }
@@ -312,6 +328,24 @@ async function* enumerateMissingTiles(plan, { readColumnFiles, signal, onProgres
     }
   }
   onProgress?.({ ...progress, done: true });
+}
+
+// Compatibility task iterator used by tests and callers that want individual
+// tiles. Production normal-resume consumes the compressed ranges directly.
+async function* enumerateMissingTiles(plan, options = {}) {
+  for await (const range of enumerateMissingTileRanges(plan, options)) {
+    for (let y = range.startY; y <= range.endY; y++) {
+      yield {
+        provKey: range.provKey,
+        provName: range.provName,
+        type: range.type,
+        z: range.z,
+        x: range.x,
+        y,
+        ext: range.ext
+      };
+    }
+  }
 }
 
 // Streaming enumeration bounds memory even for a nationwide L14 request.
@@ -331,7 +365,7 @@ function* enumerateTiles(plan) {
   }
 }
 
-module.exports = { scan, bounds, inChina, enumerateTileColumns, enumerateMissingTiles, enumerateTiles };
+module.exports = { scan, bounds, inChina, enumerateTileColumns, enumerateMissingTileRanges, enumerateMissingTiles, enumerateTiles };
 
 if (!isMainThread) {
   try {

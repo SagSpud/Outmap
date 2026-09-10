@@ -1301,7 +1301,7 @@ app.whenReady().then(async () => {
       catch (error) { if (error.code === 'ENOENT') return false; throw error; }
     }
 
-    const { enumerateTiles, enumerateMissingTiles } = require('./src/offline-worker.cjs');
+    const { enumerateTiles, enumerateMissingTileRanges } = require('./src/offline-worker.cjs');
     const safeMinZ = Math.max(0, minZ || 0);
     const safeMaxZ = Math.min(14, maxZ);
     const requestedTypes = [downloadDem ? 'dem' : null, downloadVec ? 'vector' : null].filter(Boolean);
@@ -1366,9 +1366,12 @@ app.whenReady().then(async () => {
       vector: { count: 0, bytes: 0 }
     };
     const startTime = Date.now();
-    const concurrency = 24;
+    // 36 lanes is the measured throughput sweet spot for the two current tile
+    // origins on desktop. More lanes slowed DEM responses; fewer left both
+    // origins under-utilised. Active map interaction still keeps only 4 lanes.
+    const concurrency = 36;
     const interactiveConcurrency = 4;
-    const createdDirs = new Set();
+    const createdDirs = new Map();
     let atomicWriteSerial = 0;
     let lastProgressTime = 0;
     let lastTaskbarPct = -1;
@@ -1383,7 +1386,7 @@ app.whenReady().then(async () => {
     const speedSamples = [{ time: startTime, bytes: 0 }];
 
     function sendPlanningProgress(force = false) {
-      if (!normalResume || !mainWindow || mainWindow.isDestroyed()) return;
+      if (!normalResume || !mainWindow || mainWindow.isDestroyed() || completed > 0) return;
       const now = Date.now();
       if (!force && now - lastPlanningProgressTime < 250) return;
       lastPlanningProgressTime = now;
@@ -1412,32 +1415,99 @@ app.whenReady().then(async () => {
       });
     }
 
-    const tileIterator = normalResume
-      ? enumerateMissingTiles(plan, {
-          signal,
-          readColumnFiles: (type, z, x) => {
-            const root = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
-            return checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
-          },
-          onProgress: progress => {
-            scannedColumns = progress.scannedColumns;
-            plannedCandidates = progress.scannedCandidates;
-            discoveredMissing = progress.foundMissing;
-            total = discoveredMissing;
-            activeProvName = progress.currentProvince || activeProvName;
-            activeZ = progress.currentZ ?? activeZ;
-            if (progress.done) planningDone = true;
-            sendPlanningProgress(progress.done);
+    const tileIterator = normalResume ? null : enumerateTiles(plan);
+    const missingRanges = [];
+    let missingRangeHead = 0;
+    let rangeWaiters = [];
+    let planningError = null;
+
+    function wakeRangeWaiters() {
+      const waiters = rangeWaiters;
+      rangeWaiters = [];
+      for (const resolve of waiters) resolve();
+    }
+
+    function enqueueMissingRange(range) {
+      const length = Math.max(0, range.endY - range.startY + 1);
+      if (length === 0) return;
+      missingRanges.push({ ...range, nextY: range.startY });
+      discoveredMissing += length;
+      total = discoveredMissing;
+      wakeRangeWaiters();
+    }
+
+    async function nextMissingTask() {
+      while (!signal.aborted) {
+        while (missingRangeHead < missingRanges.length) {
+          const range = missingRanges[missingRangeHead];
+          if (range.nextY <= range.endY) {
+            const y = range.nextY++;
+            return {
+              provKey: range.provKey,
+              provName: range.provName,
+              type: range.type,
+              z: range.z,
+              x: range.x,
+              y,
+              ext: range.ext
+            };
           }
-        })
-      : enumerateTiles(plan);
+          missingRanges[missingRangeHead] = null;
+          missingRangeHead++;
+          if (missingRangeHead >= 4096 && missingRangeHead * 2 >= missingRanges.length) {
+            missingRanges.splice(0, missingRangeHead);
+            missingRangeHead = 0;
+          }
+        }
+        if (planningDone) return null;
+        await new Promise(resolve => rangeWaiters.push(resolve));
+      }
+      return null;
+    }
+
+    const planningPromise = normalResume
+      ? (async () => {
+          try {
+            for await (const range of enumerateMissingTileRanges(plan, {
+              signal,
+              readColumnFiles: (type, z, x) => {
+                const root = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
+                return checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
+              },
+              onProgress: progress => {
+                scannedColumns = progress.scannedColumns;
+                plannedCandidates = progress.scannedCandidates;
+                activeProvName = progress.currentProvince || activeProvName;
+                activeZ = progress.currentZ ?? activeZ;
+                sendPlanningProgress(false);
+              }
+            })) {
+              enqueueMissingRange(range);
+            }
+          } catch (error) {
+            planningError = error;
+          } finally {
+            planningDone = true;
+            total = discoveredMissing;
+            wakeRangeWaiters();
+            sendPlanningProgress(true);
+          }
+        })()
+      : Promise.resolve();
     if (normalResume) sendPlanningProgress(true);
 
     async function writeDownloadedTile(task, dirPath, localPath, fileName, buf) {
       const dirKey = `${task.type}/${task.z}/${task.x}`;
-      if (!createdDirs.has(dirKey)) {
-        await fs.promises.mkdir(dirPath, { recursive: true });
-        createdDirs.add(dirKey);
+      let dirReady = createdDirs.get(dirKey);
+      if (!dirReady) {
+        dirReady = fs.promises.mkdir(dirPath, { recursive: true });
+        createdDirs.set(dirKey, dirReady);
+      }
+      try {
+        await dirReady;
+      } catch (error) {
+        createdDirs.delete(dirKey);
+        throw error;
       }
       const tempPath = `${localPath}.${process.pid}.${++atomicWriteSerial}.tmp`;
       try {
@@ -1472,9 +1542,9 @@ app.whenReady().then(async () => {
           await new Promise(resolve => setTimeout(resolve, 80));
         }
         if (signal.aborted) break;
-        const next = normalResume ? await tileIterator.next() : tileIterator.next();
-        if (next.done) break;
-        const task = next.value;
+        const next = normalResume ? await nextMissingTask() : tileIterator.next();
+        if (normalResume ? !next : next.done) break;
+        const task = normalResume ? next : next.value;
         if (task.provName) activeProvName = task.provName;
         if (task.z) activeZ = task.z;
         const { type, z, x, y, ext } = task;
@@ -1679,6 +1749,8 @@ app.whenReady().then(async () => {
       workers.push(worker(i));
     }
     await Promise.all(workers);
+    await planningPromise;
+    if (planningError) throw planningError;
     // The normal iterator contains missing files only; its final discovered
     // count is the exact denominator and never includes ready local tiles.
     if (!isVerify && !isIncrementalUpdate) total = completed;

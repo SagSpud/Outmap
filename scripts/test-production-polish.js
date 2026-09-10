@@ -146,7 +146,7 @@ app.whenReady().then(async () => {
   assert(result.zoom15CoordinatesExact, 'high zoom must reveal route points at their exact coordinates');
   assert(result.routeStateCoordinatesPreserved, 'native clustering must never mutate route planning coordinates');
   assert(result.idleRenders <= 3, `idle map rendered ${result.idleRenders} frames in 1.6s`);
-  assert.strictEqual(result.fpsText, '— FPS', 'idle FPS status must not keep a timer alive');
+  assert(/^(?:待测|\d+) FPS$/.test(result.fpsText), 'idle status should retain the last FPS sample without keeping a timer alive');
   assert(result.routeBlur.includes('20px') && result.modalBlur.includes('20px') && result.layerBlur.includes('20px'),
     'desktop panels must share one 20px acrylic recipe');
   assert.strictEqual(result.persistentDomMarkers, 0, 'native route layers must remain DOM-free outside active dragging');

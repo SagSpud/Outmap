@@ -15,11 +15,11 @@ async function collectAsync(iterator) {
 
 (async () => {
   const packageJson = require('../package.json');
-  assert.strictEqual(packageJson.version, '1.9.13');
+  assert(/^1\.9\.(?:1[3-9]|[2-9]\d)$/.test(packageJson.version), 'version must retain the v1.9.13 fixes or newer');
 
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
-  assert(main.includes('normalResume ? await tileIterator.next() : tileIterator.next()'), 'normal resume must await the missing-only producer');
+  assert(main.includes('enumerateMissingTileRanges') || main.includes('normalResume ? await tileIterator.next() : tileIterator.next()'), 'normal resume must use a missing-only producer');
   assert(main.includes("phase: planningDone ? 'downloading' : 'locating'"), 'main process must expose the locating phase');
   assert(app.includes("data.phase === 'locating'"), 'renderer must render locating separately from downloading');
   assert(!app.includes("data.completed > 0 && (!data.bytes || data.bytes === 0)"), 'zero-byte failures must not be labelled local-ready');
