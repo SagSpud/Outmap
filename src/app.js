@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.5';
+const APP_VERSION = '1.9.6';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -720,11 +720,112 @@ function mergeWaypoints(localList = [], cloudList = [], deletedList = []) {
   return result;
 }
 
-function mergeRoutes(localList = [], cloudList = []) {
+// 路线也需要删除墓碑：仅从当前设备数组移除还不够，下一次双向同步时云端旧路线会被并集合并回来。
+const DELETED_ROUTES_STORAGE_KEY = 'outmap_deleted_routes';
+
+function getDeletedRoutes() {
+  try {
+    const raw = localStorage.getItem(DELETED_ROUTES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function routeCoords(route, side) {
+  const raw = route?.[side];
+  const coords = Array.isArray(raw) ? raw : raw?.coords;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const lng = Number(coords[0]);
+  const lat = Number(coords[1]);
+  return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
+}
+
+function normalizeRouteTombstone(route) {
+  if (!route || typeof route !== 'object') return null;
+  const distKm = Number(route.metrics?.distKm ?? route.distKm ?? route.distance);
+  const start = routeCoords(route, 'start');
+  const end = routeCoords(route, 'end');
+  return {
+    id: route.id ? String(route.id) : '',
+    name: String(route.name || '').trim(),
+    distKm: Number.isFinite(distKm) ? distKm : null,
+    start: start ? start.map(v => Number(v.toFixed(5))) : null,
+    end: end ? end.map(v => Number(v.toFixed(5))) : null,
+    time: Number(route.time || route.deletedAt || Date.now())
+  };
+}
+
+function routeTombstoneKey(item) {
+  if (!item || typeof item !== 'object') return '';
+  if (item.id) return `id:${item.id}`;
+  const start = Array.isArray(item.start) ? item.start.join(',') : '';
+  const end = Array.isArray(item.end) ? item.end.join(',') : '';
+  const dist = Number.isFinite(Number(item.distKm)) ? Number(item.distKm).toFixed(2) : '';
+  return `route:${String(item.name || '').trim()}|${dist}|${start}|${end}`;
+}
+
+function mergeRouteTombstones(localList = [], cloudList = []) {
   const result = [];
+  const seen = new Set();
+  [...(localList || []), ...(cloudList || [])].forEach(item => {
+    const normalized = normalizeRouteTombstone(item);
+    if (!normalized) return;
+    const key = routeTombstoneKey(normalized);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(normalized);
+  });
+  // 保留较长时间，避免旧云端快照在数月后让已删路线复活；数量上限防止无限增长。
+  const cutoff = Date.now() - 365 * 24 * 3600 * 1000;
+  return result.filter(item => !item.time || item.time > cutoff).slice(-500);
+}
+
+function addDeletedRouteTombstone(route) {
+  const tombstone = normalizeRouteTombstone(route);
+  if (!tombstone) return false;
+  try {
+    const merged = mergeRouteTombstones(getDeletedRoutes(), [tombstone]);
+    localStorage.setItem(DELETED_ROUTES_STORAGE_KEY, JSON.stringify(merged));
+    return true;
+  } catch (e) {
+    console.warn('[Outmap] route deletion tombstone could not be persisted:', e);
+    return false;
+  }
+}
+
+function isRouteDeleted(route, deletedList = []) {
+  if (!route || !Array.isArray(deletedList) || deletedList.length === 0) return false;
+  const routeId = route.id ? String(route.id) : '';
+  const routeName = String(route.name || '').trim();
+  const routeDist = Number(route.metrics?.distKm ?? route.distance);
+  const routeStart = routeCoords(route, 'start');
+  const routeEnd = routeCoords(route, 'end');
+  return deletedList.some(item => {
+    if (!item) return false;
+    if (routeId && item.id && routeId === String(item.id)) return true;
+    if (!routeName || !item.name || routeName !== String(item.name).trim()) return false;
+    const tombDist = Number(item.distKm ?? item.distance);
+    if (Number.isFinite(routeDist) && Number.isFinite(tombDist) && Math.abs(routeDist - tombDist) >= 0.1) return false;
+    const closeCoord = (a, b) => Array.isArray(a) && Array.isArray(b)
+      && Math.abs(Number(a[0]) - Number(b[0])) < 0.001
+      && Math.abs(Number(a[1]) - Number(b[1])) < 0.001;
+    // 新墓碑带起终点时，名称/距离相同还必须端点一致，避免误伤同名路线。
+    if (Array.isArray(item.start) || Array.isArray(item.end)) {
+      return closeCoord(routeStart, item.start) && closeCoord(routeEnd, item.end);
+    }
+    return true;
+  });
+}
+
+function mergeRoutes(localList = [], cloudList = [], deletedList = []) {
+  const result = [];
+  const allDeleted = Array.isArray(deletedList) && deletedList.length ? deletedList : getDeletedRoutes();
   const combined = [...(localList || []), ...(cloudList || [])];
   for (const item of combined) {
     if (!item) continue;
+    if (isRouteDeleted(item, allDeleted)) continue;
     const dist = item.metrics?.distKm ?? item.distance ?? 0;
     const name = (item.name || '').trim();
     const existingIdx = result.findIndex(r => {
@@ -4350,8 +4451,14 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       ).slice(-500);
       try { localStorage.setItem('outmap_deleted_waypoints', JSON.stringify(mergedDeleted)); } catch (e) {}
 
+      // 路线删除同样采用墓碑合并，阻止云端旧快照把本地已删路线重新带回。
+      const cloudDeletedRoutes = cloudData?.deletedRoutes || [];
+      const localDeletedRoutes = getDeletedRoutes();
+      const mergedDeletedRoutes = mergeRouteTombstones(localDeletedRoutes, cloudDeletedRoutes);
+      try { localStorage.setItem(DELETED_ROUTES_STORAGE_KEY, JSON.stringify(mergedDeletedRoutes)); } catch (e) {}
+
       const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
-      const mergedRoutes = cloudData?.routes ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
+      const mergedRoutes = mergeRoutes(localRoutes, cloudData?.routes || [], mergedDeletedRoutes);
       const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
 
       // 若发现云端有新增地标或路线，立即同步写入本地并全量刷新地图与收藏夹列表！
@@ -4377,6 +4484,7 @@ async function triggerRealtimeCloudSync(reason = 'change') {
           folders: mergedFolders,
           routes: mergedRoutes,
           deletedWaypoints: mergedDeleted,
+          deletedRoutes: mergedDeletedRoutes,
           views: window.mapInstance ? {
             center: window.mapInstance.getCenter(),
             zoom: window.mapInstance.getZoom(),
@@ -4518,8 +4626,13 @@ function setupCloudSync(map) {
       ).slice(-500);
       try { localStorage.setItem('outmap_deleted_waypoints', JSON.stringify(mergedDeleted)); } catch (e) {}
 
+      const cloudDeletedRoutes = cloudData?.deletedRoutes || [];
+      const localDeletedRoutes = getDeletedRoutes();
+      const mergedDeletedRoutes = mergeRouteTombstones(localDeletedRoutes, cloudDeletedRoutes);
+      try { localStorage.setItem(DELETED_ROUTES_STORAGE_KEY, JSON.stringify(mergedDeletedRoutes)); } catch (e) {}
+
       const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
-      const mergedRoutes = cloudData?.routes ? mergeRoutes(localRoutes, cloudData.routes) : localRoutes;
+      const mergedRoutes = mergeRoutes(localRoutes, cloudData?.routes || [], mergedDeletedRoutes);
       const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
 
       // 4. 写回本地并全量刷新界面标记与列表
@@ -4544,6 +4657,7 @@ function setupCloudSync(map) {
           folders: mergedFolders,
           routes: mergedRoutes,
           deletedWaypoints: mergedDeleted,
+          deletedRoutes: mergedDeletedRoutes,
           views: {
             center: map.getCenter(),
             zoom: map.getZoom(),
@@ -5978,10 +6092,13 @@ function setupWaypointAndFavoritesSystem(map) {
           e.stopPropagation();
           closeMenu();
           if (confirm(`确定删除收藏路线“${route.name}”？`)) {
-            savedRoutes = savedRoutes.filter(r => r.id !== route.id);
+            // 先记录删除墓碑，再更新本地路线列表；否则下一次云端合并会把旧路线复活。
+            addDeletedRouteTombstone(route);
+            const nextRoutes = savedRoutes.filter(r => r.id !== route.id);
             try {
-              localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
+              localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
             } catch (err) {}
+            savedRoutes = nextRoutes;
             renderSavedRoutesList();
             renderSavedRoutesOnMap(map);
             if (typeof window.triggerRealtimeCloudSync === 'function') {
