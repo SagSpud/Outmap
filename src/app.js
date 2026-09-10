@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.4';
+const APP_VERSION = '1.9.5';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -8940,46 +8940,59 @@ function setupOutdoorRouteSystem(map) {
   btnCloseSaveRouteModal?.addEventListener('click', closeSaveModal);
   btnCancelSaveRoute?.addEventListener('click', closeSaveModal);
 
-  // 确认保存路线到收藏夹
+  // 确认保存路线到收藏夹。成功时静默完成；只有真实持久化失败才提示原因。
   btnConfirmSaveRoute?.addEventListener('click', () => {
     const routeName = (saveRouteNameInput?.value || '').trim() || '规划路线';
     const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
     const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
     const effectiveViaPoints = routeEndCoord ? routeViaPoints : routeViaPoints.slice(0, -1);
-    const newRoute = {
-      id: 'route_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      name: routeName,
-      mode: activeRouteMode,
-      createdAt: new Date().toLocaleDateString('zh-CN'),
-      timestamp: Date.now(),
-      start: { coords: routeStartCoord, name: routeStartName || '起点' },
-      end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
-      viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
-      pathCoords: currentPlannedRouteCoords,
-      metrics: {
-        distKm: currentRouteMetrics ? currentRouteMetrics.totalDistKm : 0,
-        timeStr: currentRouteMetrics ? currentRouteMetrics.timeStr : '',
-        ascent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalAscent) : 0,
-        descent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalDescent) : 0,
-        maxEle: currentRouteMetrics ? currentRouteMetrics.maxEle : 0,
-        minEle: currentRouteMetrics ? currentRouteMetrics.minEle : 0
-      }
-    };
+    const previousRoutes = savedRoutes;
+    let nextRoutes;
 
-    savedRoutes.unshift(newRoute);
     try {
-      localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
-    } catch (e) {}
-
-    closeSaveModal();
-    if (typeof renderSavedRoutesListFn === 'function') {
-      renderSavedRoutesListFn();
+      const newRoute = {
+        id: 'route_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        name: routeName,
+        mode: activeRouteMode,
+        createdAt: new Date().toLocaleDateString('zh-CN'),
+        timestamp: Date.now(),
+        start: { coords: routeStartCoord, name: routeStartName || '起点' },
+        end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
+        viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
+        pathCoords: currentPlannedRouteCoords,
+        metrics: {
+          distKm: currentRouteMetrics ? currentRouteMetrics.totalDistKm : 0,
+          timeStr: currentRouteMetrics ? currentRouteMetrics.timeStr : '',
+          ascent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalAscent) : 0,
+          descent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalDescent) : 0,
+          maxEle: currentRouteMetrics ? currentRouteMetrics.maxEle : 0,
+          minEle: currentRouteMetrics ? currentRouteMetrics.minEle : 0
+        }
+      };
+      // 先完成序列化和持久化，再切换内存状态，避免存储失败后界面误报成功。
+      nextRoutes = [newRoute, ...(Array.isArray(previousRoutes) ? previousRoutes : [])];
+      localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
+    } catch (error) {
+      const rawReason = String(error?.message || error || '').trim();
+      const reason = /quota|storage|exceed/i.test(rawReason)
+        ? '本地存储空间不足'
+        : (rawReason ? (rawReason.length > 120 ? `${rawReason.slice(0, 117)}…` : rawReason) : '未知错误');
+      alert(`路线保存失败：${reason}`);
+      return;
     }
-    renderSavedRoutesOnMap(currentOutdoorMap);
+
+    savedRoutes = nextRoutes;
+    closeSaveModal();
+    try {
+      if (typeof renderSavedRoutesListFn === 'function') renderSavedRoutesListFn();
+      renderSavedRoutesOnMap(currentOutdoorMap);
+    } catch (error) {
+      // 路线已经持久化；渲染异常不阻断保存，也不再弹出第二层复杂提示。
+      console.warn('[Outmap] saved route rendered with warning:', error);
+    }
     if (typeof window.triggerRealtimeCloudSync === 'function') {
       window.triggerRealtimeCloudSync('save_route');
     }
-    alert(`✅ 路线“${routeName}”已成功保存到收藏夹！\n可在右下角“⭐ 收藏”中随时调出或导出 GPX。`);
   });
 
   // 点击【📥 导出GPX】(当前规划路线，支持无显式终点时自动以最后一个途径点作为终点导出)
