@@ -5760,12 +5760,31 @@ body.map-is-moving .layers-popover-panel {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
   }
 
-  body.map-is-moving #pyramid-modal .modal-card,
-  body.map-is-moving #sync-modal .modal-card,
-  body.map-is-moving #update-modal .modal-card {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
+body.map-is-moving #pyramid-modal .modal-card,
+body.map-is-moving #sync-modal .modal-card,
+body.map-is-moving #update-modal .modal-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Windows 200% scaling reports a narrow CSS viewport. Keep the downloader
+   dialog compact instead of letting its 540px desktop width cover the map;
+   retain the same controls and acrylic treatment on normal-DPI screens. */
+@media (min-resolution: 144dpi) and (min-width: 420px) {
+  #pyramid-modal .modal-card {
+    width: min(460px, calc(100vw - 48px));
+    max-height: calc(100vh - 48px);
   }
+}
+
+/* While a batch is active, progress remains readable and the map cannot bleed
+   through the card. This also avoids repainting a translucent WebGL backdrop
+   on every throttled progress update. */
+body.is-downloading #pyramid-modal .modal-card {
+  background: rgba(255, 255, 255, 0.985) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 }
 
 /* 路线保存内联面板 (直接在路线规划底栏顺滑展开) */
