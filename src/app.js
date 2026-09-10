@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.3';
+const APP_VERSION = '1.9.4';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -5121,6 +5121,89 @@ let favoriteLayersVisible = true;
 let selectedFavoriteFeatureId = null;
 let favoriteLayerEventsBound = false;
 let favoriteLayerInitPending = false;
+const SAVED_ROUTES_SOURCE_ID = 'outmap-saved-routes';
+const SAVED_ROUTE_LAYER_IDS = ['outmap-saved-route-casing', 'outmap-saved-route-line'];
+let savedRouteLayersVisible = true;
+let savedRouteLayerEventsBound = false;
+
+function savedRoutesFeatureCollection() {
+  const compactForDisplay = coords => {
+    if (!Array.isArray(coords) || coords.length <= 5000) return coords;
+    const stride = Math.ceil(coords.length / 4999);
+    const compact = coords.filter((_, index) => index % stride === 0);
+    const last = coords[coords.length - 1];
+    if (compact[compact.length - 1] !== last) compact.push(last);
+    return compact;
+  };
+  return {
+    type: 'FeatureCollection',
+    features: (savedRoutes || [])
+      .filter(route => route?.id && Array.isArray(route.pathCoords) && route.pathCoords.length >= 2)
+      .map(route => ({
+        type: 'Feature',
+        id: String(route.id),
+        properties: { id: String(route.id), name: route.name || '收藏路线' },
+        // 地图总览仅保留足够的显示精度；收藏中仍保存完整轨迹，载入和导出不受影响。
+        geometry: { type: 'LineString', coordinates: compactForDisplay(route.pathCoords) }
+      }))
+  };
+}
+
+function ensureSavedRouteLayers(map) {
+  if (!map?.__outmapStyleReady) return false;
+  const beforeLabelId = findFirstRoadLabelLayerId(map);
+  if (!map.getSource(SAVED_ROUTES_SOURCE_ID)) {
+    map.addSource(SAVED_ROUTES_SOURCE_ID, {
+      type: 'geojson',
+      data: savedRoutesFeatureCollection(),
+      tolerance: 0.8,
+      buffer: 96,
+      promoteId: 'id'
+    });
+  }
+  if (!map.getLayer('outmap-saved-route-casing')) {
+    map.addLayer({
+      id: 'outmap-saved-route-casing', type: 'line', source: SAVED_ROUTES_SOURCE_ID,
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: savedRouteLayersVisible ? 'visible' : 'none' },
+      paint: {
+        'line-color': 'rgba(255,255,255,0.92)',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3.8, 10, 5.8, 14, 8.2, 17, 10],
+        'line-opacity': 0.9
+      }
+    }, beforeLabelId);
+  }
+  if (!map.getLayer('outmap-saved-route-line')) {
+    map.addLayer({
+      id: 'outmap-saved-route-line', type: 'line', source: SAVED_ROUTES_SOURCE_ID,
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: savedRouteLayersVisible ? 'visible' : 'none' },
+      paint: {
+        'line-color': '#2f80ed',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.0, 10, 3.4, 14, 5.4, 17, 6.8],
+        'line-opacity': 0.78
+      }
+    }, beforeLabelId);
+  }
+  if (!savedRouteLayerEventsBound) {
+    savedRouteLayerEventsBound = true;
+    map.on('mouseenter', 'outmap-saved-route-line', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'outmap-saved-route-line', () => { map.getCanvas().style.cursor = ''; });
+    map.on('click', 'outmap-saved-route-line', event => {
+      const routeId = event.features?.[0]?.properties?.id;
+      if (routeId) loadSavedRoute(routeId, map);
+    });
+  }
+  return true;
+}
+
+function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
+  const map = mapInstance;
+  if (!map || !ensureSavedRouteLayers(map)) return;
+  map.getSource(SAVED_ROUTES_SOURCE_ID)?.setData(savedRoutesFeatureCollection());
+  SAVED_ROUTE_LAYER_IDS.forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', savedRouteLayersVisible ? 'visible' : 'none');
+  });
+}
+window.renderSavedRoutesOnMap = renderSavedRoutesOnMap;
 
 // 三个工具面板按钮与三个视角按钮共用相同的 active 语义和视觉反馈。
 // MutationObserver 只响应面板自身开关，不轮询、不触发地图重绘。
@@ -5396,10 +5479,10 @@ function setupWaypointAndFavoritesSystem(map) {
         layout: {
           'text-field': ['get', 'point_count_abbreviated'],
           'text-font': ['Noto Sans Regular'],
-          'text-size': 11,
+          'text-size': 12,
           'text-allow-overlap': true
         },
-        paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(2,132,199,0.4)', 'text-halo-width': 0.5 }
+        paint: { 'text-color': '#ffffff', 'text-halo-color': '#ffffff', 'text-halo-width': 0.35, 'text-halo-blur': 0 }
       });
       bindFavoriteLayerEvents();
     }
@@ -5446,6 +5529,7 @@ function setupWaypointAndFavoritesSystem(map) {
   window.renderWaypointMarkersOnMap = renderWaypointMarkersOnMap;
 
   renderWaypointMarkersOnMap();
+  renderSavedRoutesOnMap(map);
 
   // 点击选点按钮进入/退出选点状态
   if (btnFabPoint) {
@@ -5606,7 +5690,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
   // 1. 收藏地点列表渲染
   
-  // 右键修改收藏点图标（类型：景点/露营/水源/补给/停车/住宿/摄影/徒步）
+  // 右键管理收藏点（修改类型 / 删除）
   const showChangeWaypointTypeMenu = (wp, x, y) => {
     // 桌面与网页统一采用地图右键菜单同款 Fluent 弹层。地图点仍由
     // MapLibre 原生渲染；交互菜单属于 UI，不应受系统 radio 菜单的
@@ -5628,11 +5712,6 @@ function setupWaypointAndFavoritesSystem(map) {
     ];
 
     menu.innerHTML = `
-      <div class="ctx-header">
-        <div class="ctx-title"></div>
-        <div class="ctx-sub">更改收藏类型</div>
-      </div>
-      <div class="ctx-divider"></div>
       ${typeList.map(t => `
         <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
           <span class="ctx-icon">${t.icon}</span>
@@ -5640,8 +5719,12 @@ function setupWaypointAndFavoritesSystem(map) {
           <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
         </button>
       `).join('')}
+      <div class="ctx-divider"></div>
+      <button class="ctx-item danger fav-type-delete" type="button">
+        <span class="ctx-icon">🗑️</span>
+        <span class="ctx-text">删除</span>
+      </button>
     `;
-    menu.querySelector('.ctx-title').textContent = wp.name || '收藏点';
     document.body.appendChild(menu);
 
     const rect = menu.getBoundingClientRect();
@@ -5685,6 +5768,18 @@ function setupWaypointAndFavoritesSystem(map) {
         }
         closeMenu();
       });
+    });
+
+    menu.querySelector('.fav-type-delete')?.addEventListener('click', e => {
+      e.stopPropagation();
+      closeMenu();
+      if (!confirm(`确定删除收藏点“${wp.name}”？`)) return;
+      addDeletedWaypointTombstone(wp);
+      savedWaypoints = savedWaypoints.filter(item => String(item.id) !== String(wp.id));
+      try { localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints)); } catch (_) {}
+      renderWaypointMarkersOnMap({ remove: [wp.id] });
+      renderFavoritesList();
+      window.triggerRealtimeCloudSync?.('delete_waypoint');
     });
 
     map.once('movestart', closeMenu);
@@ -5888,6 +5983,7 @@ function setupWaypointAndFavoritesSystem(map) {
               localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
             } catch (err) {}
             renderSavedRoutesList();
+            renderSavedRoutesOnMap(map);
             if (typeof window.triggerRealtimeCloudSync === 'function') {
               window.triggerRealtimeCloudSync('delete_route');
             }
@@ -6089,6 +6185,7 @@ function setupWaypointAndFavoritesSystem(map) {
     } catch (e) {}
 
     renderWaypointMarkersOnMap();
+    renderSavedRoutesOnMap(map);
     refreshFolderOptions();
     renderFolderTabs();
     renderFavoritesList();
@@ -6766,15 +6863,16 @@ function ensureRoutePointLayers(map) {
       layout: {
         'text-field': ['get', 'point_count_abbreviated'],
         'text-font': ['Noto Sans Regular'],
-        'text-size': 11,
+        'text-size': 12,
         'text-allow-overlap': true,
         'text-pitch-alignment': 'viewport',
         'text-rotation-alignment': 'viewport'
       },
       paint: {
         'text-color': '#ffffff',
-        'text-halo-color': 'rgba(7,95,131,0.35)',
-        'text-halo-width': 0.5
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 0.35,
+        'text-halo-blur': 0
       }
     });
   }
@@ -8877,6 +8975,7 @@ function setupOutdoorRouteSystem(map) {
     if (typeof renderSavedRoutesListFn === 'function') {
       renderSavedRoutesListFn();
     }
+    renderSavedRoutesOnMap(currentOutdoorMap);
     if (typeof window.triggerRealtimeCloudSync === 'function') {
       window.triggerRealtimeCloudSync('save_route');
     }
@@ -9869,8 +9968,9 @@ function setupLayersPopover(map) {
   toggleRoutes?.addEventListener('change', () => {
     const visible = toggleRoutes.checked;
     routePointLayersVisible = visible;
+    savedRouteLayersVisible = visible;
     const visibility = visible ? 'visible' : 'none';
-    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line', ...ROUTE_POINT_LAYER_IDS].forEach(id => {
+    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line', ...ROUTE_POINT_LAYER_IDS, ...SAVED_ROUTE_LAYER_IDS].forEach(id => {
       if (map.getLayer(id)) {
         map.setLayoutProperty(id, 'visibility', visibility);
       }

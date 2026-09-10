@@ -118,6 +118,7 @@ app.whenReady().then(async () => {
       title: typeMenu?.querySelector('.ctx-title')?.textContent || '',
       subtitle: typeMenu?.querySelector('.ctx-sub')?.textContent || '',
       itemCount: typeMenu?.querySelectorAll('.fav-type-menu-item').length || 0,
+      hasDelete: !!typeMenu?.querySelector('.fav-type-delete'),
       activeText: typeMenu?.querySelector('.fav-type-menu-item.active .ctx-text')?.textContent || '',
       leftGutter: typeMenu ? parseFloat(getComputedStyle(typeMenu).paddingLeft) : -1
     };
@@ -159,9 +160,10 @@ app.whenReady().then(async () => {
   assert.deepStrictEqual(result.routeRoles, ['start', 'via', 'end'], 'three route stops must preserve start/via/end roles');
   assert.strictEqual(result.persistentRouteDomMarkers, 0, 'route stops must not retain DOM markers outside dragging');
   assert(result.typeMenuResult.usesFluentSurface, 'waypoint type menu must share the Fluent map-context surface');
-  assert.strictEqual(result.typeMenuResult.title, '白鹭金岸·卢浮公馆', 'menu title must start directly with the waypoint name');
-  assert.strictEqual(result.typeMenuResult.subtitle, '更改收藏类型', 'menu subtitle must explain the action');
+  assert.strictEqual(result.typeMenuResult.title, '', 'waypoint menu must not retain a separate title');
+  assert.strictEqual(result.typeMenuResult.subtitle, '', 'waypoint menu must not retain a subtitle');
   assert.strictEqual(result.typeMenuResult.itemCount, 8, 'menu must expose all eight waypoint types');
+  assert(result.typeMenuResult.hasDelete, 'waypoint menu must provide a delete action');
   assert.strictEqual(result.typeMenuResult.activeText, '露营', 'current waypoint type must remain visibly selected');
   assert(result.typeMenuResult.leftGutter <= 6, 'menu must not retain the native radio-menu title gutter');
   assert(!result.moving, 'map must be stable during idle measurement');

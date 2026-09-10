@@ -5981,24 +5981,19 @@ body.map-is-moving .layers-popover-panel {
   scrollbar-width: thin;
 }
 
-.fav-point-type-menu .ctx-header {
-  padding: 5px 7px 4px;
-}
-
-.fav-point-type-menu .ctx-title {
-  text-align: left;
-}
-
-.fav-point-type-menu .ctx-sub {
-  display: block;
-  font-family: var(--font-ui);
-  font-size: 9.5px;
-}
-
 .fav-type-menu-item.active {
   background: rgba(2, 132, 199, 0.11);
   color: #0284c7;
   font-weight: 600;
+}
+
+.fav-point-type-menu .fav-type-delete {
+  color: #dc2626;
+}
+
+.fav-point-type-menu .fav-type-delete:hover {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.88);
 }
 
 .fav-type-menu-item .ctx-text {

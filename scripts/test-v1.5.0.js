@@ -56,11 +56,11 @@ assert(appSrc.includes('onOfflineInventoryUpdated'), 'app.js must listen to onOf
 // 控件与视角优化断言
 assert(locCamSrc.includes('0.62'), 'location-camera.js must anchor landing point at 0.62');
 const terrainIdx = htmlSrc.indexOf('3D地貌效果');
-const favsIdx = htmlSrc.indexOf('收藏夹地点图钉');
-const routesIdx = htmlSrc.indexOf('规划与导入路线轨迹');
-assert(terrainIdx !== -1 && favsIdx !== -1 && routesIdx !== -1, 'Layers must contain 3D地貌效果, 收藏夹地点图钉, and 规划与导入路线轨迹');
-assert(terrainIdx < favsIdx, '3D地貌效果 must be placed above 收藏夹地点图钉');
-assert(favsIdx < routesIdx, '收藏夹地点图钉 must be placed above 规划与导入路线轨迹');
+const favsIdx = htmlSrc.indexOf('收藏地点');
+const routesIdx = htmlSrc.indexOf('收藏与规划路线');
+assert(terrainIdx !== -1 && favsIdx !== -1 && routesIdx !== -1, 'Layers must contain 3D地貌效果, 收藏地点, and 收藏与规划路线');
+assert(terrainIdx < favsIdx, '3D地貌效果 must be placed above 收藏地点');
+assert(favsIdx < routesIdx, '收藏地点 must be placed above 收藏与规划路线');
 
 // 高清矢量光标断言 (无锯齿、高分屏优化)
 assert(styleSrc.includes('--cursor-grab: grab'), 'style.css must use the OS-native open hand cursor');

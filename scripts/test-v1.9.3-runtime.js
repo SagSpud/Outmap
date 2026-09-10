@@ -15,7 +15,7 @@ app.whenReady().then(async () => {
   await win.loadFile(path.resolve(__dirname, '../src/index.html'));
   const result = await win.webContents.executeJavaScript(`new Promise(resolve => {
     const wait = () => {
-      if (!window.mapInstance || !window.refreshOfflineDownloadDot) return setTimeout(wait, 100);
+      if (!window.mapInstance || !window.refreshOfflineDownloadDot || !window.showChangeWaypointTypeMenu || !window.mapInstance.getSource('outmap-saved-routes')) return setTimeout(wait, 100);
       const layerButton = document.getElementById('btn-fab-layers');
       const routeButton = document.getElementById('btn-fab-route');
       const favoriteButton = document.getElementById('btn-fab-fav');
@@ -37,8 +37,20 @@ app.whenReady().then(async () => {
           offlineProvCache = { test: { layers: { vector: { levels: { 14: { complete: true } } } } } };
           window.refreshOfflineDownloadDot();
           const dot = document.getElementById('dl-live-blue-dot');
+          savedRoutes = [{ id: 'runtime-route', name: '测试收藏路线', pathCoords: [[116, 39], [117, 40], [118, 39.5]] }];
+          window.renderSavedRoutesOnMap(mapInstance);
+          const savedRouteSource = mapInstance.getSource('outmap-saved-routes');
+          const savedRouteData = savedRouteSource?._data || savedRouteSource?.serialize?.().data;
+          const savedRouteFeatures = savedRouteData?.features?.length || 0;
+          const savedRouteVisible = mapInstance.getLayoutProperty('outmap-saved-route-line', 'visibility') !== 'none';
+          const routeToggle = document.getElementById('layer-toggle-routes');
+          routeToggle.checked = false;
+          routeToggle.dispatchEvent(new Event('change'));
+          const savedRouteHidden = mapInstance.getLayoutProperty('outmap-saved-route-line', 'visibility') === 'none';
+          const favoritesUnaffected = mapInstance.getLayoutProperty('outmap-favorite-icons', 'visibility') !== 'none';
           resolve({ layerActive, layerColor, layerBackground, layerClass, layerTitle, routeActive, layerClosed,
-            favoriteActive, routeClosed, dotVisible: dot.style.display, dotCompleted: dot.classList.contains('completed') });
+            favoriteActive, routeClosed, dotVisible: dot.style.display, dotCompleted: dot.classList.contains('completed'),
+            savedRouteFeatures, savedRouteVisible, savedRouteHidden, favoritesUnaffected });
         }, 30);
         }, 30);
       }, 220);
@@ -53,6 +65,10 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.layerTitle, '图层');
   assert.strictEqual(result.dotVisible, 'block');
   assert(result.dotCompleted, '完整离线层级应恢复绿色状态');
+  assert.strictEqual(result.savedRouteFeatures, 1, '收藏路线应默认进入 MapLibre source');
+  assert(result.savedRouteVisible, '收藏路线图层应默认显示');
+  assert(result.savedRouteHidden, '路线开关应隐藏收藏路线原生图层');
+  assert(result.favoritesUnaffected, '路线开关不应影响收藏地点图层');
   console.log('v1.9.3 runtime checks passed:', result);
   clearTimeout(watchdog);
   win.destroy();
