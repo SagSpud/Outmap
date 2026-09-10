@@ -5904,9 +5904,13 @@ body.map-is-moving .layers-popover-panel {
   width: 172px;
   min-width: 172px;
   max-width: min(210px, calc(100vw - 20px));
+  max-height: calc(100vh - 20px);
   max-height: calc(100dvh - 20px);
+  box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
+  padding-bottom: 9px;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   scrollbar-width: thin;
@@ -5924,10 +5928,12 @@ body.map-is-moving .layers-popover-panel {
 .fav-route-context-menu .ctx-item {
   width: auto;
   min-width: 0;
+  gap: 6px;
+  padding: 6px 7px;
 }
 
 .fav-route-context-menu .ctx-icon {
-  min-width: 16px;
+  min-width: 14px;
   text-align: center;
 }
 

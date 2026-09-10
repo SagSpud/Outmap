@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.8';
+const APP_VERSION = '1.9.9';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -4094,14 +4094,52 @@ function setupAppUpdate() {
   let isReadyToInstall = false;
   let isChecking = false;
   let pendingUpdate = null;
+  let lastUpdateCheck = null;
+  let lastUpdateCheckAt = 0;
+  let updateProgressListenerBound = false;
   let autoFlipTimer = null;
 
-  const flipToFront = () => {
-    if (isUpdating && !isReadyToInstall) return;
+  const setUpdateUiState = (state) => {
+    if (brandFlipCard) brandFlipCard.dataset.updateState = state;
+  };
+
+  const applyUpdateResult = (updateInfo, verClean) => {
+    if (updateInfo && updateInfo.hasUpdate) {
+      pendingUpdate = updateInfo;
+      const newVer = String(updateInfo.version).replace(/^v/, '');
+      brandFlipBackFace?.classList.remove('latest');
+      brandFlipBackFace?.classList.add('has-update');
+      brandVerBadge.innerText = `v${newVer}`;
+      brandFlipBackFace?.removeAttribute('title');
+      setUpdateUiState('available');
+      return true;
+    }
+
+    pendingUpdate = null;
+    brandFlipBackFace?.classList.remove('has-update');
+    brandFlipBackFace?.classList.add('latest');
+    brandVerBadge.innerText = `v${verClean}`;
+    brandFlipBackFace?.removeAttribute('title');
+    setUpdateUiState('latest');
+    return false;
+  };
+
+  const flipToFront = ({ reset = false } = {}) => {
+    if (isUpdating && !isReadyToInstall && !reset) return;
     clearTimeout(autoFlipTimer);
     brandFlipCard.classList.remove('flipped');
-    isUpdating = false;
-    isReadyToInstall = false;
+
+    // 下载中/已就绪/已发现新版本时只收起卡片，不清掉任务状态。
+    // 这样点击地图、图层或其他面板后，回来仍可继续下载或直接安装。
+    const keepUpdateState = !reset && (isUpdating || isReadyToInstall || pendingUpdate?.hasUpdate);
+    if (!keepUpdateState) {
+      isUpdating = false;
+      isReadyToInstall = false;
+      pendingUpdate = null;
+      lastUpdateCheck = null;
+      lastUpdateCheckAt = 0;
+      setUpdateUiState('idle');
+    }
   };
 
   // 左键点击 Logo 区域：浏览器/手机端点击直接登录，桌面端点击图标登录，点击文本翻转更新
@@ -4135,6 +4173,17 @@ function setupAppUpdate() {
 
     if (isUpdating) return;
 
+    // 已经检查到同一版本但卡片被其他界面收起时，直接恢复结果，不再重复联网检查。
+    if (pendingUpdate && pendingUpdate.hasUpdate && !brandFlipCard.classList.contains('flipped')) {
+      brandFlipCard.classList.add('flipped');
+      const cachedVer = String(pendingUpdate.version || '').replace(/^v/, '');
+      brandFlipBackFace?.classList.remove('latest');
+      brandFlipBackFace?.classList.add('has-update');
+      brandVerBadge.innerText = `v${cachedVer}`;
+      setUpdateUiState('available');
+      return;
+    }
+
     // 2. 图标微旋转反馈
     if (brandLogo) {
       brandLogo.classList.remove('checking-spin');
@@ -4161,6 +4210,7 @@ function setupAppUpdate() {
     brandFlipBackFace?.removeAttribute('title');
     brandBtn?.removeAttribute('title');
     if (brandProgressBar) brandProgressBar.style.width = '0%';
+    setUpdateUiState('checking');
 
     let currentVer = APP_VERSION;
     if (window.electronAPI && window.electronAPI.getAppVersion) {
@@ -4172,39 +4222,33 @@ function setupAppUpdate() {
     brandVerBadge.innerText = `v${verClean}`;
 
     if (isChecking) return;
+
+    const checkTtlMs = 5 * 60 * 1000;
+    if (lastUpdateCheck && Date.now() - lastUpdateCheckAt < checkTtlMs) {
+      if (applyUpdateResult(lastUpdateCheck, verClean)) return;
+      autoFlipTimer = setTimeout(() => flipToFront(), 3500);
+      return;
+    }
     isChecking = true;
 
     try {
       if (window.electronAPI && window.electronAPI.checkForUpdates) {
         const updateInfo = await window.electronAPI.checkForUpdates();
         isChecking = false;
-
-        if (updateInfo && updateInfo.hasUpdate) {
-          pendingUpdate = updateInfo;
-          const newVer = String(updateInfo.version).replace(/^v/, '');
-          brandFlipBackFace?.classList.remove('latest');
-          brandFlipBackFace?.classList.add('has-update');
-          brandVerBadge.innerText = `v${newVer}`;
-          brandFlipBackFace?.removeAttribute('title');
-          return;
-        } else {
-          // 无新版本：显示绿色当前版本号
-          brandFlipBackFace?.classList.remove('has-update');
-          brandFlipBackFace?.classList.add('latest');
-          brandVerBadge.innerText = `v${verClean}`;
-          brandFlipBackFace?.removeAttribute('title');
-        }
+        lastUpdateCheck = updateInfo || { hasUpdate: false };
+        lastUpdateCheckAt = Date.now();
+        if (applyUpdateResult(lastUpdateCheck, verClean)) return;
       } else {
         isChecking = false;
-        brandFlipBackFace?.classList.add('latest');
-        brandVerBadge.innerText = `v${verClean}`;
-        brandFlipBackFace?.removeAttribute('title');
+        lastUpdateCheck = { hasUpdate: false };
+        lastUpdateCheckAt = Date.now();
+        applyUpdateResult(lastUpdateCheck, verClean);
       }
     } catch (err) {
       isChecking = false;
-      brandFlipBackFace?.classList.add('latest');
-      brandVerBadge.innerText = `v${verClean}`;
-      brandFlipBackFace?.removeAttribute('title');
+      lastUpdateCheck = null;
+      lastUpdateCheckAt = 0;
+      applyUpdateResult({ hasUpdate: false }, verClean);
     }
 
     // 无新版或网络正常时，3.5秒后自动平滑翻转复原
@@ -4215,46 +4259,60 @@ function setupAppUpdate() {
 
   // 原地静默启动更新下载，以标签底色为进度条
   const startInPlaceUpdate = async () => {
-    if (!pendingUpdate || isUpdating) return;
+    if (!pendingUpdate || isUpdating || isReadyToInstall) return;
     if (!window.electronAPI || !window.electronAPI.startAppUpdate) return;
 
     isUpdating = true;
     isReadyToInstall = false;
+    setUpdateUiState('downloading');
     clearTimeout(autoFlipTimer);
     brandVerBadge.innerText = '0%';
     if (brandProgressBar) brandProgressBar.style.width = '0%';
 
     // 监听实时下载进度
-    window.electronAPI.onUpdateProgress(data => {
-      const pct = Math.min(100, Math.max(0, data.percent || 0));
-      if (brandProgressBar) brandProgressBar.style.width = `${pct}%`;
-      if (pct < 100) {
-        brandVerBadge.innerText = `${pct}%`;
-      } else {
-        brandProgressBar.style.width = '100%';
-        brandVerBadge.innerText = '覆盖安装';
-        brandFlipBackFace?.classList.remove('has-update');
-        brandFlipBackFace?.classList.add('latest');
-        brandFlipBackFace?.removeAttribute('title');
-        isReadyToInstall = true;
-      }
-    });
+    if (!updateProgressListenerBound) {
+      updateProgressListenerBound = true;
+      window.electronAPI.onUpdateProgress(data => {
+        const pct = Math.min(100, Math.max(0, data.percent || 0));
+        if (brandProgressBar) brandProgressBar.style.width = `${pct}%`;
+        if (pct < 100) {
+          brandVerBadge.innerText = `${pct}%`;
+        } else {
+          brandProgressBar.style.width = '100%';
+          brandVerBadge.innerText = '覆盖安装';
+          brandFlipBackFace?.classList.remove('has-update');
+          brandFlipBackFace?.classList.add('latest');
+          brandFlipBackFace?.removeAttribute('title');
+          isReadyToInstall = true;
+          isUpdating = true;
+          setUpdateUiState('ready');
+        }
+      });
+    }
+
+    const updateRequest = pendingUpdate;
 
     try {
       const res = await window.electronAPI.startAppUpdate({
-        downloadUrl: pendingUpdate.downloadUrl,
-        backupUrl: pendingUpdate.backupUrl,
-        sha256: pendingUpdate.sha256
+        downloadUrl: updateRequest.downloadUrl,
+        backupUrl: updateRequest.backupUrl,
+        sha256: updateRequest.sha256
       });
       if (!res.success) {
         isUpdating = false;
         isReadyToInstall = false;
+        pendingUpdate = null;
+        lastUpdateCheck = null;
+        setUpdateUiState('error');
         brandVerBadge.innerText = '更新失败';
         setTimeout(flipToFront, 2500);
       }
     } catch (err) {
       isUpdating = false;
       isReadyToInstall = false;
+      pendingUpdate = null;
+      lastUpdateCheck = null;
+      setUpdateUiState('error');
       brandVerBadge.innerText = '更新异常';
       setTimeout(flipToFront, 2500);
     }
@@ -5842,8 +5900,10 @@ function setupWaypointAndFavoritesSystem(map) {
     document.body.appendChild(menu);
 
     const rect = menu.getBoundingClientRect();
-    const safeX = Math.max(10, Math.min(Number(x) || 10, window.innerWidth - rect.width - 10));
-    const safeY = Math.max(10, Math.min(Number(y) || 10, window.innerHeight - rect.height - 10));
+    const viewportW = Math.max(0, window.visualViewport?.width || window.innerWidth);
+    const viewportH = Math.max(0, window.visualViewport?.height || window.innerHeight);
+    const safeX = Math.max(10, Math.min(Number(x) || 10, viewportW - rect.width - 10));
+    const safeY = Math.max(10, Math.min(Number(y) || 10, viewportH - rect.height - 10));
     menu.style.left = `${safeX}px`;
     menu.style.top = `${safeY}px`;
 
@@ -6053,8 +6113,10 @@ function setupWaypointAndFavoritesSystem(map) {
         document.body.appendChild(menu);
 
         const rect = menu.getBoundingClientRect();
-        const safeX = Math.max(10, Math.min(Number(x) || 10, window.innerWidth - rect.width - 10));
-        const safeY = Math.max(10, Math.min(Number(y) || 10, window.innerHeight - rect.height - 10));
+        const viewportW = Math.max(0, window.visualViewport?.width || window.innerWidth);
+        const viewportH = Math.max(0, window.visualViewport?.height || window.innerHeight);
+        const safeX = Math.max(10, Math.min(Number(x) || 10, viewportW - rect.width - 10));
+        const safeY = Math.max(10, Math.min(Number(y) || 10, viewportH - rect.height - 10));
         menu.style.left = `${safeX}px`;
         menu.style.top = `${safeY}px`;
 
@@ -10528,6 +10590,12 @@ function setupGlobalKeyboardDispatcher() {
       // 8.5. 顶栏版本翻转卡片
       const brandFlipCard = document.getElementById('brand-flip-card');
       if (brandFlipCard && brandFlipCard.classList.contains('flipped')) {
+        const updateState = brandFlipCard.dataset.updateState;
+        if (updateState === 'checking' || updateState === 'downloading') {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return;
+        }
         brandFlipCard.classList.remove('flipped');
         e.stopPropagation();
         e.stopImmediatePropagation();

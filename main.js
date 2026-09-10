@@ -15,6 +15,15 @@ try {
 
 let mainWindow;
 
+// 更新任务在主进程内做缓存与并发合并：界面切换、重复点击或多个渲染器请求
+// 都复用同一次检查/下载，不会重新联网或从头下载同一个 app.asar。
+let appUpdateCheckCache = null;
+let appUpdateCheckPromise = null;
+let appUpdateDownloadPromise = null;
+let pendingUpdatePath = null;
+let pendingTargetAsarPath = null;
+let pendingUpdateMeta = null;
+
 // 单实例锁控制，防止重复双击产生后台僵尸进程
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -1483,52 +1492,106 @@ app.whenReady().then(async () => {
   // 1. 检查云端是否有新版本 (优先访问自定义域名，备用公共 r2.dev 域名，零权限公网请求)
   ipcMain.handle('check-for-updates', async () => {
     const currentVersion = app.getVersion();
-    const updateEndpoints = [
-      'https://r2.053999.xyz/Outmap/version.json',
-      'https://pub-9fa3d477907d4d5aa99d54b609094d73.r2.dev/Outmap/version.json'
-    ];
+    const cacheTtlMs = 5 * 60 * 1000;
+    if (appUpdateCheckCache
+      && appUpdateCheckCache.currentVersion === currentVersion
+      && Date.now() - appUpdateCheckCache.checkedAt < cacheTtlMs) {
+      return appUpdateCheckCache.result;
+    }
+    if (appUpdateCheckPromise) return appUpdateCheckPromise;
 
-    let remoteInfo = null;
-    let fetchError = null;
-    for (const url of updateEndpoints) {
-      try {
-        const resp = await fetch(url, {
-          signal: AbortSignal.timeout(8000),
-          headers: { 'User-Agent': `Outmap-Updater/${currentVersion}`, 'Cache-Control': 'no-cache' }
-        });
-        if (resp.ok) {
-          remoteInfo = await resp.json();
-          if (remoteInfo && remoteInfo.version) break;
+    appUpdateCheckPromise = (async () => {
+      const updateEndpoints = [
+        'https://r2.053999.xyz/Outmap/version.json',
+        'https://pub-9fa3d477907d4d5aa99d54b609094d73.r2.dev/Outmap/version.json'
+      ];
+
+      let remoteInfo = null;
+      let fetchError = null;
+      for (const url of updateEndpoints) {
+        try {
+          const resp = await fetch(url, {
+            signal: AbortSignal.timeout(8000),
+            headers: { 'User-Agent': `Outmap-Updater/${currentVersion}`, 'Cache-Control': 'no-cache' }
+          });
+          if (resp.ok) {
+            remoteInfo = await resp.json();
+            if (remoteInfo && remoteInfo.version) break;
+          }
+        } catch (e) {
+          fetchError = e;
         }
-      } catch (e) {
-        fetchError = e;
       }
-    }
 
-    if (!remoteInfo || !remoteInfo.version) {
+      if (!remoteInfo || !remoteInfo.version) {
+        return {
+          hasUpdate: false,
+          currentVersion,
+          error: fetchError ? fetchError.message : 'timeout'
+        };
+      }
+
+      const isNewer = compareVersions(remoteInfo.version, currentVersion) > 0;
       return {
-        hasUpdate: false,
+        hasUpdate: isNewer,
         currentVersion,
-        error: fetchError ? fetchError.message : 'timeout'
+        version: remoteInfo.version,
+        notes: remoteInfo.notes || '常规功能优化与性能增强',
+        releaseDate: remoteInfo.releaseDate || '',
+        downloadUrl: remoteInfo.downloadUrl || 'https://r2.053999.xyz/Outmap/app.asar',
+        backupUrl: remoteInfo.backupUrl || 'https://pub-9fa3d477907d4d5aa99d54b609094d73.r2.dev/Outmap/app.asar',
+        fileSize: remoteInfo.fileSize || 3900000,
+        sha256: remoteInfo.sha256 || ''
       };
-    }
+    })();
 
-    const isNewer = compareVersions(remoteInfo.version, currentVersion) > 0;
-    return {
-      hasUpdate: isNewer,
-      currentVersion,
-      version: remoteInfo.version,
-      notes: remoteInfo.notes || '常规功能优化与性能增强',
-      releaseDate: remoteInfo.releaseDate || '',
-      downloadUrl: remoteInfo.downloadUrl || 'https://r2.053999.xyz/Outmap/app.asar',
-      backupUrl: remoteInfo.backupUrl || 'https://pub-9fa3d477907d4d5aa99d54b609094d73.r2.dev/Outmap/app.asar',
-      fileSize: remoteInfo.fileSize || 3900000,
-      sha256: remoteInfo.sha256 || ''
-    };
+    try {
+      const result = await appUpdateCheckPromise;
+      appUpdateCheckCache = { currentVersion, checkedAt: Date.now(), result };
+      return result;
+    } finally {
+      appUpdateCheckPromise = null;
+    }
   });
 
   // 2. 流式下载新版 app.asar 并执行毫秒级原子热替换与原生重启
-  ipcMain.handle('start-app-update', async (event, { downloadUrl, backupUrl, sha256 }) => {
+  ipcMain.handle('start-app-update', async (event, payload = {}) => {
+    const { downloadUrl, backupUrl, sha256 } = payload;
+    const expectedSha = String(sha256 || '').trim().toLowerCase();
+    const updateKey = expectedSha || String(downloadUrl || backupUrl || '').trim();
+    const emitCachedReady = () => {
+      let cachedSize = 0;
+      try { cachedSize = originalFs.statSync(pendingUpdatePath).size; } catch (e) {}
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setProgressBar(-1);
+        mainWindow.webContents.send('update-download-progress', {
+          percent: 100,
+          speed: '已就绪',
+          receivedBytes: cachedSize,
+          totalBytes: cachedSize,
+          stage: 'downloaded',
+          cached: true
+        });
+      }
+    };
+
+    // 已经下载过同一份校验值时直接复用临时包，切换页面或重复点击不会重下。
+    if (pendingUpdatePath && originalFs.existsSync(pendingUpdatePath)
+      && pendingUpdateMeta?.key && pendingUpdateMeta.key === updateKey) {
+      emitCachedReady();
+      return { success: true, downloaded: true, cached: true };
+    }
+    if (appUpdateDownloadPromise) return appUpdateDownloadPromise;
+
+    // 请求了不同版本时清理旧的临时包，避免临时目录长期堆积。
+    if (pendingUpdatePath && pendingUpdateMeta?.key && pendingUpdateMeta.key !== updateKey) {
+      try { if (originalFs.existsSync(pendingUpdatePath)) originalFs.unlinkSync(pendingUpdatePath); } catch (e) {}
+      pendingUpdatePath = null;
+      pendingTargetAsarPath = null;
+      pendingUpdateMeta = null;
+    }
+
+    appUpdateDownloadPromise = (async () => {
     const urlsToTry = [
       downloadUrl,
       backupUrl,
@@ -1607,7 +1670,7 @@ app.whenReady().then(async () => {
         if (!streamError && originalFs.existsSync(tempPatchPath)) {
           downloadedSize = originalFs.statSync(tempPatchPath).size;
           const actualSha256 = crypto.createHash('sha256').update(originalFs.readFileSync(tempPatchPath)).digest('hex');
-          const expectedSha256 = String(sha256 || '').trim().toLowerCase();
+          const expectedSha256 = expectedSha;
           if (downloadedSize > 100000 && expectedSha256 && actualSha256 === expectedSha256) {
             downloadSuccess = true;
             break;
@@ -1634,6 +1697,7 @@ app.whenReady().then(async () => {
 
     pendingUpdatePath = tempPatchPath;
     pendingTargetAsarPath = targetAsarPath;
+    pendingUpdateMeta = { key: updateKey, sha256: expectedSha, downloadUrl, backupUrl };
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
@@ -1647,6 +1711,13 @@ app.whenReady().then(async () => {
     }
 
     return { success: true, downloaded: true };
+    })();
+
+    try {
+      return await appUpdateDownloadPromise;
+    } finally {
+      appUpdateDownloadPromise = null;
+    }
   });
 
   // 执行覆盖安装与热重启 (支持从标签上直接确认安装)
@@ -1672,6 +1743,9 @@ app.whenReady().then(async () => {
 
     if (directReplaced) {
       try { originalFs.unlinkSync(tempPatchPath); } catch (e) {}
+      pendingUpdatePath = null;
+      pendingTargetAsarPath = null;
+      pendingUpdateMeta = null;
       setTimeout(() => {
         app.relaunch();
         app.exit(0);

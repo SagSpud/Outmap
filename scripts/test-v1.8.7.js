@@ -131,6 +131,19 @@ app.whenReady().then(async () => {
         await sleep(60);
       }
 
+      // 贴近窗口底部打开时，菜单必须自动向上定位且删除项仍在可滚动区域内。
+      const bottomEvt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 780 });
+      favItem.dispatchEvent(bottomEvt);
+      await sleep(50);
+      const bottomMenu = document.querySelector('.fav-point-type-menu');
+      const bottomRect = bottomMenu?.getBoundingClientRect();
+      const bottomDelete = bottomMenu?.querySelector('.fav-type-delete');
+      res.typeMenuBottom = bottomRect ? Math.round(bottomRect.bottom) : 0;
+      res.viewportBottom = Math.round(window.visualViewport?.height || window.innerHeight);
+      res.bottomDeleteVisible = Boolean(bottomDelete && bottomDelete.getBoundingClientRect().height > 0);
+      document.body.click();
+      await sleep(150);
+
       const updatedWps = JSON.parse(localStorage.getItem('outmap_saved_waypoints') || '[]');
       res.updatedType = updatedWps[0]?.type;
     }
@@ -177,6 +190,8 @@ app.whenReady().then(async () => {
   // Change waypoint type
   assert.strictEqual(result.hasTypeMenu, true, 'Desktop and web must share the in-app Fluent waypoint menu');
   assert.strictEqual(result.updatedType, 'view', 'Fluent menu selection must update the waypoint type immediately');
+  assert(result.typeMenuBottom > 0 && result.typeMenuBottom <= result.viewportBottom, 'Waypoint menu must stay within the viewport near the bottom edge');
+  assert.strictEqual(result.bottomDeleteVisible, true, 'Waypoint delete action must remain visible when opened near the bottom edge');
 
   // Sync button & modal width
   assert.strictEqual(result.syncNowBtnText, '立即同步', 'Sync now button must be pure text without icon');
