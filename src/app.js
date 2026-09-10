@@ -6041,8 +6041,14 @@ function setupWaypointAndFavoritesSystem(map) {
         menu.className = 'fluent-context-menu fav-route-context-menu ctx-opening';
 
         menu.innerHTML = `
-          <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">导出路线</button>
-          <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">删除路线</button>
+          <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
+            <span class="ctx-icon" aria-hidden="true">📤</span>
+            <span class="ctx-text">导出路线</span>
+          </button>
+          <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">
+            <span class="ctx-icon" aria-hidden="true">🗑️</span>
+            <span class="ctx-text">删除路线</span>
+          </button>
         `;
         document.body.appendChild(menu);
 

@@ -65,7 +65,7 @@ app.whenReady().then(async () => {
     const saveTitle = saveModal?.querySelector('.card-title');
     res.saveModalTitle = saveTitle ? saveTitle.innerText.trim() : '';
 
-    // 4. Saved route card context menu (no icons, no GPX remark)
+    // 4. Saved route card context menu (shared Fluent surface with leading icons)
     const dummyRoute = {
       id: 'test_r_187',
       name: '石家庄烈士陵园至和平医院',
@@ -88,7 +88,9 @@ app.whenReady().then(async () => {
       await sleep(50);
       const ctxMenu = document.querySelector('.fav-route-context-menu');
       const items = Array.from(ctxMenu?.querySelectorAll('.fav-route-context-item') || []);
-      res.routeCtxTexts = items.map(i => i.innerText.trim());
+      res.routeCtxTexts = items.map(i => i.querySelector('.ctx-text')?.innerText.trim() || i.innerText.trim());
+      res.routeCtxIcons = items.map(i => i.querySelector('.ctx-icon')?.innerText.trim() || '');
+      res.routeCtxWidth = ctxMenu ? Math.round(ctxMenu.getBoundingClientRect().width) : 0;
       document.body.click();
       await sleep(150);
     }
@@ -162,6 +164,9 @@ app.whenReady().then(async () => {
   // Route context menu
   assert(result.routeCtxTexts.includes('导出路线'), 'Route context menu must have pure text "导出路线"');
   assert(result.routeCtxTexts.includes('删除路线'), 'Route context menu must have pure text "删除路线"');
+  assert(result.routeCtxIcons.includes('📤'), 'Route export action must show a leading icon');
+  assert(result.routeCtxIcons.includes('🗑️'), 'Route delete action must show a leading icon');
+  assert(result.routeCtxWidth > 0 && result.routeCtxWidth <= 180, 'Route context menu should remain compact without a wide empty gutter');
 
   // Folder tabs
   assert(result.folderTabNames.includes('全部'), 'Must include 全部');
