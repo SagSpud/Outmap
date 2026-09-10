@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.6';
+const APP_VERSION = '1.9.7';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
@@ -5936,7 +5936,6 @@ function setupWaypointAndFavoritesSystem(map) {
           <div class="fav-item-name">${wp.name}</div>
           <div class="fav-item-meta">${wp.lng.toFixed(3)}°E, ${wp.lat.toFixed(3)}°N · ${wp.ele}m</div>
         </div>
-        <button class="fav-item-del">🗑️</button>
       `;
 
       item.addEventListener('contextmenu', (e) => {
@@ -5981,22 +5980,6 @@ function setupWaypointAndFavoritesSystem(map) {
           smoothClosePanel(favDrawer, startFavoriteFlight);
         } else {
           startFavoriteFlight();
-        }
-      });
-
-      item.querySelector('.fav-item-del').addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (confirm(`确定删除收藏点“${wp.name}”？`)) {
-          addDeletedWaypointTombstone(wp);
-          savedWaypoints = savedWaypoints.filter(w => w.id !== wp.id);
-          try {
-            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
-          } catch (err) {}
-          renderWaypointMarkersOnMap({ remove: [wp.id] });
-          renderFavoritesList();
-          if (typeof window.triggerRealtimeCloudSync === 'function') {
-            window.triggerRealtimeCloudSync('delete_waypoint');
-          }
         }
       });
 
@@ -6051,28 +6034,32 @@ function setupWaypointAndFavoritesSystem(map) {
 
       // 2. 右键弹出选项：导出、删除
       const showCardContextMenu = (x, y) => {
-        document.querySelectorAll('.fav-route-context-menu').forEach(m => m.remove());
+        document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
+        smoothCloseContextMenu();
         const menu = document.createElement('div');
-        menu.className = 'fav-route-context-menu';
-
-        const menuWidth = 140;
-        const menuHeight = 78;
-        const posX = Math.min(x, window.innerWidth - menuWidth - 12);
-        const posY = Math.min(y, window.innerHeight - menuHeight - 12);
-        menu.style.left = `${Math.max(10, posX)}px`;
-        menu.style.top = `${Math.max(10, posY)}px`;
+        // 路线与地点共用 Fluent 上下文菜单表面、动画、键盘/地图移动关闭逻辑。
+        menu.className = 'fluent-context-menu fav-route-context-menu ctx-opening';
 
         menu.innerHTML = `
-          <div class="fav-route-context-item btn-ctx-export">导出路线</div>
-          <div class="fav-route-context-item danger btn-ctx-del">删除路线</div>
+          <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">导出路线</button>
+          <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">删除路线</button>
         `;
+        document.body.appendChild(menu);
+
+        const rect = menu.getBoundingClientRect();
+        const safeX = Math.max(10, Math.min(Number(x) || 10, window.innerWidth - rect.width - 10));
+        const safeY = Math.max(10, Math.min(Number(y) || 10, window.innerHeight - rect.height - 10));
+        menu.style.left = `${safeX}px`;
+        menu.style.top = `${safeY}px`;
 
         const closeMenu = () => {
-          if (menu.classList.contains('closing')) return;
-          menu.classList.add('closing');
-          setTimeout(() => { menu.remove(); }, 140);
+          if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;
+          menu.classList.remove('ctx-opening');
+          menu.classList.add('ctx-closing');
+          setTimeout(() => menu.remove(), 150);
           document.removeEventListener('click', onDocClick);
           document.removeEventListener('keydown', onDocKey);
+          map.off('movestart', closeMenu);
         };
 
         const onDocClick = (e) => {
@@ -6107,7 +6094,7 @@ function setupWaypointAndFavoritesSystem(map) {
           }
         });
 
-        document.body.appendChild(menu);
+        map.once('movestart', closeMenu);
         setTimeout(() => {
           document.addEventListener('click', onDocClick);
           document.addEventListener('keydown', onDocKey);

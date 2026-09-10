@@ -3633,21 +3633,6 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-family: var(--font-mono);
 }
 
-.fav-item-del {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 2px 4px;
-  border-radius: 3px;
-}
-
-.fav-item-del:hover {
-  background: #fee2e2;
-  color: #ef4444;
-}
-
 /* 收藏夹主分类切换 (地点 vs 路线) */
 .fav-main-type-tabs {
   display: flex;
@@ -3762,59 +3747,6 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   gap: 2px;
 }
 
-
-/* 路线卡片专用右键浮层菜单 */
-.fav-route-context-menu {
-  position: fixed;
-  z-index: 10000;
-  background: rgba(255, 255, 255, 0.94);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid rgba(226, 232, 240, 0.85);
-  border-radius: 8px;
-  padding: 4px;
-  min-width: 130px;
-  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  animation: ctxFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.fav-route-context-menu.closing {
-  will-change: transform, opacity;
-}
-
-.fav-route-context-menu.closing {
-  animation: ctxFadeOut 0.14s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-.fav-route-context-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #334155;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.fav-route-context-item:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.fav-route-context-item.danger {
-  color: #ef4444;
-}
-
-.fav-route-context-item.danger:hover {
-  background: #fee2e2;
-  color: #dc2626;
-}
 
 /* =========================================================
    7. 软件自动热更新弹窗与进度 (Office / Fluent 极简现代风格)
@@ -5785,10 +5717,9 @@ body.map-is-moving .fluent-alert-box {
 .panel-closing,
 .modal-overlay-closing,
 .modal-overlay-closing .modal-card,
-.modal-overlay-closing .fluent-alert-box,
-.popover-closing,
-.ctx-closing,
-.fav-route-context-menu.closing {
+  .modal-overlay-closing .fluent-alert-box,
+  .popover-closing,
+  .ctx-closing {
   animation-duration: var(--motion-exit) !important;
 }
 
@@ -5979,6 +5910,13 @@ body.map-is-moving .layers-popover-panel {
   display: flex;
   flex-direction: column;
   scrollbar-width: thin;
+}
+
+/* 路线右键菜单与收藏点菜单使用同一定位上下文，避免视口边缘出现空白偏移。 */
+.fav-route-context-menu {
+  position: fixed;
+  min-width: 110px;
+  max-width: min(165px, calc(100vw - 20px));
 }
 
 .fav-type-menu-item.active {
