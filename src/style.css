@@ -1928,7 +1928,16 @@ body.web-mode #manage-modal {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  flex: 0 0 auto;
+  flex: 0 0 170px;
+  min-width: 0;
+}
+
+.stat-info-col .prov-status-line {
+  align-self: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stat-line {
@@ -2023,8 +2032,8 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .dl-unified-box .dl-progress-footer {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   font-size: 10.5px;
   color: #64748b;
@@ -2034,9 +2043,12 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 .dl-unified-box .dl-progress-detail {
   color: #475569;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .dl-unified-box .dl-progress-speed {

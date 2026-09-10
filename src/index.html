@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.16" />
+  <link rel="stylesheet" href="style.css?v=1.9.17" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.16</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.17</span>
                 </div>
               </div>
             </div>
@@ -593,12 +593,12 @@
 
         <div class="stat-summary-box dl-unified-box">
           <div class="stat-info-col">
+            <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
             <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
             <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
           </div>
           <div class="stat-divider-line"></div>
           <div class="stat-status-col">
-            <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
             <!-- 实时下载进度条与状态 (清晰三段式：任务与百分比/进度条/瓦片明细与速率) -->
             <div class="dl-progress-section" id="dl-progress-box" style="display: none;">
               <div class="dl-progress-header">
@@ -780,7 +780,7 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.9.16"></script>
-  <script src="app.js?v=1.9.16"></script>
+  <script src="location-camera.js?v=1.9.17"></script>
+  <script src="app.js?v=1.9.17"></script>
 </body>
 </html>
