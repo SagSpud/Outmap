@@ -3966,6 +3966,7 @@ function setupPyramidModal(map) {
         const y2 = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latRad2) + 1 / Math.cos(latRad2)) / Math.PI) / 2 * n));
         const geometricExpected = (x2 - x1 + 1) * (y2 - y1 + 1);
         for (const layer of requestedLayers) {
+          if (layer === 'dem' && z > 12) continue; // DEM 瓦片最高仅到 12 级
           const level = saved?.layers?.[layer]?.levels?.[z];
           if (level?.complete) continue;
           const expected = Number.isFinite(Number(level?.expected)) ? Number(level.expected) : geometricExpected;

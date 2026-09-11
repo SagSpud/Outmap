@@ -130,5 +130,34 @@ assert.strictEqual(dem14, 0, 'DEM level 14 must produce 0 tiles (DEM max zoom is
 assert(vec13 > 0, 'Vector level 13 must have tiles');
 assert(vec14 > 0, 'Vector level 14 must have tiles');
 
+// 9. Nationwide verification: Test all 34 provinces at L12..L14
+const mData = app.match(/const PROVINCES_DATA = \{[\s\S]*?\n\};/);
+const provData = eval('(' + mData[0].replace('const PROVINCES_DATA = ', '').replace(/;\s*$/, '') + ')');
+const mBoxes = mainJs.match(/const CHINA_TILES_BOXES = (\[[\s\S]*?\]);/);
+const boxes = eval(mBoxes[1]);
+const provKeys = Object.keys(provData).filter(k => k !== 'china');
+
+let nationwideDem13 = 0, nationwideDem14 = 0;
+for (const k of provKeys) {
+  const p = provData[k];
+  const testPlan = {
+    provinces: [{ key: k, name: p.name, bbox: p.bbox }],
+    minZ: 13,
+    maxZ: 14,
+    downloadDem: true,
+    downloadVec: true,
+    boxes
+  };
+  for (const t of enumerateTiles(testPlan)) {
+    if (t.type === 'dem') {
+      if (t.z === 13) nationwideDem13++;
+      if (t.z === 14) nationwideDem14++;
+    }
+  }
+}
+assert.strictEqual(nationwideDem13, 0, 'No province should generate DEM tiles at z=13');
+assert.strictEqual(nationwideDem14, 0, 'No province should generate DEM tiles at z=14');
+
 console.log(`Verified Chongqing tiles: DEM L12=${dem12}, L13=${dem13}, L14=${dem14}; Vector L12=${vec12}, L13=${vec13}, L14=${vec14}`);
+console.log(`Verified all ${provKeys.length} provinces nationwide: zero DEM tiles at L13/L14.`);
 console.log('✅ ALL v1.9.23 TESTS PASSED SUCCESSFULLY!');
