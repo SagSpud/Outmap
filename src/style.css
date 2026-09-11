@@ -3602,6 +3602,28 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-weight: 600;
 }
 
+.fav-tab[draggable="true"] {
+  cursor: grab;
+  user-select: none;
+}
+
+.fav-tab[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.fav-tab.is-dragging {
+  opacity: 0.42;
+  transform: scale(0.96);
+}
+
+.fav-tab.drag-over-left {
+  box-shadow: -2.5px 0 0 #0284c7;
+}
+
+.fav-tab.drag-over-right {
+  box-shadow: 2.5px 0 0 #0284c7;
+}
+
 .fav-items-list {
   display: flex;
   flex-direction: column;
@@ -6048,3 +6070,129 @@ body.is-downloading #pyramid-modal .modal-card {
     font-size: 12px;
   }
 }
+
+/* 收藏夹标签右键上下文菜单 */
+.fav-folder-context-menu {
+  position: fixed;
+  width: max-content;
+  min-width: 0;
+  max-width: min(180px, calc(100vw - 20px));
+}
+
+.fav-folder-context-menu .ctx-item {
+  width: auto;
+  min-width: 0;
+  gap: 6px;
+  padding: 6px 9px;
+}
+
+.fav-folder-context-menu .btn-ctx-del {
+  color: #dc2626;
+}
+
+.fav-folder-context-menu .btn-ctx-del:hover {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.88);
+}
+
+/* 收藏点重命名操作项 */
+.fav-point-type-menu .fav-type-rename {
+  padding-right: 6px;
+  color: #0f172a;
+}
+
+.fav-point-type-menu .fav-type-rename:hover {
+  background: rgba(224, 242, 254, 0.9);
+  color: #0284c7;
+}
+
+/* 通用 Fluent 极简模态输入弹窗 (重命名收藏夹/地点/路线) */
+.fluent-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.fluent-prompt-overlay.prompt-active {
+  opacity: 1;
+}
+
+.fluent-prompt-overlay.prompt-closing {
+  opacity: 0;
+}
+
+.fluent-prompt-card {
+  width: min(340px, calc(100vw - 32px));
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  transform: scale(0.96);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.fluent-prompt-overlay.prompt-active .fluent-prompt-card {
+  transform: scale(1);
+}
+
+.fluent-prompt-overlay.prompt-closing .fluent-prompt-card {
+  transform: scale(0.95);
+}
+
+.fluent-prompt-card .card-header {
+  padding: 10px 14px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+}
+
+.fluent-prompt-card .card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.fluent-prompt-card .card-body {
+  padding: 14px;
+}
+
+.fluent-prompt-card .fluent-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.fluent-prompt-card .fluent-prompt-input:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.16);
+}
+
+.fluent-prompt-card .card-footer {
+  padding: 8px 14px 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: none;
+}
+

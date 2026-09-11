@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startPyramidDownload: (params) => ipcRenderer.invoke('start-pyramid-download', params),
   cancelPyramidDownload: () => ipcRenderer.invoke('cancel-pyramid-download'),
   onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)),
-  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  checkForUpdates: (params) => ipcRenderer.invoke('check-for-updates', params),
   startAppUpdate: (params) => ipcRenderer.invoke('start-app-update', params),
   onUpdateProgress: (callback) => ipcRenderer.on('update-download-progress', (event, data) => callback(data)),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

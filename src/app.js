@@ -4,8 +4,20 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.19';
+const APP_VERSION = '1.9.20';
 window.OUTMAP_APP_VERSION = APP_VERSION;
+
+// 基础文本转义防注入
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+window.escapeHtml = escapeHtml;
 
 // 全局轻量级毛玻璃浮动气泡提示 (Toast)
 function showToast(msg, duration = 2500) {
@@ -27,6 +39,77 @@ function showToast(msg, duration = 2500) {
   }, duration);
 }
 window.showToast = showToast;
+
+// 通用 Fluent 极简模态输入弹窗 (替代被系统拦截的 window.prompt)
+function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '', confirmText = '确定', cancelText = '取消', onConfirm }) {
+  document.querySelectorAll('.fluent-prompt-overlay').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'fluent-prompt-overlay';
+  overlay.innerHTML = `
+    <div class="fluent-prompt-card">
+      <div class="card-header">
+        <div class="card-title"><span>${escapeHtml(title)}</span></div>
+        <button class="card-close btn-prompt-cancel" type="button">✕</button>
+      </div>
+      <div class="card-body">
+        <div class="form-row">
+          <input type="text" class="form-control fluent-prompt-input" value="${escapeHtml(initialValue)}" placeholder="${escapeHtml(placeholder)}" />
+        </div>
+      </div>
+      <div class="card-footer">
+        <button class="modal-btn secondary btn-prompt-cancel" type="button">${escapeHtml(cancelText)}</button>
+        <button class="modal-btn primary btn-prompt-confirm" type="button">${escapeHtml(confirmText)}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  void overlay.offsetWidth;
+  overlay.classList.add('prompt-active');
+
+  const input = overlay.querySelector('.fluent-prompt-input');
+  setTimeout(() => {
+    input?.focus();
+    input?.select();
+  }, 25);
+
+  const closePrompt = () => {
+    if (!overlay.isConnected || overlay.classList.contains('prompt-closing')) return;
+    overlay.classList.remove('prompt-active');
+    overlay.classList.add('prompt-closing');
+    setTimeout(() => overlay.remove(), 160);
+    document.removeEventListener('keydown', onKeyDown);
+  };
+
+  const submitPrompt = () => {
+    const val = input ? input.value.trim() : '';
+    if (val) {
+      closePrompt();
+      onConfirm?.(val);
+    } else {
+      input?.focus();
+    }
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitPrompt();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closePrompt();
+    }
+  };
+  document.addEventListener('keydown', onKeyDown);
+
+  overlay.querySelectorAll('.btn-prompt-cancel').forEach(btn => {
+    btn.addEventListener('click', closePrompt);
+  });
+  overlay.querySelector('.btn-prompt-confirm')?.addEventListener('click', submitPrompt);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closePrompt();
+  });
+}
+window.showFluentPrompt = showFluentPrompt;
 
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
 // 1. 全国 34 省级行政区中心、地理外包围盒 (按首字母拼音 A-Z 严格排序，含港澳台)
@@ -4264,7 +4347,7 @@ function setupAppUpdate() {
     if (isChecking) return;
 
     const checkTtlMs = 5 * 60 * 1000;
-    if (lastUpdateCheck && Date.now() - lastUpdateCheckAt < checkTtlMs) {
+    if (lastUpdateCheck?.hasUpdate && Date.now() - lastUpdateCheckAt < checkTtlMs) {
       if (applyUpdateResult(lastUpdateCheck, verClean)) return;
       autoFlipTimer = setTimeout(() => flipToFront(), 3500);
       return;
@@ -4273,7 +4356,7 @@ function setupAppUpdate() {
 
     try {
       if (window.electronAPI && window.electronAPI.checkForUpdates) {
-        const updateInfo = await window.electronAPI.checkForUpdates();
+        const updateInfo = await window.electronAPI.checkForUpdates({ force: true });
         isChecking = false;
         lastUpdateCheck = updateInfo || { hasUpdate: false };
         lastUpdateCheckAt = Date.now();
@@ -5618,11 +5701,14 @@ function setupWaypointAndFavoritesSystem(map) {
       selectedFavoriteFeatureId = feature.id;
       map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: feature.id }, { selected: true });
       const center = map.getCenter();
-      const isLongFlight = map.getZoom() < 8.5 || Math.hypot(center.lng - wp.lng, center.lat - wp.lat) > 2.5;
+      const distDeg = Math.hypot(center.lng - wp.lng, center.lat - wp.lat);
+      const flightDuration = distDeg < 0.2
+        ? 450
+        : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
         zoom: 14.8,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
-        duration: isLongFlight ? 1100 : 500,
+        duration: flightDuration,
         centered: false,
         elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
       });
@@ -5947,6 +6033,10 @@ function setupWaypointAndFavoritesSystem(map) {
       </div>
       <div class="fav-type-footer">
         <div class="ctx-divider"></div>
+        <button class="ctx-item fav-type-rename" type="button">
+          <span class="ctx-icon">✏️</span>
+          <span class="ctx-text">重命名</span>
+        </button>
         <button class="ctx-item danger fav-type-delete" type="button">
           <span class="ctx-icon">🗑️</span>
           <span class="ctx-text">删除</span>
@@ -6002,6 +6092,29 @@ function setupWaypointAndFavoritesSystem(map) {
           // 不弹出 toast，图标实时响应立即可见
         }
         closeMenu();
+      });
+    });
+
+    menu.querySelector('.fav-type-rename')?.addEventListener('click', e => {
+      e.stopPropagation();
+      closeMenu();
+      showFluentPrompt({
+        title: '重命名收藏点',
+        initialValue: wp.name || '',
+        placeholder: '请输入地点名称',
+        onConfirm: (newName) => {
+          const trimmed = newName.trim();
+          if (!trimmed || trimmed === wp.name) return;
+          wp.name = trimmed;
+          try {
+            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+          } catch (err) {}
+          renderWaypointMarkersOnMap({ update: [wp] });
+          renderFavoritesList();
+          if (typeof window.triggerRealtimeCloudSync === 'function') {
+            window.triggerRealtimeCloudSync('update_waypoint');
+          }
+        }
       });
     });
 
@@ -6089,10 +6202,10 @@ function setupWaypointAndFavoritesSystem(map) {
       item.querySelector('.fav-item-info').addEventListener('click', () => {
         const startFavoriteFlight = () => {
           const curCenter = map.getCenter();
-          const curZoom = map.getZoom();
           const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
-          const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
-          const flightDuration = isLongFlight ? 1100 : 500;
+          const flightDuration = distDeg < 0.2
+            ? 450
+            : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
           const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
           flyToLocationPrecisely(map, [wp.lng, wp.lat], {
             zoom: 14.8,
@@ -6162,7 +6275,7 @@ function setupWaypointAndFavoritesSystem(map) {
         loadSavedRoute(route.id, map);
       });
 
-      // 2. 右键弹出选项：导出、删除
+      // 2. 右键弹出选项：重命名、导出、删除
       const showCardContextMenu = (x, y) => {
         document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
         smoothCloseContextMenu();
@@ -6171,6 +6284,10 @@ function setupWaypointAndFavoritesSystem(map) {
         menu.className = 'fluent-context-menu fav-route-context-menu';
 
         menu.innerHTML = `
+          <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
+            <span class="ctx-icon" aria-hidden="true">✏️</span>
+            <span class="ctx-text">重命名路线</span>
+          </button>
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
             <span class="ctx-icon" aria-hidden="true">📤</span>
             <span class="ctx-text">导出路线</span>
@@ -6211,6 +6328,29 @@ function setupWaypointAndFavoritesSystem(map) {
         const onDocKey = (e) => {
           if (e.key === 'Escape') closeMenu();
         };
+
+        menu.querySelector('.btn-ctx-rename').addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeMenu();
+          showFluentPrompt({
+            title: '重命名收藏路线',
+            initialValue: route.name || '',
+            placeholder: '请输入路线名称',
+            onConfirm: (newName) => {
+              const trimmed = newName.trim();
+              if (!trimmed || trimmed === route.name) return;
+              route.name = trimmed;
+              try {
+                localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
+              } catch (err) {}
+              renderSavedRoutesList();
+              renderSavedRoutesOnMap(map);
+              if (typeof window.triggerRealtimeCloudSync === 'function') {
+                window.triggerRealtimeCloudSync('update_route');
+              }
+            }
+          });
+        });
 
         menu.querySelector('.btn-ctx-export').addEventListener('click', (e) => {
           e.stopPropagation();
@@ -6291,24 +6431,226 @@ function setupWaypointAndFavoritesSystem(map) {
     });
   });
 
+  let draggedFolderId = null;
+
+  const renameCustomFolder = (folderObj) => {
+    if (!folderObj) return;
+    showFluentPrompt({
+      title: '重命名收藏夹',
+      initialValue: folderObj.name || '',
+      placeholder: '请输入收藏夹名称',
+      onConfirm: (newName) => {
+        const trimmed = newName.trim();
+        if (!trimmed || trimmed === folderObj.name) return;
+        const oldId = folderObj.id;
+        const oldName = folderObj.name;
+        folderObj.name = trimmed;
+        savedWaypoints.forEach(wp => {
+          if (wp.folder === oldId || wp.folder === oldName) {
+            wp.folder = oldId;
+          }
+        });
+        try {
+          localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+          localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+        } catch (e) {}
+        refreshFolderOptions(currentFolderFilter);
+        renderFolderTabs();
+        renderFavoritesList();
+        if (typeof window.triggerRealtimeCloudSync === 'function') {
+          window.triggerRealtimeCloudSync('rename_folder');
+        }
+      }
+    });
+  };
+
+  const deleteCustomFolder = (folderObj) => {
+    if (!folderObj) return;
+    if (!confirm(`确定删除收藏夹“${folderObj.name}”？\n该文件夹内的收藏点将移至默认分类。`)) return;
+    const folderId = folderObj.id;
+    savedWaypoints.forEach(wp => {
+      if (wp.folder === folderId || wp.folder === folderObj.name) {
+        wp.folder = 'default';
+      }
+    });
+    customFolders = customFolders.filter(f => f.id !== folderId);
+    if (currentFolderFilter === folderId) {
+      currentFolderFilter = 'all';
+    }
+    try {
+      localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+    } catch (e) {}
+    refreshFolderOptions(currentFolderFilter);
+    renderFolderTabs();
+    renderFavoritesList();
+    if (typeof window.triggerRealtimeCloudSync === 'function') {
+      window.triggerRealtimeCloudSync('delete_folder');
+    }
+  };
+
+  const showFolderTabContextMenu = (folderObj, x, y) => {
+    document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu, .fav-folder-context-menu').forEach(m => m.remove());
+    smoothCloseContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'fluent-context-menu fav-folder-context-menu';
+    menu.innerHTML = `
+      <button type="button" class="ctx-item fav-folder-context-item btn-ctx-rename">
+        <span class="ctx-icon" aria-hidden="true">✏️</span>
+        <span class="ctx-text">重命名收藏夹</span>
+      </button>
+      <button type="button" class="ctx-item fav-folder-context-item danger btn-ctx-del">
+        <span class="ctx-icon" aria-hidden="true">🗑️</span>
+        <span class="ctx-text">删除收藏夹</span>
+      </button>
+    `;
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportRight = viewportLeft + Math.max(0, viewport?.width || window.innerWidth);
+    const viewportBottom = viewportTop + Math.max(0, viewport?.height || window.innerHeight);
+    const safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
+    const safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
+    menu.style.left = `${safeX}px`;
+    menu.style.top = `${safeY}px`;
+    void menu.offsetWidth;
+    menu.classList.add('ctx-opening');
+
+    const closeMenu = () => {
+      if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;
+      menu.classList.remove('ctx-opening');
+      menu.classList.add('ctx-closing');
+      setTimeout(() => menu.remove(), 150);
+      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('keydown', onDocKey);
+      map.off('movestart', closeMenu);
+    };
+
+    const onDocClick = (e) => {
+      if (!menu.contains(e.target)) closeMenu();
+    };
+    const onDocKey = (e) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+
+    menu.querySelector('.btn-ctx-rename')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeMenu();
+      renameCustomFolder(folderObj);
+    });
+
+    menu.querySelector('.btn-ctx-del')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeMenu();
+      deleteCustomFolder(folderObj);
+    });
+
+    map.once('movestart', closeMenu);
+    setTimeout(() => {
+      document.addEventListener('click', onDocClick);
+      document.addEventListener('keydown', onDocKey);
+    }, 10);
+  };
+
   const renderFolderTabs = () => {
     if (!favTabs) return;
     favTabs.innerHTML = '';
     const tabs = [
-      { id: 'all', name: '全部' },
-      { id: 'folders', name: '收藏夹' },
-      { id: 'default', name: '默认' },
-      { id: 'view', name: '景点' }
+      { id: 'all', name: '全部', fixed: true },
+      { id: 'folders', name: '收藏夹', fixed: true },
+      { id: 'default', name: '默认', fixed: true },
+      { id: 'view', name: '景点', fixed: true }
     ];
     customFolders.forEach(f => {
       const cleanName = (f.name || '').replace(/^(\[导入\]|📁|\s)+/, '');
-      tabs.push({ id: f.id, name: cleanName || f.name });
+      tabs.push({ id: f.id, name: cleanName || f.name, rawName: f.name, folderObj: f, fixed: false });
     });
 
     tabs.forEach(t => {
       const btn = document.createElement('button');
       btn.className = 'fav-tab' + (t.id === currentFolderFilter ? ' active' : '');
       btn.innerText = t.name;
+      btn.setAttribute('data-tab-id', t.id);
+
+      if (!t.fixed && t.folderObj) {
+        btn.draggable = true;
+        btn.title = `${t.rawName || t.name}（拖拽可排序，右键可重命名）`;
+
+        btn.addEventListener('dragstart', (e) => {
+          draggedFolderId = t.id;
+          btn.classList.add('is-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', t.id);
+        });
+
+        btn.addEventListener('dragend', () => {
+          draggedFolderId = null;
+          btn.classList.remove('is-dragging');
+          favTabs.querySelectorAll('.fav-tab').forEach(el => {
+            el.classList.remove('drag-over-left', 'drag-over-right');
+          });
+        });
+
+        btn.addEventListener('dragover', (e) => {
+          if (!draggedFolderId || draggedFolderId === t.id) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const rect = btn.getBoundingClientRect();
+          const midX = rect.left + rect.width / 2;
+          if (e.clientX < midX) {
+            btn.classList.add('drag-over-left');
+            btn.classList.remove('drag-over-right');
+          } else {
+            btn.classList.add('drag-over-right');
+            btn.classList.remove('drag-over-left');
+          }
+        });
+
+        btn.addEventListener('dragleave', () => {
+          btn.classList.remove('drag-over-left', 'drag-over-right');
+        });
+
+        btn.addEventListener('drop', (e) => {
+          e.preventDefault();
+          btn.classList.remove('drag-over-left', 'drag-over-right');
+          if (!draggedFolderId || draggedFolderId === t.id) return;
+          const fromIdx = customFolders.findIndex(f => f.id === draggedFolderId);
+          const toIdx = customFolders.findIndex(f => f.id === t.id);
+          if (fromIdx !== -1 && toIdx !== -1) {
+            const rect = btn.getBoundingClientRect();
+            const midX = rect.left + rect.width / 2;
+            const insertAfter = e.clientX >= midX;
+            const [moved] = customFolders.splice(fromIdx, 1);
+            let targetIdx = customFolders.findIndex(f => f.id === t.id);
+            if (insertAfter) targetIdx += 1;
+            customFolders.splice(targetIdx, 0, moved);
+            try {
+              localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+            } catch (err) {}
+            renderFolderTabs();
+            refreshFolderOptions(currentFolderFilter);
+            if (typeof window.triggerRealtimeCloudSync === 'function') {
+              window.triggerRealtimeCloudSync('reorder_folders');
+            }
+          }
+        });
+
+        btn.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          showFolderTabContextMenu(t.folderObj, e.clientX, e.clientY);
+        });
+
+        btn.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          renameCustomFolder(t.folderObj);
+        });
+      }
+
       btn.addEventListener('click', () => {
         currentFolderFilter = t.id;
         renderFolderTabs();

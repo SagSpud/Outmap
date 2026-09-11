@@ -40,10 +40,24 @@
     const subscriptions = [];
     const listen = (type, fn) => { map.on(type, fn); subscriptions.push([type, fn]); };
     const canvas = map.getCanvas();
+    const heavyLineLayers = ['outdoor-route-line', 'outdoor-route-casing', 'outmap-saved-route-line', 'outmap-saved-route-casing'];
+    const suppressedLayers = [];
+    const restoreSuppressedLayers = () => {
+      if (suppressedLayers.length > 0) {
+        suppressedLayers.forEach(id => {
+          try {
+            if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+          } catch (e) {}
+        });
+        suppressedLayers.length = 0;
+      }
+    };
+
     const dispose = () => {
       if (disposed) return;
       disposed = true;
       isFlying = false;
+      restoreSuppressedLayers();
       subscriptions.forEach(([type, fn]) => map.off(type, fn));
       for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.removeEventListener(type, dispose, true);
       cancelAnimationFrame(frame);
@@ -118,6 +132,7 @@
     listen('moveend', () => {
       if (disposed || arrived) return;
       isFlying = false;
+      restoreSuppressedLayers();
       queueMicrotask(() => {
         if (disposed || arrived || map.isMoving()) return;
         arrived = true;
@@ -129,6 +144,19 @@
     const center = map.getCenter();
     const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
     const nearby = distDeg < 0.25;
+
+    // 远距离高倾角飞跃期间，短暂隐藏超大密度矢量路线图层，杜绝 WebGL 瓦片跨越畸变爆面闪烁
+    if (!nearby && (pitch > 25 || (map.getPitch && map.getPitch() > 25))) {
+      heavyLineLayers.forEach(id => {
+        try {
+          if (map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none') {
+            suppressedLayers.push(id);
+            map.setLayoutProperty(id, 'visibility', 'none');
+          }
+        } catch (e) {}
+      });
+    }
+
     internal = true;
     // Short hops interpolate monotonically; distant flights retain the native arc.
     const method = nearby ? 'easeTo' : 'flyTo';

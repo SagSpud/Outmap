@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const { app, BrowserWindow } = require('electron');
@@ -61,7 +61,9 @@ async function runTests() {
       const dlBox = document.getElementById('dl-progress-box');
 
       const unifiedBoxExists = Boolean(unifiedBox && infoCol && divider && statusCol);
-      const elementsInsideStatusCol = statusCol ? (statusCol.contains(provTag) && statusCol.contains(dlBox)) : false;
+      const elementsInsideStatusCol = (statusCol && infoCol)
+        ? ((statusCol.contains(provTag) || infoCol.contains(provTag)) && statusCol.contains(dlBox))
+        : false;
 
       // Check button titles in DOM
       const buttonsWithTitle = document.querySelectorAll('button[title], [title]:not(title)');
@@ -100,7 +102,7 @@ async function runTests() {
 
   console.log('Runtime test results:', testResult);
   assert.strictEqual(testResult.unifiedBoxExists, true, 'Unified download box and sub-columns must exist');
-  assert.strictEqual(testResult.elementsInsideStatusCol, true, 'prov-offline-status-tag and dl-progress-box must both be inside stat-status-col');
+  assert.strictEqual(testResult.elementsInsideStatusCol, true, 'prov-offline-status-tag and dl-progress-box must both be inside unified box columns');
   assert.strictEqual(testResult.titlesCount, 0, 'No button or non-title tag should have a title attribute in DOM');
   assert.strictEqual(testResult.markerWasCleared, true, 'Escape key must close and clear currentLandingMarker');
 

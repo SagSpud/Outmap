@@ -1933,15 +1933,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
   // 1. 检查云端是否有新版本 (优先访问自定义域名，备用公共 r2.dev 域名，零权限公网请求)
-  ipcMain.handle('check-for-updates', async () => {
+  ipcMain.handle('check-for-updates', async (_event, options = {}) => {
     const currentVersion = app.getVersion();
     const cacheTtlMs = 5 * 60 * 1000;
-    if (appUpdateCheckCache
+    const force = Boolean(options && options.force);
+    if (!force
+      && appUpdateCheckCache
       && appUpdateCheckCache.currentVersion === currentVersion
+      && appUpdateCheckCache.result?.hasUpdate
       && Date.now() - appUpdateCheckCache.checkedAt < cacheTtlMs) {
       return appUpdateCheckCache.result;
     }
-    if (appUpdateCheckPromise) return appUpdateCheckPromise;
+    if (!force && appUpdateCheckPromise) return appUpdateCheckPromise;
 
     appUpdateCheckPromise = (async () => {
       const updateEndpoints = [
@@ -1953,9 +1956,14 @@ app.whenReady().then(async () => {
       let fetchError = null;
       for (const url of updateEndpoints) {
         try {
-          const resp = await fetch(url, {
+          const reqUrl = `${url}?_t=${Date.now()}`;
+          const resp = await fetch(reqUrl, {
             signal: AbortSignal.timeout(8000),
-            headers: { 'User-Agent': `Outmap-Updater/${currentVersion}`, 'Cache-Control': 'no-cache' }
+            headers: {
+              'User-Agent': `Outmap-Updater/${currentVersion}`,
+              'Cache-Control': 'no-cache, no-store',
+              'Pragma': 'no-cache'
+            }
           });
           if (resp.ok) {
             remoteInfo = await resp.json();
