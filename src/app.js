@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.21';
+const APP_VERSION = '1.9.22';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1582,8 +1582,7 @@ async function initApplication() {
       }
     });
 
-    // 全国所有地级市与省会城市原生矢量注记 (覆盖全国，Zoom 4~12)
-    // 全国所有地级市与省会城市原生矢量注记 (覆盖全国，Zoom 4~16)
+    // 全国所有地级市与省会城市原生矢量注记 (覆盖全国，Zoom 4~14，微观视角优雅退场)
     map.addLayer({
       id: 'osm-places-cities',
       type: 'symbol',
@@ -1591,6 +1590,7 @@ async function initApplication() {
       'source-layer': 'place',
       filter: ['match', ['get', 'class'], ['city'], true, false],
       minzoom: 4,
+      maxzoom: 14,
       layout: {
         'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
         'text-font': ['Noto Sans Regular'],
@@ -1613,6 +1613,7 @@ async function initApplication() {
       'source-layer': 'place',
       filter: ['match', ['get', 'class'], ['town', 'suburb'], true, false],
       minzoom: 5.5,
+      maxzoom: 15.5,
       layout: {
         'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
         'text-font': ['Noto Sans Regular'],
@@ -1951,7 +1952,7 @@ async function queryLocationCandidates(keyword) {
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       icon: '🎯',
-      zoom: 14.8
+      zoom: 13.0
     }];
   }
 
@@ -2009,7 +2010,7 @@ async function queryLocationCandidates(keyword) {
           coords: [Number(wp.lng), Number(wp.lat)],
           icon: '⭐',
           type: 'waypoint',
-          zoom: 14.8,
+          zoom: 13.0,
           _score: 1
         });
       }
@@ -2115,7 +2116,7 @@ async function queryLocationCandidates(keyword) {
               coords: [lng, lat],
               icon,
               type,
-              zoom: 14.8
+              zoom: 13.0
             });
           }
         });
@@ -2198,7 +2199,7 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const cameraPadding = { top: 0, bottom: 0, left: 0, right: 0 };
   map.flyTo({
     center: [lng, lat],
-    zoom: flyOpts.zoom || 14.8,
+    zoom: flyOpts.zoom || 13.0,
     pitch: flyOpts.pitch !== undefined ? flyOpts.pitch : (map.getPitch() ?? 50),
     bearing: flyOpts.bearing !== undefined ? flyOpts.bearing : (map.getBearing() ?? 0),
     padding: cameraPadding,
@@ -2678,13 +2679,13 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-    // 点击图钉重新飞到此处自适应居中 (zoom 14.8)
+    // 点击图钉重新飞到此处自适应居中 (zoom 13.0)
     const pinWrap = el.querySelector('.pulse-pin-wrap');
     if (pinWrap) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() ?? 50;
-        flyToLocationPrecisely(map, validCoords, { zoom: 14.8, pitch: curPitch, duration: 600 });
+        flyToLocationPrecisely(map, validCoords, { zoom: 13.0, pitch: curPitch, duration: 600, centered: false });
       });
     }
 
@@ -2791,16 +2792,16 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    // 智能层级适配：省份 7.2，地级市 11.5，地标/建筑/小区/选点 13.5 (黄金适中视野，地貌路网通透清晰)
-    let targetZoom = 13.5;
+    // 智能层级适配：省份 7.2，地级市 11.5，地点/地标/搜索 统一 13.0（避免过度放大导致图层加载反压与裁切）
+    let targetZoom = 13.0;
     if (isProv) {
       targetZoom = item.zoom || 7.2;
     } else if (item.type === 'city') {
       targetZoom = item.zoom || 11.5;
-    } else if (item.type === 'waypoint') {
-      targetZoom = item.zoom || 13.5;
-    } else if (typeof item.zoom === 'number') {
-      targetZoom = Math.min(18, item.zoom);
+    } else if (typeof item.zoom === 'number' && item.zoom < 13.0) {
+      targetZoom = item.zoom;
+    } else {
+      targetZoom = 13.0;
     }
 
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
@@ -5347,61 +5348,10 @@ function setupStatusBar(map) {
   });
 
   // Count actual map render events instead of running a permanent RAF loop.
-  // An idle map now lets browsers and phones sleep instead of waking the main
-  // thread 60/120 times a second merely to update a once-per-second label.
-  let renderedFrames = 0;
-  let fpsSampleStartedAt = performance.now();
-  let fpsTimer = null;
-  map.on('render', () => { renderedFrames++; });
-  const updateFps = () => {
-    const now = performance.now();
-    const elapsed = Math.max(1, now - fpsSampleStartedAt);
-    // A moveend can arrive immediately after the one-second sample reset. Do
-    // not replace the last useful value with a synthetic 0 FPS in that gap.
-    if (!document.hidden && renderedFrames > 0) {
-      const fps = Math.round((renderedFrames * 1000) / elapsed);
-      const el = document.getElementById('status-fps');
-      if (el) el.innerText = `${fps} FPS`;
-    }
-    renderedFrames = 0;
-    fpsSampleStartedAt = now;
-  };
-  const startFpsSampling = () => {
-    // `movestart` fires just before some MapLibre camera implementations flip
-    // isMoving(), so the event itself is the authority here.
-    if (!fpsTimer && !document.hidden) {
-      renderedFrames = 0;
-      fpsSampleStartedAt = performance.now();
-      fpsTimer = setInterval(updateFps, 1000);
-    }
-  };
-  const stopFpsSampling = () => {
-    if (fpsTimer) clearInterval(fpsTimer);
-    fpsTimer = null;
-  };
-  map.on('movestart', startFpsSampling);
-  map.on('moveend', () => {
-    if (fpsTimer) updateFps();
-    // Keep the last real interaction sample visible in the status bar. The
-    // timer still stops completely, so idle GPU/CPU usage remains unchanged.
-    stopFpsSampling();
-  });
-  document.addEventListener('visibilitychange', () => {
-    renderedFrames = 0;
-    fpsSampleStartedAt = performance.now();
-    if (document.hidden) stopFpsSampling();
-    else if (map.isMoving?.()) startFpsSampling();
-  });
-
   if (window.electronAPI && window.electronAPI.onPowerStateChange) {
     window.electronAPI.onPowerStateChange((info) => {
-      if (info.mode === 'performance') {
-        if (map.isMoving?.()) startFpsSampling();
-        if (mapInstance) {
-          mapInstance.triggerRepaint();
-        }
-      } else if (info.mode === 'saving') {
-        stopFpsSampling();
+      if (info.mode === 'performance' && mapInstance) {
+        mapInstance.triggerRepaint();
       }
     });
   }
@@ -5706,11 +5656,11 @@ function setupWaypointAndFavoritesSystem(map) {
         ? 450
         : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-        zoom: 14.8,
+        zoom: 13.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
         centered: false,
-        elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
       });
     });
     map.on('contextmenu', 'outmap-favorite-icons', e => {
@@ -5756,7 +5706,7 @@ function setupWaypointAndFavoritesSystem(map) {
           'circle-color': '#38bdf8',
           'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
           'circle-blur': 0.25,
-          'circle-pitch-alignment': 'viewport'
+          'circle-pitch-alignment': 'map'
         }
       });
       map.addLayer({
@@ -5766,7 +5716,9 @@ function setupWaypointAndFavoritesSystem(map) {
           'icon-image': ['get', 'icon'],
           'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.72, 12, 0.9, 16, 1.05],
           'icon-allow-overlap': true,
-          'icon-ignore-placement': true
+          'icon-ignore-placement': true,
+          'icon-pitch-alignment': 'viewport',
+          'icon-rotation-alignment': 'viewport'
         }
       });
       map.addLayer({
@@ -5777,7 +5729,7 @@ function setupWaypointAndFavoritesSystem(map) {
           'circle-radius': ['step', ['get', 'point_count'], 17, 20, 20, 100, 24],
           'circle-stroke-width': 3,
           'circle-stroke-color': 'rgba(255,255,255,0.94)',
-          'circle-pitch-alignment': 'viewport'
+          'circle-pitch-alignment': 'map'
         }
       });
       map.addLayer({
@@ -6208,11 +6160,11 @@ function setupWaypointAndFavoritesSystem(map) {
             : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
           const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
           flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-            zoom: 14.8,
+            zoom: 13.0,
             pitch: curPitch,
             duration: flightDuration,
             centered: false,
-            elevation: Number.isFinite(Number(wp.ele)) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+            elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
           });
         };
         // 手机抽屉会遮挡大半地图；先完成原生式收起，再按稳定的完整
@@ -6904,12 +6856,12 @@ window.importWaypointsIntoFavorites = importWaypointsIntoFavorites;
 let routeStartCoord = null;
 let routeStartName = '';
 let routeStartMarker = null;
-let routeStartZoom = 14.5;
+let routeStartZoom = 13.0;
 
 let routeEndCoord = null;
 let routeEndName = '';
 let routeEndMarker = null;
-let routeEndZoom = 14.5;
+let routeEndZoom = 13.0;
 let routeEndIsFromVia = false; // 标识终点是否由添加途径点顺延接替生成
 
 let routeViaPoints = []; // 存储途径点数组 [{ id, coords, name, marker, zoom }]
@@ -7111,16 +7063,16 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const map = getMap();
     if (!map) return;
 
-    // 智能层级适配：省份 7.2，地级市 11.5，地标/收藏点/选点 13.5
-    let targetZoom = 13.5;
+    // 智能层级适配：省份 7.2，地级市 11.5，地标/收藏点/选点 13.0
+    let targetZoom = 13.0;
     if (Number.isFinite(item.zoom)) {
-      targetZoom = Math.min(18, item.zoom);
+      targetZoom = Math.min(13.0, item.zoom);
     } else if (item.type === 'province') {
       targetZoom = 7.2;
     } else if (item.type === 'city') {
       targetZoom = 11.5;
     } else if (item.type === 'waypoint') {
-      targetZoom = 13.5;
+      targetZoom = 13.0;
     }
 
     if (pointType === 'start') {
@@ -7144,7 +7096,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     // 过去的无条件第二次 fly 会立即取消第一次，是首个路线点跳动的来源。
     if (item.coords && pointType === 'via') {
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-      flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650 });
+      flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650, centered: false });
     }
   };
 
@@ -7356,7 +7308,7 @@ function getRoutePointFeatures() {
     features.push({
       type: 'Feature', id,
       geometry: { type: 'Point', coordinates: [Number(coords[0]), Number(coords[1])] },
-      properties: { id, role, name: name || label, label, zoom: Number(zoom) || 14.8 }
+      properties: { id, role, name: name || label, label, zoom: Number(zoom) || 13.0 }
     });
   };
   add('route-start', 'start', routeStartCoord, routeStartName, '起', routeStartZoom);
@@ -7395,7 +7347,7 @@ function ensureRoutePointLayers(map) {
         'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#0284c7'],
         'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'dragging'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
         'circle-blur': 0.22,
-        'circle-pitch-alignment': 'viewport'
+        'circle-pitch-alignment': 'map'
       }
     });
     map.addLayer({
@@ -7442,8 +7394,8 @@ function ensureRoutePointLayers(map) {
         'circle-radius': ['step', ['get', 'point_count'], 15, 10, 18, 30, 21],
         'circle-stroke-width': 3,
         'circle-stroke-color': 'rgba(255,255,255,0.96)',
-        'circle-pitch-alignment': 'viewport',
-        'circle-pitch-scale': 'viewport'
+        'circle-pitch-alignment': 'map',
+        'circle-pitch-scale': 'map'
       }
     });
     map.addLayer({
@@ -7488,7 +7440,7 @@ function bindRoutePointLayerEvents(map) {
       const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
       map.easeTo({
         center: feature.geometry.coordinates,
-        zoom: Math.min(15.5, zoom),
+        zoom: Math.min(13.0, zoom),
         duration: 420,
         easing: t => 1 - Math.pow(1 - t, 3)
       });
@@ -7511,7 +7463,7 @@ function bindRoutePointLayerEvents(map) {
     if (suppressNextClick) { suppressNextClick = false; return; }
     const point = findRoutePointByFeature(e.features?.[0]);
     if (!point?.coords) return;
-    flyToLocationPrecisely(map, point.coords, { zoom: point.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+    flyToLocationPrecisely(map, point.coords, { zoom: 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
   });
   map.on('mousedown', 'outmap-route-point-circles', e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint) return;
@@ -7635,7 +7587,7 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
   if (stops.length === 1) {
     routeStartCoord = stops[0].coords;
     routeStartName = stops[0].name;
-    routeStartZoom = stops[0].zoom || 14.5;
+    routeStartZoom = stops[0].zoom || 13.0;
     routeStartMarker = stops[0].marker;
     routeViaPoints = [];
     routeEndCoord = null;
@@ -7645,14 +7597,14 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
     // 首位始终为绿 [起]
     routeStartCoord = stops[0].coords;
     routeStartName = stops[0].name;
-    routeStartZoom = stops[0].zoom || 14.5;
+    routeStartZoom = stops[0].zoom || 13.0;
     routeStartMarker = stops[0].marker;
 
     // 末位始终为红 [终]
     const endStop = stops[stops.length - 1];
     routeEndCoord = endStop.coords;
     routeEndName = endStop.name;
-    routeEndZoom = endStop.zoom || 14.5;
+    routeEndZoom = endStop.zoom || 13.0;
     routeEndMarker = endStop.marker;
 
     // 中间项始终为蓝 [1..N-2]
@@ -7660,7 +7612,7 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
       id: s.id || ('via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
       coords: s.coords,
       name: s.name,
-      zoom: s.zoom || 14.5,
+      zoom: s.zoom || 13.0,
       marker: s.marker
     }));
     routeEndIsFromVia = false;
@@ -8017,7 +7969,7 @@ function renderViaList(mapInstance) {
       tagEl.style.cursor = 'pointer';
       tagEl.addEventListener('click', () => {
         if (map && via.coords) {
-          flyToLocationPrecisely(map, via.coords, { zoom: via.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+          flyToLocationPrecisely(map, via.coords, { zoom: 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
         }
       });
     }
@@ -8043,7 +7995,7 @@ function renderViaList(mapInstance) {
 function addViaPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
-  const targetZoom = Number.isFinite(zoom) ? zoom : 14.8;
+  const targetZoom = Number.isFinite(zoom) ? Math.min(13.0, zoom) : 13.0;
 
   // 1. 若起点尚未设定且传入了有效坐标，直接作为起点建立路线之首
   if (!routeStartCoord && coords) {
@@ -8225,7 +8177,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (first.marker) {
         try { first.marker.remove(); } catch (e) {}
       }
-      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 14.5, { schedule: false });
+      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 13.0, { schedule: false });
       changed = true;
     }
   }
@@ -8242,7 +8194,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (last.marker) {
         try { last.marker.remove(); } catch (e) {}
       }
-      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 14.5, true, { schedule: false });
+      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 13.0, true, { schedule: false });
       changed = true;
     }
   }
@@ -9081,13 +9033,13 @@ function setupOutdoorRouteSystem(map) {
 
   currentOutdoorMap = map;
 
-  // 起终点标签点击快速平滑定位 (14.8 黄金居中视级)
+  // 起终点标签点击快速平滑定位 (13.0 黄金视级)
   const staticStartTag = document.querySelector('.route-point-row .pt-tag.start');
   if (staticStartTag) {
     staticStartTag.style.cursor = 'pointer';
     staticStartTag.addEventListener('click', () => {
       if (routeStartCoord && map) {
-        flyToLocationPrecisely(map, routeStartCoord, { zoom: routeStartZoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+        flyToLocationPrecisely(map, routeStartCoord, { zoom: routeStartZoom || 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
       }
     });
   }
@@ -9097,11 +9049,11 @@ function setupOutdoorRouteSystem(map) {
     staticEndTag.style.cursor = 'pointer';
     staticEndTag.addEventListener('click', () => {
       if (routeEndCoord && map) {
-        flyToLocationPrecisely(map, routeEndCoord, { zoom: routeEndZoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+        flyToLocationPrecisely(map, routeEndCoord, { zoom: routeEndZoom || 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
       } else if (routeViaPoints.length > 0 && map) {
         const lastVia = routeViaPoints[routeViaPoints.length - 1];
         if (lastVia.coords) {
-          flyToLocationPrecisely(map, lastVia.coords, { zoom: lastVia.zoom || 14.8, pitch: map.getPitch() ?? 50, duration: 600 });
+          flyToLocationPrecisely(map, lastVia.coords, { zoom: lastVia.zoom || 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
         }
       }
     });
@@ -9273,10 +9225,10 @@ function setupOutdoorRouteSystem(map) {
                             (validVias.length >= 2);
     if (!hasEnoughPoints) {
       if (!routeStartCoord && !routeEndCoord && validVias.length === 0) {
-        setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)', 15.0);
-        addViaPoint(map, [103.6210, 31.0020], '都江堰 (紫坪铺水库)', 15.0);
-        addViaPoint(map, [103.1250, 31.0260], '卧龙巴朗山垭口 (4481m)', 15.0);
-        setRouteEndPoint(map, [102.8360, 30.9980], '四姑娘山镇 (蜀山之后)', 15.0);
+        setRouteStartPoint(map, [104.0668, 30.5728], '成都市 (西岭门户)', 13.0);
+        addViaPoint(map, [103.6210, 31.0020], '都江堰 (紫坪铺水库)', 13.0);
+        addViaPoint(map, [103.1250, 31.0260], '卧龙巴朗山垭口 (4481m)', 13.0);
+        setRouteEndPoint(map, [102.8360, 30.9980], '四姑娘山镇 (蜀山之后)', 13.0);
       } else {
         alert('请至少设定起点与一个终点或途径点！');
         return;
@@ -9460,8 +9412,8 @@ function setupOutdoorRouteSystem(map) {
     routeEndCoord = null;
     routeEndName = '';
     routeEndMarker = null;
-    routeStartZoom = 14.5;
-    routeEndZoom = 14.5;
+    routeStartZoom = 13.0;
+    routeEndZoom = 13.0;
     routeEndIsFromVia = false;
 
     hideRouteFloatingDropdown();
@@ -10301,7 +10253,7 @@ function displayImportedTrack(map, trackData) {
       coords: vCoords,
       name: vName,
       marker: null,
-      zoom: 14.8
+      zoom: 13.0
     });
   });
 

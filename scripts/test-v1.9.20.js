@@ -11,14 +11,14 @@ const css = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const camera = fs.readFileSync(path.join(root, 'src', 'location-camera.js'), 'utf8');
 
 // 1. Version consistency
-assert(/^1\.9\.(20|21)$/.test(pkg.version), 'package.json version must be 1.9.20 or 1.9.21');
-assert(/^1\.9\.(20|21)$/.test(lock.version), 'package-lock.json version must be 1.9.20 or 1.9.21');
-assert(/^1\.9\.(20|21)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.20 or 1.9.21');
-assert(/const APP_VERSION = '1\.9\.(20|21)';/.test(app), 'app.js must declare current APP_VERSION');
-assert(/style\.css\?v=1\.9\.(20|21)/.test(html), 'index.html must reference current style.css');
-assert(/app\.js\?v=1\.9\.(20|21)/.test(html), 'index.html must reference current app.js');
-assert(/location-camera\.js\?v=1\.9\.(20|21)/.test(html), 'index.html must reference current location-camera.js');
-assert(/id="brand-ver-badge-txt">v1\.9\.(20|21)<\/span>/.test(html), 'index.html must display version badge');
+assert(/^1\.9\.(20|21|22)$/.test(pkg.version), 'package.json version must be 1.9.20, 1.9.21 or 1.9.22');
+assert(/^1\.9\.(20|21|22)$/.test(lock.version), 'package-lock.json version must be 1.9.20, 1.9.21 or 1.9.22');
+assert(/^1\.9\.(20|21|22)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.20, 1.9.21 or 1.9.22');
+assert(/const APP_VERSION = '1\.9\.(20|21|22)';/.test(app), 'app.js must declare current APP_VERSION');
+assert(/style\.css\?v=1\.9\.(20|21|22)/.test(html), 'index.html must reference current style.css');
+assert(/app\.js\?v=1\.9\.(20|21|22)/.test(html), 'index.html must reference current app.js');
+assert(/location-camera\.js\?v=1\.9\.(20|21|22)/.test(html), 'index.html must reference current location-camera.js');
+assert(/id="brand-ver-badge-txt">v1\.9\.(20|21|22)<\/span>/.test(html), 'index.html must display version badge');
 
 // 2. Folder tabs drag-and-drop & renaming
 assert(css.includes('.fav-tab[draggable="true"]'), 'style.css must have draggable fav-tab styles');
@@ -39,9 +39,8 @@ assert(app.includes('showFluentPrompt'), 'app.js must implement showFluentPrompt
 assert(css.includes('.fluent-prompt-overlay'), 'style.css must style fluent prompt overlay');
 assert(css.includes('.fluent-prompt-card'), 'style.css must style fluent prompt card');
 
-// 4. Camera flyTo layer flicker fix
-assert(camera.includes('suppressedLayers'), 'location-camera.js must track suppressedLayers');
-assert(camera.includes('restoreSuppressedLayers'), 'location-camera.js must restoreSuppressedLayers on arrival and dispose');
+// 4. Camera flyTo duration and zero-flicker rendering
+assert(camera.includes('anchor(map, options.centered)'), 'location-camera.js must calculate true visible canvas anchor');
 assert(!app.includes('distDeg > 2.5;\n          const flightDuration = isLongFlight ? 1100 : 500;'), 'app.js must not retain rigid 2.5 deg flight duration cutoff');
 
 console.log('✅ ALL v1.9.20 STATIC & REGRESSION ASSERTIONS PASSED!');

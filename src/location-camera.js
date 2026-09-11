@@ -6,22 +6,31 @@
 
   function anchor(map, centered) {
     const rect = map.getContainer().getBoundingClientRect();
-    let top = 0, bottom = rect.height;
-    if (global.innerWidth <= 768) {
-      for (const id of ['route-panel', 'favorites-drawer', 'mobile-ele-sheet']) {
-        const el = document.getElementById(id);
-        if (!el || el.style.display === 'none') continue;
-        const style = getComputedStyle(el);
-        if (style.display === 'none' || style.visibility === 'hidden') continue;
-        const r = el.getBoundingClientRect();
+    let top = 44, bottom = rect.height;
+    let left = 0, right = rect.width;
+
+    // 适配右侧展开面板 (收藏抽屉 / 路线规划面板 / 图层控制)，计算真实可视画布中心
+    for (const id of ['route-panel', 'favorites-drawer', 'layers-popover']) {
+      const el = document.getElementById(id);
+      if (!el || el.style.display === 'none') continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.left > rect.width * 0.4 && r.left < rect.right) {
+        right = Math.min(right, Math.max(rect.width * 0.45, r.left - 16));
+      }
+      if (global.innerWidth <= 768) {
         if (r.width > rect.width * 0.65 && r.bottom > rect.top && r.top < rect.bottom) {
           bottom = Math.min(bottom, Math.max(0, r.top - rect.top - 16));
         }
       }
     }
-    // All coordinates are CSS pixels, independent of devicePixelRatio.
-    // Anchor the geographic pin, not a screen-fixed imitation of its marker.
-    return new maplibregl.Point(rect.width / 2, top + (bottom - top) * (centered ? 0.5 : 0.62));
+
+    const centerX = left + (right - left) * 0.5;
+    // 中间偏下：当 centered 为 false 时，将地标点落在视觉工作区中下方约 68% 位置，
+    // 上方 2/3 开阔展现 3D 地形起伏与前方路线大局走势
+    const centerY = top + (bottom - top) * (centered ? 0.5 : 0.68);
+    return new maplibregl.Point(centerX, centerY);
   }
 
   function cancel(map) { active.get(map)?.dispose(); }
@@ -40,24 +49,11 @@
     const subscriptions = [];
     const listen = (type, fn) => { map.on(type, fn); subscriptions.push([type, fn]); };
     const canvas = map.getCanvas();
-    const heavyLineLayers = ['outdoor-route-line', 'outdoor-route-casing', 'outmap-saved-route-line', 'outmap-saved-route-casing'];
-    const suppressedLayers = [];
-    const restoreSuppressedLayers = () => {
-      if (suppressedLayers.length > 0) {
-        suppressedLayers.forEach(id => {
-          try {
-            if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
-          } catch (e) {}
-        });
-        suppressedLayers.length = 0;
-      }
-    };
 
     const dispose = () => {
       if (disposed) return;
       disposed = true;
       isFlying = false;
-      restoreSuppressedLayers();
       subscriptions.forEach(([type, fn]) => map.off(type, fn));
       for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.removeEventListener(type, dispose, true);
       cancelAnimationFrame(frame);
@@ -71,15 +67,12 @@
     listen('remove', dispose);
     listen('movestart', () => { if (!internal) dispose(); });
 
-    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 13.5));
+    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 13.0));
     const pitch = Math.max(map.getMinPitch(), Math.min(map.getMaxPitch(), Number.isFinite(options.pitch) ? options.pitch : map.getPitch()));
     const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
     const target = maplibregl.LngLat.convert(coords);
-    // Snapshot the visual target once. Panels can animate closed while the map
-    // is flying; recomputing their geometry on the final frame caused a second
-    // endpoint and made the first favorite flight visibly pull back.
     const desiredAnchor = anchor(map, options.centered);
 
     function endpoint(targetZoom, targetPitch, targetBearing) {
@@ -89,14 +82,16 @@
       tr.setPitch(targetPitch);
       tr.setBearing(targetBearing);
       tr.setCenter(target);
-      const elevation = (Number.isFinite(options.elevation) ? options.elevation : null) ?? (map.queryTerrainElevation ? map.queryTerrainElevation(coords) : null);
+      const ex = map.getTerrain ? (map.getTerrain()?.exaggeration || 1.0) : 1.0;
+      let elevation = map.queryTerrainElevation ? map.queryTerrainElevation(coords) : null;
+      if (!Number.isFinite(elevation) && Number.isFinite(options.elevation) && options.elevation > 0) {
+        elevation = options.elevation * ex;
+      }
       if (Number.isFinite(elevation)) tr.setElevation(elevation);
       tr.setLocationAtPoint(target, desiredAnchor);
       return { center: tr.center, elevation: tr.elevation };
     }
 
-    // Public MapLibre camera hook: commit the geographic endpoint on the FINAL
-    // animation frame, rather than teleporting the camera after moveend.
     function cameraUpdate(transform) {
       const prior = previousCameraUpdate?.(transform) || {};
       if (disposed) return prior;
@@ -104,8 +99,6 @@
       if (progress >= 1) {
         return { ...prior, ...endpoint(zoom, pitch, bearing), zoom, pitch, bearing };
       }
-      // MapLibre already interpolates terrain elevation during flyTo/easeTo.
-      // Repeating the lookup here added work to every animation frame.
       return prior;
     }
     const easing = t => { progress = t; return t * t * (3 - 2 * t); };
@@ -132,7 +125,6 @@
     listen('moveend', () => {
       if (disposed || arrived) return;
       isFlying = false;
-      restoreSuppressedLayers();
       queueMicrotask(() => {
         if (disposed || arrived || map.isMoving()) return;
         arrived = true;
@@ -145,26 +137,12 @@
     const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
     const nearby = distDeg < 0.25;
 
-    // 远距离高倾角飞跃期间，短暂隐藏超大密度矢量路线图层，杜绝 WebGL 瓦片跨越畸变爆面闪烁
-    if (!nearby && (pitch > 25 || (map.getPitch && map.getPitch() > 25))) {
-      heavyLineLayers.forEach(id => {
-        try {
-          if (map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none') {
-            suppressedLayers.push(id);
-            map.setLayoutProperty(id, 'visibility', 'none');
-          }
-        } catch (e) {}
-      });
-    }
-
     internal = true;
-    // Short hops interpolate monotonically; distant flights retain the native arc.
     const method = nearby ? 'easeTo' : 'flyTo';
     if (duration === 0) progress = 1;
     map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
       padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
     internal = false;
-    // Bounded terrain settling; no permanent render loop or polling timers.
     deadline = setTimeout(dispose, duration + 10000);
   }
 

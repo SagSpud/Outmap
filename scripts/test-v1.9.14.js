@@ -7,7 +7,7 @@ const { enumerateMissingTileRanges, enumerateTiles } = require('../src/offline-w
   const pkg = require('../package.json');
   // This regression suite covers the 1.9.14 downloader architecture and is
   // intentionally reusable for subsequent patch releases.
-  assert(/^1\.9\.(14|15|16|17|18|19|20|21)$/.test(pkg.version));
+  assert(/^1\.9\.(14|15|16|17|18|19|20|21|22)$/.test(pkg.version));
 
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
@@ -17,7 +17,7 @@ const { enumerateMissingTileRanges, enumerateTiles } = require('../src/offline-w
   assert(main.includes('const concurrency = 36;'), 'desktop downloader must use the measured 36-lane throughput setting');
   assert(app.includes('data.newlySavedCount ?? data.savedCount'), 'UI must count successfully persisted tiles instead of completed attempts');
   assert(!app.includes("if (el) el.innerText = '— FPS'"), 'idle status must keep the last real FPS sample');
-  assert(html.includes('id="status-fps">待测 FPS</span>'));
+  assert(!html.includes('id="status-fps"'), 'FPS display removed from status bar per user request');
 
   const plan = {
     provinces: [{ key: 'test', name: '测试区域', bbox: [100, 104, 28, 32] }],
