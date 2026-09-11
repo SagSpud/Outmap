@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.29" />
+  <link rel="stylesheet" href="style.css?v=1.9.30" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.29</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.30</span>
                 </div>
               </div>
             </div>
@@ -136,10 +136,9 @@
         </button>
         <button class="map-dock-btn" id="btn-reset-north" title="重置正北方向 (点击归正)">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="1.6" opacity="0.45"></circle>
-            <polygon points="12 3.8 15.2 12 12 10.2 8.8 12" fill="#ef4444" stroke="#ef4444" stroke-width="0.8" stroke-linejoin="round"></polygon>
-            <polygon points="12 20.2 8.8 12 12 13.8 15.2 12" fill="currentColor" opacity="0.3" stroke="currentColor" stroke-width="0.8" stroke-linejoin="round"></polygon>
-            <circle cx="12" cy="12" r="1.4" fill="currentColor"></circle>
+            <circle cx="12" cy="12" r="9.5"></circle>
+            <polygon points="12 3.8 15.5 12 12 10.2 8.5 12"></polygon>
+            <polygon points="12 20.2 8.5 12 12 13.8 15.5 12" opacity="0.45"></polygon>
           </svg>
         </button>
       </div>
@@ -847,8 +846,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.9.29"></script>
-  <script src="favorite-interactions.js?v=1.9.29"></script>
-  <script src="app.js?v=1.9.29"></script>
+  <script src="location-camera.js?v=1.9.30"></script>
+  <script src="favorite-interactions.js?v=1.9.30"></script>
+  <script src="app.js?v=1.9.30"></script>
 </body>
 </html>

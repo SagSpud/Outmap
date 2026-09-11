@@ -718,6 +718,9 @@ body.web-mode #manage-modal {
 }
 
 .search-trigger-placeholder {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
   font-size: 12px;
   color: #94a3b8;
   font-weight: 500;
@@ -740,6 +743,8 @@ body.web-mode #manage-modal {
 }
 
 .search-trigger-svg {
+  display: inline-block;
+  vertical-align: middle;
   color: #64748b;
   flex-shrink: 0;
   transition: color 0.15s ease;
@@ -1251,9 +1256,12 @@ body.web-mode #manage-modal {
 }
 
 .office-fluent-dropdown-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  line-height: 1;
+  vertical-align: middle;
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -1267,6 +1275,12 @@ body.web-mode #manage-modal {
   transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.office-fluent-dropdown-btn span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .office-fluent-dropdown-btn:hover {
@@ -1283,6 +1297,9 @@ body.web-mode #manage-modal {
 }
 
 .fluent-caret-svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
   color: #64748b;
   transition: transform 0.2s ease;
 }
@@ -3157,6 +3174,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
 }
 
 .btn-drag-handle:hover {
@@ -3177,6 +3195,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   border-color: transparent;
   background: transparent;
   cursor: pointer;
+  touch-action: none;
 }
 
 .via-drag-handle:hover {
@@ -4758,6 +4777,11 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .sync-user-sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+  vertical-align: middle;
   font-size: 12px;
   color: #16a34a;
   font-weight: 600;
@@ -4809,12 +4833,18 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .sync-dot-live {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
   color: #16a34a;
   font-size: 11px;
   text-shadow: 0 0 6px rgba(22, 163, 74, 0.8);
 }
 
 .sync-dot-err {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
   color: #ef4444;
   font-size: 11px;
   text-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
@@ -5664,7 +5694,7 @@ body.web-mode .office-prov-group {
   display: block;
   width: 100%;
   height: 125px;
-  cursor: crosshair;
+  cursor: default;
 }
 
 /* 尊重系统“减少动态效果”选项；默认状态仍完整保留现有丝滑动画。 */
@@ -6034,6 +6064,7 @@ body.map-is-moving .fluent-alert-box {
   border-color: var(--glass-border) !important;
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .floating-card,

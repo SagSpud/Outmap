@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.29';
+const APP_VERSION = '1.9.30';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -244,6 +244,50 @@ function smoothCloseContextMenu(onClosed) {
   if (pendingElementCloses.has(ctxMenu)) return;
   ctxMenu.classList.remove('ctx-opening');
   smoothCloseElement(ctxMenu, 'ctx-closing', 150, onClosed);
+}
+
+// 移动端底部抽屉原生式手势向下滑动收起手柄
+function enableMobileSwipeDownToClose(panel, header, onClosed) {
+  if (!panel || !header) return;
+  let startY = 0;
+  let currentY = 0;
+  let isDragging = false;
+
+  header.addEventListener('touchstart', (e) => {
+    if (window.innerWidth > 768) return;
+    if (e.touches.length !== 1) return;
+    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a')) return;
+    startY = e.touches[0].clientY;
+    currentY = startY;
+    isDragging = true;
+    panel.style.transition = 'none';
+  }, { passive: true });
+
+  header.addEventListener('touchmove', (e) => {
+    if (!isDragging || window.innerWidth > 768) return;
+    currentY = e.touches[0].clientY;
+    const deltaY = currentY - startY;
+    if (deltaY > 0) {
+      panel.style.transform = `translateY(${deltaY}px)`;
+    }
+  }, { passive: true });
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    panel.style.transition = '';
+    const deltaY = currentY - startY;
+    if (deltaY > 55) {
+      panel.style.transform = '';
+      if (typeof onClosed === 'function') onClosed();
+      else smoothClosePanel(panel);
+    } else {
+      panel.style.transform = '';
+    }
+  };
+
+  header.addEventListener('touchend', endDrag, { passive: true });
+  header.addEventListener('touchcancel', endDrag, { passive: true });
 }
 
 // Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
@@ -2124,7 +2168,7 @@ async function queryLocationCandidates(keyword) {
       name: coordMatch.title,
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
-      icon: '🎯',
+      type: 'target',
       zoom: 13.0
     }];
   }
@@ -2143,7 +2187,6 @@ async function queryLocationCandidates(keyword) {
           name: p.name,
           desc: `省级行政区 · ${p.name}`,
           coords: [Number(p.center[0]), Number(p.center[1])],
-          icon: '🚩',
           type: 'province',
           zoom: p.zoom,
           _score: score
@@ -2164,7 +2207,6 @@ async function queryLocationCandidates(keyword) {
           name: c.name,
           desc: `${c.province || '重点城市'} · 城市中心`,
           coords: [Number(c.coords[0]), Number(c.coords[1])],
-          icon: '🏙️',
           type: 'city',
           zoom: 12.0,
           _score: score
@@ -2179,23 +2221,20 @@ async function queryLocationCandidates(keyword) {
       if (wp && wp.name && (wp.name.includes(raw) || raw.includes(wp.name))) {
         localMatches.push({
           name: wp.name,
-          desc: `我的收藏点 · ${wp.ele || 0}m`,
+          desc: `我的收藏 · ${cleanFolderTitle(wp.folder || '未分类')}`,
           coords: [Number(wp.lng), Number(wp.lat)],
-          icon: '⭐',
-          type: 'waypoint',
-          zoom: 13.0,
-          _score: 1
+          type: wp.type || 'poi',
+          zoom: 14.0,
+          _score: wp.name === raw ? 1 : 2
         });
       }
     });
   }
 
-  // 按相关度评分排序
-  localMatches.sort((a, b) => (a._score || 9) - (b._score || 9));
-
-  // 6. 【极速 0ms 直出】：若本地中国城市/省份/收藏已有精确匹配，直接秒级返回，绝不等待海外网络！
-  if (localMatches.length > 0 && localMatches[0]._score <= 2) {
-    return localMatches.slice(0, 16);
+  // 6. 若本地匹配结果已足够（>= 3 个精准匹配），直接按相关度呈现，保护网络流量与私密性
+  if (localMatches.length >= 3) {
+    localMatches.sort((a, b) => (a._score || 5) - (b._score || 5));
+    return localMatches.slice(0, 8);
   }
 
   // 7. 仅在本地无精确匹配时，按需请求在线高精地理编码，且【严格限定仅搜索中国境内】
@@ -2210,7 +2249,11 @@ async function queryLocationCandidates(keyword) {
     }
 
     if (!geojson) {
+      if (window._currentSearchAbortController) {
+        try { window._currentSearchAbortController.abort(); } catch (e) {}
+      }
       const ctrl = new AbortController();
+      window._currentSearchAbortController = ctrl;
       const timeoutId = setTimeout(() => ctrl.abort(), 6500);
 
       const isDesktop = typeof window !== 'undefined' && Boolean(window.electronAPI);
@@ -2228,6 +2271,8 @@ async function queryLocationCandidates(keyword) {
         } else {
           throw netErr;
         }
+      } finally {
+        clearTimeout(timeoutId);
       }
 
       if (resp && resp.ok) {
@@ -2236,64 +2281,60 @@ async function queryLocationCandidates(keyword) {
     }
 
     if (geojson && geojson.features) {
+      geojson.features.forEach(f => {
+        const p = f.properties;
+        const coords = f.geometry.coordinates;
+        if (!coords || coords.length < 2) return;
 
-        geojson.features.forEach(f => {
-          const p = f.properties;
-          const coords = f.geometry.coordinates;
-          if (!coords || coords.length < 2) return;
+        const lng = Number(coords[0]);
+        const lat = Number(coords[1]);
+        if (isNaN(lng) || isNaN(lat)) return;
 
-          const lng = Number(coords[0]);
-          const lat = Number(coords[1]);
-          if (isNaN(lng) || isNaN(lat)) return;
+        // 严格边界与国家校验：仅限中国本土
+        const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
+        const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
+        if (!inChinaBbox || !isCountryCn) return;
 
-          // 严格边界与国家校验：仅限中国本土
-          const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
-          const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
-          if (!inChinaBbox || !isCountryCn) return;
+        const name = p.name || p.street || p.city || raw;
+        const parts = [p.state, p.city, p.district, p.locality]
+          .filter(Boolean)
+          .filter(s => s !== 'China' && s !== '中国');
+        const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '中国地点');
+        const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
 
-          const name = p.name || p.street || p.city || raw;
-          const parts = [p.state, p.city, p.district, p.locality]
-            .filter(Boolean)
-            .filter(s => s !== 'China' && s !== '中国');
-          const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '中国地点');
-          const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
+        let type = 'poi';
+        const osmValue = (p.osm_value || '').toLowerCase();
+        // 过滤名山与山峰 POI (遵循用户偏好，不展示名山高峰)
+        if (osmValue.includes('mountain') || osmValue.includes('peak')) {
+          return;
+        }
 
-          let icon = '📍';
-          let type = 'poi';
-          const osmValue = (p.osm_value || '').toLowerCase();
-          // 过滤名山与山峰 POI (遵循用户偏好，不展示名山高峰)
-          if (osmValue.includes('mountain') || osmValue.includes('peak')) {
-            return;
-          }
+        if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑') || name.includes('公馆')) {
+          type = 'community';
+        } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
+          type = 'school';
+        } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
+          type = 'hospital';
+        } else if (osmValue.includes('city') || osmValue.includes('town')) {
+          type = 'city';
+        }
 
-          if (osmValue.includes('residential') || osmValue.includes('housing') || osmValue.includes('suburb') || osmValue.includes('quarter') || name.includes('小区') || name.includes('家园') || name.includes('花园') || name.includes('苑') || name.includes('公馆')) {
-            icon = '🏘️';
-            type = 'community';
-          } else if (osmValue.includes('school') || osmValue.includes('university') || osmValue.includes('college')) {
-            icon = '🏫';
-          } else if (osmValue.includes('hospital') || osmValue.includes('clinic')) {
-            icon = '🏥';
-          } else if (osmValue.includes('city') || osmValue.includes('town')) {
-            icon = '🏙️';
-          }
-
-          const isDuplicate = localMatches.some(m => {
-            const dist = Math.hypot(m.coords[0] - lng, m.coords[1] - lat);
-            return (m.name === name && dist < 0.005) || dist < 0.0008;
-          });
-
-          if (!isDuplicate) {
-            localMatches.push({
-              name,
-              desc,
-              coords: [lng, lat],
-              icon,
-              type,
-              zoom: 13.0
-            });
-          }
+        const isDuplicate = localMatches.some(m => {
+          const dist = Math.hypot(m.coords[0] - lng, m.coords[1] - lat);
+          return (m.name === name && dist < 0.005) || dist < 0.0008;
         });
-      }
+
+        if (!isDuplicate) {
+          localMatches.push({
+            name,
+            desc,
+            coords: [lng, lat],
+            type,
+            zoom: 13.0
+          });
+        }
+      });
+    }
     } catch (e) {
       // 离线或超时平滑回退本地结果
     }
@@ -2601,6 +2642,9 @@ function setupOfficeHeaderInteractions(map) {
     closeMobileElevationSheet();
   };
   btnCloseMobileEle?.addEventListener('click', handleCloseMobileEle);
+  if (mobileEleSheet) {
+    enableMobileSwipeDownToClose(mobileEleSheet, mobileEleSheet.querySelector('.panel-header'), closeMobileElevationSheet);
+  }
 
   // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (全量流体平滑动效退出)
   map.on('click', () => {
@@ -2682,7 +2726,6 @@ function setupOfficeHeaderInteractions(map) {
       name: item.name,
       desc: item.desc || '',
       coords: item.coords,
-      icon: item.icon || '📍',
       type: item.type || 'poi',
       zoom: item.zoom || 14
     });
@@ -2721,7 +2764,7 @@ function setupOfficeHeaderInteractions(map) {
 
     resultsContainer.innerHTML = `
       <div class="search-history-header">
-        <span class="search-history-title">⏱️ 搜索历史</span>
+        <span class="search-history-title">搜索历史</span>
         <button class="btn-clear-history" id="btn-clear-history-action">清空历史</button>
       </div>
     `;
@@ -2736,8 +2779,9 @@ function setupOfficeHeaderInteractions(map) {
       const row = document.createElement('div');
       row.className = 'search-result-item';
       const cleanDesc = stripChinaPrefix(item.desc || '历史搜索地点');
+      const historySvg = window.OutmapFavoriteInteractions?.svg('history', { size: 14, color: '#64748b' }) || '';
       row.innerHTML = `
-        <div class="search-result-icon">${escapeHtml(item.icon || '⏱️')}</div>
+        <div class="search-result-icon">${historySvg}</div>
         <div class="search-result-info">
           <div class="search-result-name">${escapeHtml(item.name)}</div>
           <div class="search-result-desc">${escapeHtml(cleanDesc)}</div>
@@ -2786,7 +2830,7 @@ function setupOfficeHeaderInteractions(map) {
       </div>
       <div class="pulse-pin-wrap">
         <div class="pulse-ring"></div>
-        <div class="pulse-core">${window.OutmapFavoriteInteractions?.svg('pin', { size: 15, color: '#ef4444' }) || '📍'}</div>
+        <div class="pulse-core">${window.OutmapFavoriteInteractions?.svg('pin', { size: 15, color: '#ef4444' }) || ''}</div>
       </div>
     `;
 
@@ -2910,7 +2954,15 @@ function setupOfficeHeaderInteractions(map) {
         ? (window.OutmapFavoriteInteractions?.svg('flag', { size: 14, color: '#ef4444' }) || '')
         : (item.type === 'city')
         ? (window.OutmapFavoriteInteractions?.svg('building', { size: 14, color: '#0284c7' }) || '')
-        : (item.coords ? (window.OutmapFavoriteInteractions?.svg('target', { size: 14, color: '#0284c7' }) || '') : (window.OutmapFavoriteInteractions?.svg('pin', { size: 14, color: '#0284c7' }) || ''));
+        : (item.type === 'community')
+        ? (window.OutmapFavoriteInteractions?.svg('home', { size: 14, color: '#059669' }) || '')
+        : (item.type === 'school')
+        ? (window.OutmapFavoriteInteractions?.svg('school', { size: 14, color: '#0284c7' }) || '')
+        : (item.type === 'hospital')
+        ? (window.OutmapFavoriteInteractions?.svg('hospital', { size: 14, color: '#e11d48' }) || '')
+        : (item.type === 'target')
+        ? (window.OutmapFavoriteInteractions?.svg('target', { size: 14, color: '#0284c7' }) || '')
+        : (window.OutmapFavoriteInteractions?.svg('pin', { size: 14, color: '#0284c7' }) || '');
       row.innerHTML = `
         <div class="search-result-icon">${searchItemSvg}</div>
         <div class="search-result-info">
@@ -3144,6 +3196,17 @@ function setupOfficeHeaderInteractions(map) {
       closeSearchPopover();
     }
   });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      if (searchPopover && searchPopover.style.display !== 'none' && window.innerWidth <= 768) {
+        const vh = window.visualViewport.height;
+        if (resultsContainer) {
+          resultsContainer.style.maxHeight = `${Math.max(120, vh - 120)}px`;
+        }
+      }
+    });
+  }
 
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') closeSearchPopover(true);
@@ -3590,6 +3653,15 @@ function setupPyramidModal(map) {
   };
 
   const openPyramidModal = async () => {
+    if (!window.electronAPI) {
+      if (typeof showFluentAlert === 'function') {
+        showFluentAlert('离线地图下载与本地切片缓存功能为 Outmap 桌面客户端专属。\n\n当前处于在线网页浏览模式，底图与三维地形数据将直接通过云端 CDN 实时加速加载。', '离线下载提示');
+      } else {
+        alert('离线地图下载功能为 Outmap 桌面客户端专属。');
+      }
+      return;
+    }
+
     if (typeof window.closeProvincePopover === 'function') {
       window.closeProvincePopover();
     } else {
@@ -4410,7 +4482,7 @@ function setupPyramidModal(map) {
 
         if (data.isIncrementalUpdate) {
           if (typeof showFluentAlert === 'function') {
-            showFluentAlert(`🎉 方案 A 增量更新完成！\n\n共扫描检查 ${data.total.toLocaleString()} 块瓦片：\n• 保持最新: ${(data.unchangedCount || 0).toLocaleString()} 块 (304 跳过，0 流量)\n• 增量更新: ${(data.updatedCount || 0).toLocaleString()} 块 (云端最新路网)\n• 查漏补缺: ${(data.newlyAddedCount || 0).toLocaleString()} 块\n\n您之前下载的数据全部完好保留在本地，未漏掉任何切片！`);
+            showFluentAlert(`方案 A 增量更新完成！\n\n共扫描检查 ${data.total.toLocaleString()} 块瓦片：\n• 保持最新: ${(data.unchangedCount || 0).toLocaleString()} 块 (304 跳过，0 流量)\n• 增量更新: ${(data.updatedCount || 0).toLocaleString()} 块 (云端最新路网)\n• 查漏补缺: ${(data.newlyAddedCount || 0).toLocaleString()} 块\n\n您之前下载的数据全部完好保留在本地，未漏掉任何切片！`);
           }
         }
 
@@ -5236,7 +5308,7 @@ function setupCloudSync(map) {
     }
   });
 
-  // 手动同步触发逻辑 (支持同步弹窗中的 "🔄 立即同步" 与收藏夹抽屉中的 "🔄 同步" 按钮)
+  // 手动同步触发逻辑 (支持同步弹窗中的 "立即同步" 与收藏夹抽屉中的 "同步" 按钮)
   const handleManualSync = async (btnEl = null) => {
     const user = getLoggedInUser();
     if (!user) {
@@ -5824,10 +5896,7 @@ function setupWaypointAndFavoritesSystem(map) {
   };
   refreshFolderOptions();
 
-  const favoriteIconMap = {
-    view: '🏔️', camp: '🏕️', water: '💧', supply: '⛽',
-    parking: '🅿️', hotel: '🏨', photo: '📸', hiking: '🥾'
-  };
+  const favoriteTypes = ['view', 'camp', 'water', 'supply', 'parking', 'hotel', 'photo', 'hiking'];
 
   const waypointFeature = wp => ({
     type: 'Feature',
@@ -5839,42 +5908,24 @@ function setupWaypointAndFavoritesSystem(map) {
       type: wp.type || 'view',
       folder: wp.folder || 'default',
       ele: Number(wp.ele) || 0,
-      icon: `outmap-fav-${favoriteIconMap[wp.type] ? wp.type : 'view'}`
+      icon: `outmap-fav-${favoriteTypes.includes(wp.type) ? wp.type : 'view'}`
     }
   });
 
   const favoriteFeatureCollection = () => ({
     type: 'FeatureCollection',
     features: savedWaypoints
-      .filter(wp => wp && wp.id != null && Number.isFinite(Number(wp.lng)) && Number.isFinite(Number(wp.lat)))
+      .filter(wp => wp && wp.id != null && Number.isFinite(Number(wp.lng)) && Number(wp.lat))
       .map(waypointFeature)
   });
 
-  const addFavoriteIcon = (type, emoji) => {
+  const addFavoriteIcon = (type) => {
     const id = `outmap-fav-${type}`;
     if (map.hasImage(id)) return;
     if (window.OutmapFavoriteInteractions) {
       map.addImage(id, window.OutmapFavoriteInteractions.icon(type), { pixelRatio: 2 });
       return;
     }
-    const size = 64;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, size, size);
-    ctx.beginPath();
-    ctx.arc(32, 32, 27, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.98)';
-    ctx.fill();
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = '#0284c7';
-    ctx.stroke();
-    ctx.font = '34px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, 32, 33);
-    map.addImage(id, ctx.getImageData(0, 0, size, size), { pixelRatio: 2 });
   };
 
   const bindFavoriteLayerEvents = () => {
@@ -5974,7 +6025,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
   const ensureFavoriteLayers = () => {
     if (!map.__outmapStyleReady) return false;
-    Object.entries(favoriteIconMap).forEach(([type, emoji]) => addFavoriteIcon(type, emoji));
+    favoriteTypes.forEach(type => addFavoriteIcon(type));
     if (!map.getSource(FAVORITES_SOURCE_ID)) {
       map.addSource(FAVORITES_SOURCE_ID, {
         type: 'geojson',
@@ -6269,7 +6320,7 @@ function setupWaypointAndFavoritesSystem(map) {
           <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
             <span class="ctx-icon">${window.OutmapFavoriteInteractions?.svg(t.key, { autoColor: true, size: 16 }) || ''}</span>
             <span class="ctx-text">${t.name}</span>
-            <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
+            <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? (window.OutmapFavoriteInteractions?.svg('check', { size: 14, color: '#0284c7' }) || '✓') : ''}</span>
           </button>
         `).join('')}
       </div>
@@ -6310,7 +6361,9 @@ function setupWaypointAndFavoritesSystem(map) {
       map.off('movestart', closeMenu);
     };
 
+    const menuOpenTimestamp = Date.now();
     const onDocClick = (e) => {
+      if (Date.now() - menuOpenTimestamp < 320) return;
       if (!menu.contains(e.target)) closeMenu();
     };
     const onDocKey = (e) => {
@@ -6436,11 +6489,13 @@ function setupWaypointAndFavoritesSystem(map) {
 
       // 移动端长按 500ms
       let itemTouchTimer = null;
+      let suppressNextItemClick = false;
       item.addEventListener('touchstart', (e) => {
         if (e.touches && e.touches.length === 1) {
           const t = e.touches[0];
           itemTouchTimer = setTimeout(() => {
             itemTouchTimer = null;
+            suppressNextItemClick = true;
             showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
           }, 500);
         }
@@ -6448,7 +6503,13 @@ function setupWaypointAndFavoritesSystem(map) {
       item.addEventListener('touchmove', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
       item.addEventListener('touchend', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
 
-      item.querySelector('.fav-item-info').addEventListener('click', () => {
+      item.querySelector('.fav-item-info').addEventListener('click', (e) => {
+        if (suppressNextItemClick) {
+          suppressNextItemClick = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         const startFavoriteFlight = () => {
           const curCenter = map.getCenter();
           const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
@@ -7082,6 +7143,9 @@ function setupWaypointAndFavoritesSystem(map) {
   btnCloseFav?.addEventListener('click', () => {
     smoothClosePanel(favDrawer);
   });
+  if (favDrawer) {
+    enableMobileSwipeDownToClose(favDrawer, favDrawer.querySelector('.panel-header'));
+  }
 
   // 收藏夹抽屉独立点位导入 (支持 GPX / KML / GeoJSON / JSON)
   const btnFavImportPts = document.getElementById('btn-fav-drawer-import-pts');
@@ -7293,7 +7357,7 @@ function importWaypointsIntoFavorites(waypoints, sourceName, mapInstance) {
     window.triggerRealtimeCloudSync('batch_import_waypoints');
   }
 
-  showToast(`✅ 成功导入 ${addedCount} 个点位至【${folderName}】`);
+  showToast(`成功导入 ${addedCount} 个点位至【${folderName}】`);
   return true;
 }
 window.importWaypointsIntoFavorites = importWaypointsIntoFavorites;
@@ -9510,6 +9574,16 @@ function setupOutdoorRouteSystem(map) {
       if (routeExportMenu) routeExportMenu.style.display = 'none';
     });
   });
+  if (routePanel) {
+    enableMobileSwipeDownToClose(routePanel, routePanel.querySelector('.panel-header'), () => {
+      hideRouteFloatingDropdown();
+      smoothClosePanel(routePanel, () => {
+        if (startDropdown) startDropdown.style.display = 'none';
+        if (endDropdown) endDropdown.style.display = 'none';
+        if (routeExportMenu) routeExportMenu.style.display = 'none';
+      });
+    });
+  }
 
   // 出行方式切换 (自驾、骑行、徒步)
   document.querySelectorAll('.route-mode-btn').forEach(btn => {
@@ -9706,7 +9780,7 @@ function setupOutdoorRouteSystem(map) {
     }
   });
 
-  // 1. 规划按钮 (无⚡图标)
+  // 1. 规划按钮 (纯文本无冗余图标)
   btnCalcRoute?.addEventListener('click', () => {
     exitRoutePickingMode();
     const validVias = routeViaPoints.filter(v => v && v.coords);
@@ -10026,7 +10100,7 @@ function setupOutdoorRouteSystem(map) {
     }
   });
 
-  // 点击【📥 导出GPX】(当前规划路线，支持无显式终点时自动以最后一个途径点作为终点导出)
+  // 点击【导出GPX】(当前规划路线，支持无显式终点时自动以最后一个途径点作为终点导出)
   btnExportGpx?.addEventListener('click', () => {
     closeRouteExportMenu();
     const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
@@ -11180,6 +11254,8 @@ function setupMapContextMenu(map) {
   // 移动端触屏单指长按 520ms 唤起地点交互菜单 (手机无鼠标右键时流畅选点)
   let longPressTimer = null;
   let touchStartPoint = null;
+  let suppressNextMapClick = false;
+  let lastLongPressOpenTime = 0;
 
   map.on('touchstart', e => {
     if (e.points && e.points.length > 1) {
@@ -11191,6 +11267,8 @@ function setupMapContextMenu(map) {
     longPressTimer = setTimeout(() => {
       showContextMenuAtPoint(e.lngLat, e.point);
       longPressTimer = null;
+      suppressNextMapClick = true;
+      lastLongPressOpenTime = Date.now();
     }, 520);
   });
 
@@ -11240,9 +11318,19 @@ function setupMapContextMenu(map) {
   });
 
   // 隐藏右键菜单触发机制 (平滑流体淡出)
-  map.on('click', () => hideContextMenu());
+  map.on('click', () => {
+    if (suppressNextMapClick || Date.now() - lastLongPressOpenTime < 350) {
+      suppressNextMapClick = false;
+      return;
+    }
+    hideContextMenu();
+  });
   map.on('movestart', () => hideContextMenu());
   document.addEventListener('click', e => {
+    if (suppressNextMapClick || Date.now() - lastLongPressOpenTime < 350) {
+      suppressNextMapClick = false;
+      return;
+    }
     if (ctxMenu && !ctxMenu.contains(e.target)) {
       hideContextMenu();
     }
@@ -11273,7 +11361,16 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 0.1 浮动路线候选联想框
+      // 0.1 路线导出下拉菜单
+      const routeExportMenu = document.getElementById('route-export-menu');
+      if (routeExportMenu && routeExportMenu.style.display !== 'none') {
+        routeExportMenu.style.display = 'none';
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.2 浮动路线候选联想框
       const routeDropdown = getRouteFloatingDropdown();
       if (routeDropdown && routeDropdown.style.display !== 'none') {
         hideRouteFloatingDropdown();
@@ -11300,7 +11397,16 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 1. 最高优先级：离线下载对话框省份下拉浮层与对话框
+      // 1. 云端多设备同步弹窗 (z-index: 10000，必须优先于底层抽屉面板退出)
+      const syncModal = document.getElementById('sync-modal');
+      if (syncModal && syncModal.style.display !== 'none') {
+        smoothCloseModal(syncModal);
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 2. 离线下载对话框省份下拉浮层与对话框
       const provDropdownPanel = document.getElementById('pyramid-prov-dropdown-panel');
       if (provDropdownPanel && provDropdownPanel.style.display !== 'none') {
         smoothClosePopover(provDropdownPanel, () => {
@@ -11327,7 +11433,7 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 2. 版本更新提示弹窗
+      // 3. 版本更新提示弹窗
       const updateModal = document.getElementById('update-modal');
       if (updateModal && updateModal.style.display !== 'none') {
         smoothCloseModal(updateModal, () => {
@@ -11357,7 +11463,45 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 5. 路线规划面板
+      // 5. 手机端 3D 地形高程调节抽屉
+      const mobileEle = document.getElementById('mobile-ele-sheet');
+      if (mobileEle && mobileEle.style.display !== 'none') {
+        smoothClosePanel(mobileEle, () => {
+          mobileEle.classList.remove('active');
+        });
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 6. 搜索框激活或搜索浮动面板打开时 (按 ESC 立即全面退出搜索并清空)
+      const sInputGlobal = document.getElementById('global-search-input');
+      const searchPopover = document.getElementById('search-popover') || document.getElementById('spotlight-modal');
+      const isSearchActive = (searchPopover && searchPopover.style.display !== 'none') ||
+                             (sInputGlobal && (document.activeElement === sInputGlobal || sInputGlobal.value.trim()));
+
+      if (isSearchActive) {
+        if (sInputGlobal) {
+          sInputGlobal.value = '';
+          sInputGlobal.blur();
+        }
+        if (searchPopover && searchPopover.style.display !== 'none') {
+          smoothClosePopover(searchPopover);
+        }
+        const targetLandingMarker = (typeof currentLandingMarker !== 'undefined' && currentLandingMarker) || window.currentLandingMarker;
+        if (targetLandingMarker) {
+          if (typeof window.clearLandingMarker === 'function') {
+            window.clearLandingMarker();
+          } else {
+            try { targetLandingMarker.remove(); } catch (err) {}
+          }
+        }
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 7. 路线规划面板
       const routePanel = document.getElementById('route-panel');
       if (routePanel && routePanel.style.display !== 'none') {
         if (pickingRoutePt) {
@@ -11383,7 +11527,7 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 6. 收藏夹抽屉面板
+      // 8. 收藏夹抽屉面板
       const favPanel = document.getElementById('favorites-drawer');
       if (favPanel && favPanel.style.display !== 'none') {
         smoothClosePanel(favPanel);
@@ -11392,7 +11536,7 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 7. 全国总览省份拼音展开面板
+      // 9. 全国总览省份拼音展开面板
       const provPopover = document.getElementById('prov-popover-menu');
       if (provPopover && provPopover.style.display !== 'none') {
         smoothClosePopover(provPopover, () => {
@@ -11404,51 +11548,6 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 3. 云端多设备同步弹窗
-      const syncModal = document.getElementById('sync-modal');
-      if (syncModal && syncModal.style.display !== 'none') {
-        smoothCloseModal(syncModal);
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
-      }
-
-      // 0.2 路线导出下拉菜单
-      const routeExportMenu = document.getElementById('route-export-menu');
-      if (routeExportMenu && routeExportMenu.style.display !== 'none') {
-        routeExportMenu.style.display = 'none';
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
-      }
-
-      // 8. 搜索框激活或搜索浮动面板打开时 (按 ESC 立即全面退出搜索并清空)
-      const sInputGlobal = document.getElementById('global-search-input');
-      const searchPopover = document.getElementById('search-popover') || document.getElementById('spotlight-modal');
-      const isSearchActive = (searchPopover && searchPopover.style.display !== 'none') ||
-                             (sInputGlobal && (document.activeElement === sInputGlobal || sInputGlobal.value.trim()));
-
-      if (isSearchActive) {
-        if (sInputGlobal) {
-          sInputGlobal.value = '';
-          sInputGlobal.blur();
-        }
-        if (searchPopover && searchPopover.style.display !== 'none') {
-          smoothClosePopover(searchPopover);
-        }
-        const targetLandingMarker = (typeof currentLandingMarker !== 'undefined' && currentLandingMarker) || window.currentLandingMarker;
-        if (targetLandingMarker) {
-          if (typeof window.clearLandingMarker === 'function') {
-            window.clearLandingMarker();
-          } else {
-            try { targetLandingMarker.remove(); } catch (err) {}
-            if (typeof currentLandingMarker !== 'undefined') currentLandingMarker = null;
-            window.currentLandingMarker = null;
-          }
-        }
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
       }
 
       // 8.5. 顶栏版本翻转卡片

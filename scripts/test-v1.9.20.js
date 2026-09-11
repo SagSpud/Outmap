@@ -11,14 +11,14 @@ const css = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const camera = fs.readFileSync(path.join(root, 'src', 'location-camera.js'), 'utf8');
 
 // 1. Version consistency
-assert(/^1\.9\.(20|21|22|23|24|25|26|27|28|29)$/.test(pkg.version), 'package.json version must be 1.9.20+');
-assert(/^1\.9\.(20|21|22|23|24|25|26|27|28|29)$/.test(lock.version), 'package-lock.json version must be 1.9.20+');
-assert(/^1\.9\.(20|21|22|23|24|25|26|27|28|29)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.20+');
-assert(/const APP_VERSION = '1\.9\.(20|21|22|23|24|25|26|27|28|29)';/.test(app), 'app.js must declare current APP_VERSION');
-assert(/style\.css\?v=1\.9\.(20|21|22|23|24|25|26|27|28|29)/.test(html), 'index.html must reference current style.css');
-assert(/app\.js\?v=1\.9\.(20|21|22|23|24|25|26|27|28|29)/.test(html), 'index.html must reference current app.js');
-assert(/location-camera\.js\?v=1\.9\.(20|21|22|23|24|25|26|27|28|29)/.test(html), 'index.html must reference current location-camera.js');
-assert(/id="brand-ver-badge-txt">v1\.9\.(20|21|22|23|24|25|26|27|28|29)<\/span>/.test(html), 'index.html must display version badge');
+assert(/^1\.9\.(20|21|22|23|24|25|26|27|28|29|30)$/.test(pkg.version), 'package.json version must be 1.9.20+');
+assert(/^1\.9\.(20|21|22|23|24|25|26|27|28|29|30)$/.test(lock.version), 'package-lock.json version must be 1.9.20+');
+assert(/^1\.9\.(20|21|22|23|24|25|26|27|28|29|30)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.20+');
+assert(/const APP_VERSION = '1\.9\.(20|21|22|23|24|25|26|27|28|29|30)';/.test(app), 'app.js must declare current APP_VERSION');
+assert(/style\.css\?v=1\.9\.(20|21|22|23|24|25|26|27|28|29|30)/.test(html), 'index.html must reference current style.css');
+assert(/app\.js\?v=1\.9\.(20|21|22|23|24|25|26|27|28|29|30)/.test(html), 'index.html must reference current app.js');
+assert(/location-camera\.js\?v=1\.9\.(20|21|22|23|24|25|26|27|28|29|30)/.test(html), 'index.html must reference current location-camera.js');
+assert(/id="brand-ver-badge-txt">v1\.9\.(20|21|22|23|24|25|26|27|28|29|30)<\/span>/.test(html), 'index.html must display version badge');
 
 // 2. Folder tabs drag-and-drop & renaming
 assert(css.includes('.fav-tab[draggable="true"]'), 'style.css must have draggable fav-tab styles');
