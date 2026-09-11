@@ -901,6 +901,9 @@ body.web-mode #manage-modal {
 }
 
 .search-result-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 16px;
   flex-shrink: 0;
   width: 22px;
@@ -1166,10 +1169,12 @@ body.web-mode #manage-modal {
 }
 
 .landing-act-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
+  line-height: 1;
+  vertical-align: middle;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 5px;
@@ -1180,6 +1185,12 @@ body.web-mode #manage-modal {
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-act-btn span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .landing-act-btn:active {
@@ -1614,16 +1625,34 @@ body.web-mode #manage-modal {
 }
 
 .btn-check-tile-update {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  line-height: 1;
+  vertical-align: middle;
   background: #f0f9ff;
   border: 1px solid #bae6fd;
   color: #0284c7;
   font-size: 11px;
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
   transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
+}
+
+.btn-check-tile-update svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.btn-check-tile-update span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .btn-check-tile-update:hover {
@@ -2126,12 +2155,30 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .modal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+  vertical-align: middle;
   padding: 6px 14px;
   border-radius: 5px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+}
+
+.modal-btn svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.modal-btn span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .modal-btn.primary {
@@ -2271,6 +2318,12 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 #pyramid-modal .btn-check-tile-update {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
   background: rgba(255, 255, 255, 0.72) !important;
   border: 1px solid rgba(203, 213, 225, 0.8) !important;
   backdrop-filter: blur(8px) !important;
@@ -2278,9 +2331,21 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   border-radius: 4px;
   font-size: 11px;
   color: #334155;
-  padding: 3px 8px;
+  padding: 4px 8px;
   cursor: pointer;
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+}
+
+#pyramid-modal .btn-check-tile-update svg {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+}
+
+#pyramid-modal .btn-check-tile-update span {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  line-height: 1 !important;
 }
 
 #pyramid-modal .btn-check-tile-update:hover {
@@ -2676,6 +2741,8 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   align-items: center;
   justify-content: center;
   gap: 4px;
+  line-height: 1;
+  vertical-align: middle;
   background: #f1f5f9;
   border: 1px solid #cbd5e1;
   border-radius: 5px;
@@ -2687,9 +2754,18 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
-.type-pill svg {
+.type-pill svg,
+.type-pill .pill-svg {
+  display: inline-block;
+  vertical-align: middle;
   flex-shrink: 0;
   transition: transform 0.12s ease;
+}
+
+.type-pill span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .type-pill:hover svg {
@@ -2839,6 +2915,8 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   align-items: center;
   justify-content: center;
   gap: 5px;
+  line-height: 1;
+  vertical-align: middle;
   background: transparent;
   border: none;
   padding: 5px 8px;
@@ -2852,9 +2930,18 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   -webkit-tap-highlight-color: transparent;
 }
 
-.route-mode-btn svg {
+.route-mode-btn svg,
+.route-mode-btn .mode-svg {
+  display: inline-block;
+  vertical-align: middle;
   flex-shrink: 0;
   transition: transform 0.12s ease;
+}
+
+.route-mode-btn span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .route-mode-btn:hover svg {
@@ -3289,6 +3376,26 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   white-space: nowrap;
   transition: color 0.16s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.16s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.route-pick-via-inline-btn .pick-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.route-pick-via-inline-btn .pick-icon svg {
+  display: block;
+  vertical-align: middle;
+}
+
+.route-pick-via-inline-btn .pick-text {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .route-pick-via-inline-btn:hover {
@@ -3367,8 +3474,12 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .route-floating-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 13px;
   flex-shrink: 0;
+  width: 18px;
 }
 
 .route-floating-item-info {
@@ -3835,6 +3946,12 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 
 .fav-main-tab {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  line-height: 1;
+  vertical-align: middle;
   background: transparent;
   border: none;
   padding: 6px 10px;
@@ -3845,6 +3962,18 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   cursor: pointer;
   transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   text-align: center;
+}
+
+.fav-main-tab svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.fav-main-tab span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .fav-main-tab.active {
@@ -4678,6 +4807,12 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   color: #16a34a;
   font-size: 11px;
   text-shadow: 0 0 6px rgba(22, 163, 74, 0.8);
+}
+
+.sync-dot-err {
+  color: #ef4444;
+  font-size: 11px;
+  text-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
 }
 
 /* =========================================================

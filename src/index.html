@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.26" />
+  <link rel="stylesheet" href="style.css?v=1.9.27" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.26</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.27</span>
                 </div>
               </div>
             </div>
@@ -134,11 +134,12 @@
             <path d="M12 12L3 7.5"></path>
           </svg>
         </button>
-        <button class="map-dock-btn" id="btn-reset-north">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 19 21 12 17 5 21 12 2" fill="currentColor" opacity="0.25"></polygon>
-            <polygon points="12 2 12 17 5 21 12 2" fill="#ef4444"></polygon>
-            <polygon points="12 2 19 21 12 17 12 2" fill="#94a3b8"></polygon>
+        <button class="map-dock-btn" id="btn-reset-north" title="重置正北方向 (点击归正)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="1.6" opacity="0.45"></circle>
+            <polygon points="12 3.8 15.2 12 12 10.2 8.8 12" fill="#ef4444" stroke="#ef4444" stroke-width="0.8" stroke-linejoin="round"></polygon>
+            <polygon points="12 20.2 8.8 12 12 13.8 15.2 12" fill="currentColor" opacity="0.3" stroke="currentColor" stroke-width="0.8" stroke-linejoin="round"></polygon>
+            <circle cx="12" cy="12" r="1.4" fill="currentColor"></circle>
           </svg>
         </button>
       </div>
@@ -173,11 +174,6 @@
       <div id="layers-popover" class="floating-panel layers-popover-panel" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-              <polyline points="2 17 12 22 22 17"></polyline>
-              <polyline points="2 12 12 17 22 12"></polyline>
-            </svg>
             <span>图层</span>
           </div>
           <button class="card-close" id="btn-close-layers-popover">✕</button>
@@ -315,7 +311,6 @@
       <div id="route-panel" class="floating-panel" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
             <span>路线规划</span>
           </div>
           <div class="panel-header-actions">
@@ -451,7 +446,7 @@
           <!-- 3D 路线海拔高程剖面图 (Canvas 绘制，鼠标悬停与地图联动) -->
           <div class="elevation-chart-section" id="route-chart-section" style="display: none;">
             <div class="chart-header-row">
-              <span class="chart-lbl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle; margin-right:5px;"><path d="M22 7 13.5 15.5 8.5 10.5 2 17 M16 7h6v6"/></svg>路线海拔起伏剖面</span>
+              <span class="chart-lbl">路线海拔起伏剖面</span>
               <div class="chart-header-actions">
                 <span class="chart-hover-val" id="chart-hover-info">滑动联动地图</span>
                 <button class="chart-close-btn" id="btn-close-chart-section" type="button">✕</button>
@@ -468,7 +463,6 @@
       <div id="mobile-ele-sheet" class="floating-panel mobile-bottom-sheet" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3l4 8 5-5 5 12H2L8 3z"/></svg>
             <span>3D 地形立体高程调节</span>
           </div>
           <button class="card-close" id="btn-close-mobile-ele">✕</button>
@@ -500,7 +494,6 @@
       <div id="favorites-drawer" class="floating-panel" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <span>我的收藏</span>
           </div>
           <div class="panel-header-actions">
@@ -576,7 +569,6 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <span class="m-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96L12 12.01l8.73-5.05 M12 22.08V12"/></svg></span>
           <span>离线地图下载</span>
         </div>
         <button class="modal-close-btn" id="btn-close-pyramid-modal">✕</button>
@@ -729,7 +721,7 @@
           <div class="sync-user-profile-card">
             <div class="sync-user-meta">
               <span class="sync-user-name" id="sync-user-name-display">用户</span>
-              <span class="sync-user-sync-badge" id="sync-user-status-badge">🟢 同步中</span>
+              <span class="sync-user-sync-badge" id="sync-user-status-badge"><span class="sync-dot-live">●</span> 实时同步中</span>
             </div>
           </div>
           <div class="sync-action-row" style="margin-top: 12px; display: flex; gap: 8px;">
@@ -755,7 +747,6 @@
     <div class="modal-card update-modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <span class="m-icon" id="update-modal-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v3 M12 19v3 M2 12h3 M19 12h3 M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"/></svg></span>
           <span id="update-modal-title-text">软件版本与在线更新</span>
         </div>
         <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
@@ -771,7 +762,9 @@
 
         <!-- 2. 已是最新版本状态 -->
         <div id="update-uptodate-box" class="update-info-state-box" style="display: none;">
-          <div class="update-state-icon uptodate">✓</div>
+          <div class="update-state-icon uptodate">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
           <div class="update-state-title">当前已是最新版本</div>
           <div class="update-state-badge" id="update-uptodate-ver">v1.1.0</div>
           <div class="update-state-desc">DEM高程图、OSM矢量图与三维地形数据引擎均处于最佳状态。</div>
@@ -779,7 +772,9 @@
 
         <!-- 3. 检查失败/离线状态 -->
         <div id="update-offline-box" class="update-info-state-box" style="display: none;">
-          <div class="update-state-icon offline">🌐</div>
+          <div class="update-state-icon offline">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
           <div class="update-state-title">当前版本就绪 (离线模式)</div>
           <div class="update-state-badge" id="update-offline-ver">v1.1.0</div>
           <div class="update-state-desc">网络连接超时或当前处于无网络离线环境。Outmap 内置完整离线渲染引擎，可完全离线顺畅运行。</div>
@@ -791,7 +786,7 @@
             <div class="version-badge-group">
               <span class="version-label">当前版本:</span>
               <span class="version-val current" id="update-curr-version">v1.1.0</span>
-              <span class="version-arrow">➔</span>
+              <span class="version-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle;"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
               <span class="version-label">最新版本:</span>
               <span class="version-val latest" id="update-new-version">v1.1.0</span>
             </div>
@@ -839,7 +834,6 @@
     <div class="fluent-alert-box">
       <div class="fluent-alert-header">
         <div class="fluent-alert-brand">
-          <img src="icon.png" class="fluent-alert-icon" style="width:16px;height:16px;object-fit:contain;" alt="Logo" />
           <span class="fluent-alert-title" id="fluent-alert-title">Outmap</span>
         </div>
         <button class="fluent-alert-close" id="btn-close-fluent-alert">✕</button>
@@ -853,8 +847,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.9.26"></script>
-  <script src="favorite-interactions.js?v=1.9.26"></script>
-  <script src="app.js?v=1.9.26"></script>
+  <script src="location-camera.js?v=1.9.27"></script>
+  <script src="favorite-interactions.js?v=1.9.27"></script>
+  <script src="app.js?v=1.9.27"></script>
 </body>
 </html>

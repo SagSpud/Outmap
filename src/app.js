@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.26';
+const APP_VERSION = '1.9.27';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2906,8 +2906,13 @@ function setupOfficeHeaderInteractions(map) {
       const row = document.createElement('div');
       row.className = 'search-result-item';
       const cleanDesc = stripChinaPrefix(item.desc || '');
+      const searchItemSvg = (item.type === 'province')
+        ? (window.OutmapFavoriteInteractions?.svg('flag', { size: 14, color: '#ef4444' }) || '')
+        : (item.type === 'city')
+        ? (window.OutmapFavoriteInteractions?.svg('building', { size: 14, color: '#0284c7' }) || '')
+        : (item.coords ? (window.OutmapFavoriteInteractions?.svg('target', { size: 14, color: '#0284c7' }) || '') : (window.OutmapFavoriteInteractions?.svg('pin', { size: 14, color: '#0284c7' }) || ''));
       row.innerHTML = `
-        <div class="search-result-icon">${escapeHtml(item.icon || '📍')}</div>
+        <div class="search-result-icon">${searchItemSvg}</div>
         <div class="search-result-info">
           <div class="search-result-name">${escapeHtml(item.name)}</div>
           <div class="search-result-desc">${escapeHtml(cleanDesc)}</div>
@@ -4923,12 +4928,12 @@ async function triggerRealtimeCloudSync(reason = 'change') {
             statusText.innerText = `上次同步: ${nowStr}`;
           }
           if (userBadge) {
-            userBadge.innerText = '🟢 实时同步中';
+            userBadge.innerHTML = '<span class="sync-dot-live">●</span> 实时同步中';
             userBadge.className = 'sync-user-sync-badge';
           }
         } else {
           if (userBadge) {
-            userBadge.innerText = '🔴 同步失败';
+            userBadge.innerHTML = '<span class="sync-dot-err">●</span> 同步失败';
             userBadge.className = 'sync-user-sync-badge err';
           }
         }
@@ -4988,7 +4993,7 @@ function setupCloudSync(map) {
       if (userView) userView.style.display = 'flex';
       if (userNameDisplay) userNameDisplay.innerText = user.username;
       if (userBadge) {
-        userBadge.innerText = '🟢 实时同步中';
+        userBadge.innerHTML = '<span class="sync-dot-live">●</span> 实时同步中';
         userBadge.className = 'sync-user-sync-badge';
       }
       showStatus(user.lastSyncTime ? `上次同步: ${user.lastSyncTime}` : '实时同步中');
@@ -5116,7 +5121,7 @@ function setupCloudSync(map) {
       showStatus(`同步完成 (${nowTime})`);
       const userBadge = document.getElementById('sync-user-status-badge');
       if (userBadge) {
-        userBadge.innerText = '🟢 实时同步中';
+        userBadge.innerHTML = '<span class="sync-dot-live">●</span> 实时同步中';
         userBadge.className = 'sync-user-sync-badge';
       }
       return true;
@@ -5125,7 +5130,7 @@ function setupCloudSync(map) {
         showStatus(`同步提示: ${err.message}`, true);
         const userBadge = document.getElementById('sync-user-status-badge');
         if (userBadge) {
-          userBadge.innerText = '🔴 同步失败';
+          userBadge.innerHTML = '<span class="sync-dot-err">●</span> 同步失败';
           userBadge.className = 'sync-user-sync-badge err';
         }
       }
@@ -7566,11 +7571,13 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     floatingActiveIndex = floatingCandidates.length > 0 ? 0 : -1;
     floatingEl.innerHTML = '';
 
+    const pickTargetSvg = window.OutmapFavoriteInteractions?.svg('target', { size: 14, color: '#0284c7' }) || '';
+
     if (!items || items.length === 0) {
       floatingEl.innerHTML = `
         <div style="padding: 10px 12px; font-size: 11.5px; color: #64748b; text-align: center;">未找到“${escapeHtml(keyword || '')}”，支持地名/城市/坐标</div>
         <div class="route-floating-item route-floating-pick-map">
-          <span class="route-floating-item-icon">📍</span>
+          <span class="route-floating-item-icon">${pickTargetSvg}</span>
           <div class="route-floating-item-info">
             <div class="route-floating-item-name">在 3D 地图上点选</div>
             <div class="route-floating-item-desc">点击后在地图上拾取该点坐标</div>
@@ -7587,11 +7594,16 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         const cleanDesc = (item.desc || '目标地点')
           .replace(/^中国\s*[·,\-–]\s*/, '')
           .replace(/China\s*[·,\-–]\s*/i, '');
+        const candSvg = (item.type === 'province')
+          ? (window.OutmapFavoriteInteractions?.svg('flag', { size: 14, color: '#ef4444' }) || '')
+          : (item.type === 'city')
+          ? (window.OutmapFavoriteInteractions?.svg('building', { size: 14, color: '#0284c7' }) || '')
+          : (item.coords ? (window.OutmapFavoriteInteractions?.svg('target', { size: 14, color: '#0284c7' }) || '') : (window.OutmapFavoriteInteractions?.svg('pin', { size: 14, color: '#0284c7' }) || ''));
         const row = document.createElement('div');
         row.className = 'route-floating-item' + (idx === 0 ? ' active' : '');
         row.dataset.idx = idx;
         row.innerHTML = `
-          <span class="route-floating-item-icon">${item.icon || '📍'}</span>
+          <span class="route-floating-item-icon">${candSvg}</span>
           <div class="route-floating-item-info">
             <div class="route-floating-item-name">${escapeHtml(item.name)}</div>
             <div class="route-floating-item-desc">${escapeHtml(cleanDesc)}</div>
@@ -7607,7 +7619,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       const mapPickRow = document.createElement('div');
       mapPickRow.className = 'route-floating-item route-floating-pick-map';
       mapPickRow.innerHTML = `
-        <span class="route-floating-item-icon">📍</span>
+        <span class="route-floating-item-icon">${pickTargetSvg}</span>
         <div class="route-floating-item-info">
           <div class="route-floating-item-name">在 3D 地图上点选</div>
           <div class="route-floating-item-desc">点击后在地图上拾取精确坐标</div>
@@ -9578,9 +9590,8 @@ function setupOutdoorRouteSystem(map) {
     map.getCanvas().style.cursor = 'var(--cursor-crosshair)';
     btnPickViaInline?.classList.add('picking');
     if (btnPickViaInline) {
-      const totalCount = (routeStartCoord ? 1 : 0) + routeViaPoints.length + (routeEndCoord ? 1 : 0);
-      const countText = totalCount > 0 ? ` (${totalCount})` : '';
-      btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点${countText}</span>`;
+      const targetSvg = window.OutmapFavoriteInteractions?.svg('target', { size: 13, color: '#16a34a' }) || '';
+      btnPickViaInline.innerHTML = `<span class="pick-icon">${targetSvg}</span><span class="pick-text">完成选点${countText}</span>`;
     }
   };
 
@@ -9687,7 +9698,8 @@ function setupOutdoorRouteSystem(map) {
           addViaPoint(map, [lng, lat], cleanLocation || '途径点');
           if (btnPickViaInline) {
             const totalCount = (routeStartCoord ? 1 : 0) + routeViaPoints.length + (routeEndCoord ? 1 : 0);
-            btnPickViaInline.innerHTML = `<span class="pick-icon">🎯</span><span class="pick-text">完成选点 (${totalCount})</span>`;
+            const targetSvg = window.OutmapFavoriteInteractions?.svg('target', { size: 13, color: '#16a34a' }) || '';
+            btnPickViaInline.innerHTML = `<span class="pick-icon">${targetSvg}</span><span class="pick-text">完成选点 (${totalCount})</span>`;
           }
         }
       }
