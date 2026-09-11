@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.20';
+const APP_VERSION = '1.9.21';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -6033,13 +6033,13 @@ function setupWaypointAndFavoritesSystem(map) {
       </div>
       <div class="fav-type-footer">
         <div class="ctx-divider"></div>
-        <button class="ctx-item fav-type-rename" type="button">
-          <span class="ctx-icon">✏️</span>
-          <span class="ctx-text">重命名</span>
-        </button>
         <button class="ctx-item danger fav-type-delete" type="button">
           <span class="ctx-icon">🗑️</span>
           <span class="ctx-text">删除</span>
+        </button>
+        <button class="ctx-item fav-type-rename" type="button">
+          <span class="ctx-icon">✏️</span>
+          <span class="ctx-text">重命名</span>
         </button>
       </div>
     `;
@@ -6284,10 +6284,6 @@ function setupWaypointAndFavoritesSystem(map) {
         menu.className = 'fluent-context-menu fav-route-context-menu';
 
         menu.innerHTML = `
-          <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
-            <span class="ctx-icon" aria-hidden="true">✏️</span>
-            <span class="ctx-text">重命名路线</span>
-          </button>
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
             <span class="ctx-icon" aria-hidden="true">📤</span>
             <span class="ctx-text">导出路线</span>
@@ -6295,6 +6291,10 @@ function setupWaypointAndFavoritesSystem(map) {
           <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">
             <span class="ctx-icon" aria-hidden="true">🗑️</span>
             <span class="ctx-text">删除路线</span>
+          </button>
+          <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
+            <span class="ctx-icon" aria-hidden="true">✏️</span>
+            <span class="ctx-text">重命名路线</span>
           </button>
         `;
         document.body.appendChild(menu);
