@@ -23,6 +23,8 @@
   --cursor-grabbing: grabbing;
   --cursor-crosshair: crosshair;
   --cursor-pointer: pointer;
+  --cursor-default: default;
+  --cursor-move: move;
   --glass-surface: rgba(255, 255, 255, 0.91);
   --glass-surface-solid: rgba(255, 255, 255, 0.96);
   --glass-blur: 20px;
@@ -115,28 +117,56 @@ html, body {
   position: relative;
 }
 
-/* 高分屏 (Retina / 2K / 4K / High-DPI) 极致抗锯齿矢量手型光标，彻底根除 Windows/Chromium 原生抓手位图锯齿，自然亲和平展掌心与握拳 */
+/* ==========================================================================
+   专业桌面 GIS / Windows 原生光标系统规范：
+   - 默认常态 (其他时候)：系统原生“正常选择”箭头 (default)，彻底消除 Chromium 5 指抓手锯齿与遮挡；
+   - 悬停点位 (途经点/收藏点/聚合点/路线/标记)：系统原生“链接选择”手型 (pointer)；
+   - 拖拽平移 (地图移动/点位拖动/手柄重排)：系统原生“移动”四向交叉箭头 (move)；
+   - 坐标拾取 (标点模式)：系统原生高精度十字准星 (crosshair)。
+   ========================================================================== */
+
+/* 1. 地图与画布默认光标：系统原生“正常选择”箭头 (default) */
 .maplibregl-canvas-container.maplibregl-interactive,
 .maplibregl-canvas-container.maplibregl-interactive:hover,
 #map,
 #map canvas {
-  cursor: var(--cursor-grab) !important;
+  cursor: default;
 }
 
-.maplibregl-canvas-container.maplibregl-interactive:active,
-#map canvas:active,
+/* 2. 悬停在交互要素（途经点、收藏点、路线、聚合点等）时的指针手型 (pointer) */
+#map canvas[style*="cursor: pointer"],
+#map canvas[style*="cursor:pointer"],
+.maplibregl-canvas-container.maplibregl-interactive canvas[style*="cursor: pointer"],
+.maplibregl-canvas-container.maplibregl-interactive canvas[style*="cursor:pointer"] {
+  cursor: pointer !important;
+}
+
+/* 3. 拖拽状态（地图拖动平移、途径点拖动重排）：呈现 Windows 原生“移动”四向箭头 (move) */
+.maplibregl-canvas-container.maplibregl-interactive.maplibregl-drag-pan,
 body.map-is-dragging,
 body.map-is-dragging #map,
 body.map-is-dragging #map canvas,
-body.map-is-dragging .maplibregl-canvas-container {
-  cursor: var(--cursor-grabbing) !important;
+body.map-is-dragging .maplibregl-canvas-container,
+body.route-point-is-dragging,
+body.route-point-is-dragging #map,
+body.route-point-is-dragging #map canvas,
+body.route-point-is-dragging .maplibregl-canvas-container,
+.sorting-folders,
+.folder-drag-preview,
+body.sorting-folders,
+#map canvas[style*="cursor: move"],
+#map canvas[style*="cursor:move"] {
+  cursor: move !important;
 }
 
+/* 4. 选点模式 (Picking Mode) */
 body.picking-mode,
 body.picking-mode #map,
 body.picking-mode #map canvas,
-body.picking-mode .maplibregl-canvas-container {
-  cursor: var(--cursor-crosshair) !important;
+body.picking-mode .maplibregl-canvas-container,
+#map canvas[style*="cursor: crosshair"],
+#map canvas[style*="cursor:crosshair"] {
+  cursor: crosshair !important;
 }
 
 /* 原生丝滑微动效反馈：全局按钮、药丸胶囊、操作项触控/点击按压弹性回弹 */
@@ -3005,7 +3035,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-size: 13px;
   font-weight: 700;
   color: #64748b;
-  cursor: var(--cursor-grab) !important;
+  cursor: move !important; /* var(--cursor-grab) */
   flex-shrink: 0;
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   user-select: none;
@@ -3016,11 +3046,11 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   background: #e0f2fe;
   border-color: #0284c7;
   color: #0284c7;
-  cursor: var(--cursor-grab) !important;
+  cursor: move !important; /* var(--cursor-grab) */
 }
 
 .btn-drag-handle:active {
-  cursor: var(--cursor-grabbing) !important;
+  cursor: move !important; /* var(--cursor-grabbing) */
 }
 
 .via-drag-handle {
@@ -3029,20 +3059,20 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-size: 13px;
   border-color: transparent;
   background: transparent;
-  cursor: var(--cursor-grab) !important;
+  cursor: move !important; /* var(--cursor-grab) */
 }
 
 .via-drag-handle:hover {
   background: #e2e8f0;
   border-color: #cbd5e1;
   color: #0284c7;
-  cursor: var(--cursor-grab) !important;
+  cursor: move !important; /* var(--cursor-grab) */
 }
 
 .via-drag-handle:active,
 .route-via-item.dragging,
 .route-via-item.dragging * {
-  cursor: var(--cursor-grabbing) !important;
+  cursor: move !important; /* var(--cursor-grabbing) */
 }
 
 /* 动态途径点列表 (支持数十个点纵向顺滑滚动与拖拽重排) */
@@ -3106,7 +3136,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   z-index: 100 !important;
   transform: scale(1.02);
   transition: none !important;
-  cursor: var(--cursor-grabbing) !important;
+  cursor: move !important;
 }
 
 .route-via-item.is-settling,
@@ -4032,13 +4062,13 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   max-width: 380px;
 }
 
-/* 系统标准手势光标适配 (Retina 高分屏矢量抗锯齿) */
+/* 系统标准光标适配 */
 .maplibregl-canvas-container.maplibregl-interactive {
-  cursor: var(--cursor-grab) !important;
+  cursor: default;
 }
 
 .maplibregl-canvas-container.maplibregl-interactive:active {
-  cursor: var(--cursor-grabbing) !important;
+  cursor: move;
 }
 
 /* 多省批量选择：下拉菜单触发器与展开浮层面板 */

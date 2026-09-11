@@ -1304,9 +1304,14 @@ async function initApplication() {
   }
 
 
-  // 鼠标按压拖拽地图时实时切换为紧握拳头手型，松手恢复平展打开手掌 (0 毫秒延迟，无缝跟随)
+  // 鼠标拖拽平移地图时实时切换为 Windows 原生移动四向箭头 (move)，松手立刻恢复普通箭头 (default)
   map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });
   map.on('dragend', () => { document.body.classList.remove('map-is-dragging'); });
+  window.addEventListener('mouseup', () => {
+    if (document.body.classList.contains('map-is-dragging')) {
+      document.body.classList.remove('map-is-dragging');
+    }
+  });
   map.on('movestart', () => {
     document.body.classList.add('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(true);
@@ -5675,11 +5680,21 @@ function ensureSavedRouteLayers(map) {
   }
   if (!savedRouteLayerEventsBound) {
     savedRouteLayerEventsBound = true;
-    map.on('mouseenter', 'outmap-saved-route-line', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'outmap-saved-route-line', () => { map.getCanvas().style.cursor = ''; });
-    map.on('click', 'outmap-saved-route-line', event => {
-      const routeId = event.features?.[0]?.properties?.id;
-      if (routeId) loadSavedRoute(routeId, map);
+    ['outmap-saved-route-line', 'outmap-saved-route-casing'].forEach(layerId => {
+      map.on('mouseenter', layerId, () => {
+        if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+          map.getCanvas().style.cursor = 'pointer';
+        }
+      });
+      map.on('mouseleave', layerId, () => {
+        if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+          map.getCanvas().style.cursor = '';
+        }
+      });
+      map.on('click', layerId, event => {
+        const routeId = event.features?.[0]?.properties?.id;
+        if (routeId) loadSavedRoute(routeId, map);
+      });
     });
   }
   return true;
@@ -5863,27 +5878,48 @@ function setupWaypointAndFavoritesSystem(map) {
     let hoveredId = null;
     let longPressTimer = null;
 
-    map.on('mouseenter', 'outmap-favorite-icons', e => {
-      map.getCanvas().style.cursor = 'pointer';
-      const id = e.features?.[0]?.id;
-      if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
-      hoveredId = id;
-      if (id != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id }, { hover: true });
+    const favLayers = ['outmap-favorite-icons', 'outmap-favorite-hover'];
+    favLayers.forEach(layerId => {
+      map.on('mouseenter', layerId, e => {
+        if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+          map.getCanvas().style.cursor = 'pointer';
+        }
+        const id = e.features?.[0]?.id;
+        if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
+        hoveredId = id;
+        if (id != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id }, { hover: true });
+      });
+      map.on('mouseleave', layerId, () => {
+        if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
+        hoveredId = null;
+        if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+          map.getCanvas().style.cursor = '';
+        }
+      });
     });
-    map.on('mouseleave', 'outmap-favorite-icons', () => {
-      map.getCanvas().style.cursor = '';
-      if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
-      hoveredId = null;
-    });
-    map.on('click', 'outmap-favorite-clusters', async e => {
-      if (isPickingPoint || pickingRoutePt) return;
-      const feature = e.features?.[0];
-      if (!feature) return;
-      const source = map.getSource(FAVORITES_SOURCE_ID);
-      try {
-        const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
-        map.easeTo({ center: feature.geometry.coordinates, zoom, duration: 420, easing: t => 1 - Math.pow(1 - t, 3) });
-      } catch (_) {}
+
+    const favClusterLayers = ['outmap-favorite-clusters', 'outmap-favorite-cluster-count'];
+    favClusterLayers.forEach(layerId => {
+      map.on('mouseenter', layerId, () => {
+        if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+          map.getCanvas().style.cursor = 'pointer';
+        }
+      });
+      map.on('mouseleave', layerId, () => {
+        if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+          map.getCanvas().style.cursor = '';
+        }
+      });
+      map.on('click', layerId, async e => {
+        if (isPickingPoint || pickingRoutePt) return;
+        const feature = e.features?.[0];
+        if (!feature) return;
+        const source = map.getSource(FAVORITES_SOURCE_ID);
+        try {
+          const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
+          map.easeTo({ center: feature.geometry.coordinates, zoom, duration: 420, easing: t => 1 - Math.pow(1 - t, 3) });
+        } catch (_) {}
+      });
     });
     map.on('click', 'outmap-favorite-icons', e => {
       if (isPickingPoint || pickingRoutePt) return;
@@ -7836,43 +7872,36 @@ function bindRoutePointLayerEvents(map) {
   let hoveredId = null;
   let suppressNextClick = false;
 
-  map.on('mouseenter', 'outmap-route-point-clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'outmap-route-point-clusters', () => { if (!activeRouteMapDrag) map.getCanvas().style.cursor = ''; });
-  map.on('click', 'outmap-route-point-clusters', async e => {
-    if (pickingRoutePt || isPickingPoint) return;
-    const feature = e.features?.[0];
-    const source = map.getSource(ROUTE_POINTS_SOURCE_ID);
-    if (!feature || !source?.getClusterExpansionZoom) return;
-    try {
-      const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
-      map.easeTo({
-        center: feature.geometry.coordinates,
-        zoom: Math.min(13.0, zoom),
-        duration: 420,
-        easing: t => 1 - Math.pow(1 - t, 3)
-      });
-    } catch (_) {}
+  const clusterLayers = ['outmap-route-point-clusters', 'outmap-route-point-cluster-count'];
+  clusterLayers.forEach(layerId => {
+    map.on('mouseenter', layerId, () => {
+      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+        map.getCanvas().style.cursor = 'pointer';
+      }
+    });
+    map.on('mouseleave', layerId, () => {
+      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+        map.getCanvas().style.cursor = '';
+      }
+    });
+    map.on('click', layerId, async e => {
+      if (pickingRoutePt || isPickingPoint) return;
+      const feature = e.features?.[0];
+      const source = map.getSource(ROUTE_POINTS_SOURCE_ID);
+      if (!feature || !source?.getClusterExpansionZoom) return;
+      try {
+        const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
+        map.easeTo({
+          center: feature.geometry.coordinates,
+          zoom: Math.min(13.0, zoom),
+          duration: 420,
+          easing: t => 1 - Math.pow(1 - t, 3)
+        });
+      } catch (_) {}
+    });
   });
 
-  map.on('mouseenter', 'outmap-route-point-circles', e => {
-    map.getCanvas().style.cursor = 'pointer';
-    const id = e.features?.[0]?.id;
-    if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
-    hoveredId = id;
-    if (id != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id }, { hover: true });
-  });
-  map.on('mouseleave', 'outmap-route-point-circles', () => {
-    if (!activeRouteMapDrag) map.getCanvas().style.cursor = '';
-    if (hoveredId != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
-    hoveredId = null;
-  });
-  map.on('click', 'outmap-route-point-circles', e => {
-    if (suppressNextClick) { suppressNextClick = false; return; }
-    const point = findRoutePointByFeature(e.features?.[0]);
-    if (!point?.coords) return;
-    flyToLocationPrecisely(map, point.coords, { zoom: 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
-  });
-  map.on('mousedown', 'outmap-route-point-circles', e => {
+  const handleRoutePointMouseDown = e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint) return;
     const feature = e.features?.[0];
     const point = findRoutePointByFeature(feature);
@@ -7891,11 +7920,16 @@ function bindRoutePointLayerEvents(map) {
 
     const onMove = moveEvent => {
       if (!activeRouteMapDrag) return;
-      if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) moved = true;
+      if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) {
+        moved = true;
+        document.body.classList.add('route-point-is-dragging');
+        map.getCanvas().style.cursor = 'move';
+      }
       marker.setLngLat(moveEvent.lngLat);
     };
     const finish = ({ commit = true } = {}) => {
       if (!activeRouteMapDrag || activeRouteMapDrag.marker !== marker) return;
+      document.body.classList.remove('route-point-is-dragging');
       map.off('mousemove', onMove);
       map.off('mouseup', onMapMouseUp);
       window.removeEventListener('pointerup', onWindowPointerUp, true);
@@ -7925,6 +7959,35 @@ function bindRoutePointLayerEvents(map) {
     map.on('mouseup', onMapMouseUp);
     window.addEventListener('pointerup', onWindowPointerUp, true);
     window.addEventListener('blur', onWindowBlur, { once: true });
+  };
+
+  const pointLayers = ['outmap-route-point-circles', 'outmap-route-point-labels', 'outmap-route-point-halo'];
+  pointLayers.forEach(layerId => {
+    map.on('mouseenter', layerId, e => {
+      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+        map.getCanvas().style.cursor = 'pointer';
+      }
+      const id = e.features?.[0]?.id;
+      if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
+      hoveredId = id;
+      if (id != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id }, { hover: true });
+    });
+    map.on('mouseleave', layerId, () => {
+      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+        map.getCanvas().style.cursor = '';
+      }
+      if (hoveredId != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
+      hoveredId = null;
+    });
+    if (layerId !== 'outmap-route-point-halo') {
+      map.on('click', layerId, e => {
+        if (suppressNextClick) { suppressNextClick = false; return; }
+        const point = findRoutePointByFeature(e.features?.[0]);
+        if (!point?.coords) return;
+        flyToLocationPrecisely(map, point.coords, { zoom: 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
+      });
+      map.on('mousedown', layerId, handleRoutePointMouseDown);
+    }
   });
 }
 
