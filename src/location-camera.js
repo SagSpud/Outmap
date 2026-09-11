@@ -7,9 +7,9 @@
   function anchor(map, centered) {
     const rect = map.getContainer().getBoundingClientRect();
     let top = 44, bottom = rect.height;
-    let left = 0, right = rect.width;
+    let minSafeRight = rect.width;
 
-    // 适配右侧展开面板 (收藏抽屉 / 路线规划面板 / 图层控制)，计算真实可视画布中心
+    // 适配右侧展开面板 (收藏抽屉 / 路线规划面板 / 图层控制)
     for (const id of ['route-panel', 'favorites-drawer', 'layers-popover']) {
       const el = document.getElementById(id);
       if (!el || el.style.display === 'none') continue;
@@ -17,7 +17,8 @@
       if (style.display === 'none' || style.visibility === 'hidden') continue;
       const r = el.getBoundingClientRect();
       if (r.width > 0 && r.left - rect.left > rect.width * 0.4 && r.left < rect.right) {
-        right = Math.min(right, Math.max(rect.width * 0.45, r.left - rect.left - 16));
+        // 卡片左边界留出安全间距 50px，确保地标在任何分辨率下都不被右侧卡片遮挡
+        minSafeRight = Math.min(minSafeRight, r.left - rect.left - 50);
       }
       if (global.innerWidth <= 768) {
         if (r.width > rect.width * 0.65 && r.bottom > rect.top && r.top < rect.bottom) {
@@ -26,7 +27,12 @@
       }
     }
 
-    const centerX = left + (right - left) * 0.5;
+    // 视窗自然几何中心
+    const naturalCenterX = rect.width * 0.5;
+    // 当自然中心本身距离右侧卡片有充裕安全距离时，保持在水平正中央；
+    // 只有当窗口较窄、自然中心会靠近甚至被卡片遮挡时，才向左平滑让位
+    const centerX = naturalCenterX <= minSafeRight ? naturalCenterX : Math.max(rect.width * 0.38, minSafeRight);
+
     // 中间偏下：当 centered 为 false 时，将地标点落在视觉工作区中下方约 68% 位置，
     // 上方 2/3 开阔展现 3D 地形起伏与前方路线大局走势
     const centerY = top + (bottom - top) * (centered ? 0.5 : 0.68);

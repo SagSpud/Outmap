@@ -10,14 +10,14 @@ const app = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 
 // 1. Version consistency
-assert(/^1\.9\.(23|24|25|26|27|28)$/.test(pkg.version), 'package.json version must be 1.9.23, 1.9.24, 1.9.25, 1.9.26, 1.9.27 or 1.9.28');
-assert(/^1\.9\.(23|24|25|26|27|28)$/.test(lock.version), 'package-lock.json version must be 1.9.23, 1.9.24, 1.9.25, 1.9.26, 1.9.27 or 1.9.28');
-assert(/^1\.9\.(23|24|25|26|27|28)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.23, 1.9.24, 1.9.25, 1.9.26, 1.9.27 or 1.9.28');
-assert(/const APP_VERSION = '1\.9\.(23|24|25|26|27|28)';/.test(app), 'app.js must declare current APP_VERSION');
-assert(/style\.css\?v=1\.9\.(23|24|25|26|27|28)/.test(html), 'index.html must reference current style.css');
-assert(/app\.js\?v=1\.9\.(23|24|25|26|27|28)/.test(html), 'index.html must reference current app.js');
-assert(/location-camera\.js\?v=1\.9\.(23|24|25|26|27|28)/.test(html), 'index.html must reference current location-camera.js');
-assert(/id="brand-ver-badge-txt">v1\.9\.(23|24|25|26|27|28)<\/span>/.test(html), 'index.html must display version badge');
+assert(/^1\.9\.(23|24|25|26|27|28|29)$/.test(pkg.version), 'package.json version must be 1.9.23, 1.9.24, 1.9.25, 1.9.26, 1.9.27, 1.9.28 or 1.9.29');
+assert(/^1\.9\.(23|24|25|26|27|28|29)$/.test(lock.version), 'package-lock.json version must be 1.9.23, 1.9.24, 1.9.25, 1.9.26, 1.9.27, 1.9.28 or 1.9.29');
+assert(/^1\.9\.(23|24|25|26|27|28|29)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.23, 1.9.24, 1.9.25, 1.9.26, 1.9.27, 1.9.28 or 1.9.29');
+assert(/const APP_VERSION = '1\.9\.(23|24|25|26|27|28|29)';/.test(app), 'app.js must declare current APP_VERSION');
+assert(/style\.css\?v=1\.9\.(23|24|25|26|27|28|29)/.test(html), 'index.html must reference current style.css');
+assert(/app\.js\?v=1\.9\.(23|24|25|26|27|28|29)/.test(html), 'index.html must reference current app.js');
+assert(/location-camera\.js\?v=1\.9\.(23|24|25|26|27|28|29)/.test(html), 'index.html must reference current location-camera.js');
+assert(/id="brand-ver-badge-txt">v1\.9\.(23|24|25|26|27|28|29)<\/span>/.test(html), 'index.html must display version badge');
 
 // 2. Folder tombstones and storage keys
 assert(app.includes("const DELETED_FOLDERS_STORAGE_KEY = 'outmap_deleted_folders';"), 'app.js must define DELETED_FOLDERS_STORAGE_KEY');
