@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.25" />
+  <link rel="stylesheet" href="style.css?v=1.9.26" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.25</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.26</span>
                 </div>
               </div>
             </div>
@@ -184,17 +184,26 @@
         </div>
         <div class="panel-body layers-popover-body">
           <label class="layer-toggle-row">
-            <span class="layer-toggle-label">🏔️ 3D地貌效果</span>
+            <span class="layer-toggle-label">
+              <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3l4 8 5-5 5 12H2L8 3z"/></svg>
+              <span>3D地貌效果</span>
+            </span>
             <input type="checkbox" id="layer-toggle-terrain" checked />
             <span class="layer-toggle-switch"></span>
           </label>
           <label class="layer-toggle-row">
-            <span class="layer-toggle-label">⭐ 收藏地点</span>
+            <span class="layer-toggle-label">
+              <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              <span>收藏地点</span>
+            </span>
             <input type="checkbox" id="layer-toggle-favs" checked />
             <span class="layer-toggle-switch"></span>
           </label>
           <label class="layer-toggle-row">
-            <span class="layer-toggle-label">🛣️ 收藏与规划路线</span>
+            <span class="layer-toggle-label">
+              <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
+              <span>收藏与规划路线</span>
+            </span>
             <input type="checkbox" id="layer-toggle-routes" checked />
             <span class="layer-toggle-switch"></span>
           </label>
@@ -209,19 +218,19 @@
         </div>
         <div class="ctx-divider"></div>
         <button class="ctx-item primary" id="ctx-btn-add-fav">
-          <span class="ctx-icon">⭐</span>
+          <span class="ctx-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span>
           <span class="ctx-text">收藏</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-via">
-          <span class="ctx-icon">➕</span>
+          <span class="ctx-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14 M5 12h14"/></svg></span>
           <span class="ctx-text">设为途径点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-start">
-          <span class="ctx-icon">🚩</span>
+          <span class="ctx-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7"/></svg></span>
           <span class="ctx-text">设为路线起点</span>
         </button>
         <button class="ctx-item" id="ctx-btn-route-end">
-          <span class="ctx-icon">🏁</span>
+          <span class="ctx-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7 M9 3v11 M14 4v11"/></svg></span>
           <span class="ctx-text">设为路线终点</span>
         </button>
       </div>
@@ -240,23 +249,47 @@
           <div class="form-row">
             <label class="form-lbl">地标类型:</label>
             <div class="type-pill-group" id="wp-type-group">
-              <button class="type-pill active" data-type="view">🏔️ 观景</button>
-              <button class="type-pill" data-type="camp">🏕️ 露营</button>
-              <button class="type-pill" data-type="water">💧 水源</button>
-              <button class="type-pill" data-type="supply">⛽ 补给</button>
-              <button class="type-pill" data-type="parking">🅿️ 停车</button>
-              <button class="type-pill" data-type="hotel">🏨 住宿</button>
-              <button class="type-pill" data-type="photo">📸 摄影</button>
-              <button class="type-pill" data-type="hiking">🥾 徒步</button>
+              <button class="type-pill active" data-type="view">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 9 7 13 13 16 9 22 18Z M7 10 10 12"/></svg>
+                <span>观景</span>
+              </button>
+              <button class="type-pill" data-type="camp">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20 12 4 21 20Z M8 20 12 13 16 20 M10 3 14 6"/></svg>
+                <span>露营</span>
+              </button>
+              <button class="type-pill" data-type="water">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3C10 7 5 11 5 15a7 7 0 0 0 14 0C19 11 14 7 12 3Z M8 15a4 4 0 0 0 4 4"/></svg>
+                <span>水源</span>
+              </button>
+              <button class="type-pill" data-type="supply">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7H20V21H4Z M8 7V5a4 4 0 0 1 8 0v2 M9 14h6 M12 11v6"/></svg>
+                <span>补给</span>
+              </button>
+              <button class="type-pill" data-type="parking">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21V3h6a5 5 0 0 1 0 10H8"/></svg>
+                <span>停车</span>
+              </button>
+              <button class="type-pill" data-type="hotel">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V4 M3 15h18v6 M3 9h6v6 M10 8h8a3 3 0 0 1 3 3v4"/></svg>
+                <span>住宿</span>
+              </button>
+              <button class="type-pill" data-type="photo">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2-3h4l2 3h5v14H3Z M16 14a4 4 0 1 0-8 0 4 4 0 0 0 8 0"/></svg>
+                <span>摄影</span>
+              </button>
+              <button class="type-pill" data-type="hiking">
+                <svg class="pill-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4a1 1 0 1 0-2 0 1 1 0 0 0 2 0 M12 8 9 14 14 17 13 22 M9 14 5 21 M12 8 16 12h4 M19 10v12 M10 8 6 9 5 13"/></svg>
+                <span>徒步</span>
+              </button>
             </div>
           </div>
           <div class="form-row">
             <label class="form-lbl">保存至收藏夹:</label>
             <div class="folder-select-row">
               <select id="wp-folder-select" class="form-control">
-                <option value="default">⭐ 默认收藏夹</option>
-                <option value="camp">⛺ 我的露营地</option>
-                <option value="hiking">🥾 徒步穿越点</option>
+                <option value="default">默认收藏夹</option>
+                <option value="camp">我的露营地</option>
+                <option value="hiking">徒步穿越点</option>
               </select>
               <button class="office-btn-sm" id="btn-add-folder" type="button">+</button>
             </div>
@@ -282,7 +315,7 @@
       <div id="route-panel" class="floating-panel" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <span>🛣️</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
             <span>路线规划</span>
           </div>
           <div class="panel-header-actions">
@@ -296,9 +329,18 @@
         <div class="panel-body">
           <!-- 出行方式切换 -->
           <div class="route-mode-pills">
-            <button class="route-mode-btn active" data-mode="drive">🚗 自驾</button>
-            <button class="route-mode-btn" data-mode="cycle">🚴 骑行</button>
-            <button class="route-mode-btn" data-mode="hike">🥾 徒步</button>
+            <button class="route-mode-btn active" data-mode="drive">
+              <svg class="mode-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.5 2.8C2.1 11.2 2 11.6 2 12v4c0 .6.4 1 1 1h2 M7 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>
+              <span>自驾</span>
+            </button>
+            <button class="route-mode-btn" data-mode="cycle">
+              <svg class="mode-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 17.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M5.5 17.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M15 5a1 1 0 1 0-2 0 1 1 0 0 0 2 0 M12 17.5V14l-3-3 4-3 2 3h3 M5.5 17.5 9 11"/></svg>
+              <span>骑行</span>
+            </button>
+            <button class="route-mode-btn" data-mode="hike">
+              <svg class="mode-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4a1 1 0 1 0-2 0 1 1 0 0 0 2 0 M12 8 9 14 14 17 13 22 M9 14 5 21 M12 8 16 12h4 M19 10v12 M10 8 6 9 5 13"/></svg>
+              <span>徒步</span>
+            </button>
           </div>
 
           <!-- 起点终点及多途径点录入 -->
@@ -318,11 +360,11 @@
             <!-- 高德地图风格：在途径点与终点之间放置的加号添加途径点框与地图选点按钮 -->
             <div class="route-add-via-bar">
               <div class="route-add-via-inline" id="btn-add-via-inline">
-                <span class="inline-plus-icon">＋</span>
+                <span class="inline-plus-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14 M5 12h14"/></svg></span>
                 <span class="inline-plus-text">添加途径点</span>
               </div>
               <button class="route-pick-via-inline-btn" id="btn-pick-via-inline" type="button">
-                <span class="pick-icon">📍</span>
+                <span class="pick-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg></span>
                 <span class="pick-text">地图选点</span>
               </button>
             </div>
@@ -377,19 +419,31 @@
               <div class="stat-num" id="stat-route-time">--</div>
             </div>
             <div class="stat-card stat-card-clickable" id="stat-card-ascent">
-              <div class="stat-lbl">累计爬升 📈</div>
+              <div class="stat-lbl">
+                <span>累计爬升</span>
+                <svg class="stat-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7 13.5 15.5 8.5 10.5 2 17 M16 7h6v6"/></svg>
+              </div>
               <div class="stat-num green" id="stat-route-ascent">+-- m</div>
             </div>
             <div class="stat-card stat-card-clickable" id="stat-card-descent">
-              <div class="stat-lbl">累计下降 📉</div>
+              <div class="stat-lbl">
+                <span>累计下降</span>
+                <svg class="stat-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17 13.5 8.5 8.5 13.5 2 7 M16 17h6v-6"/></svg>
+              </div>
               <div class="stat-num red" id="stat-route-descent">--- m</div>
             </div>
             <div class="stat-card stat-card-clickable" id="stat-card-maxele">
-              <div class="stat-lbl">最高海拔 🏔️</div>
+              <div class="stat-lbl">
+                <span>最高海拔</span>
+                <svg class="stat-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3l4 8 5-5 5 12H2L8 3z"/></svg>
+              </div>
               <div class="stat-num blue" id="stat-route-maxele">-- m</div>
             </div>
             <div class="stat-card stat-card-clickable" id="stat-card-minele">
-              <div class="stat-lbl">最低海拔 🏞️</div>
+              <div class="stat-lbl">
+                <span>最低海拔</span>
+                <svg class="stat-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-9 4 5 3-4 5 8H3z M2 21h20"/></svg>
+              </div>
               <div class="stat-num gray" id="stat-route-minele">-- m</div>
             </div>
           </div>
@@ -397,7 +451,7 @@
           <!-- 3D 路线海拔高程剖面图 (Canvas 绘制，鼠标悬停与地图联动) -->
           <div class="elevation-chart-section" id="route-chart-section" style="display: none;">
             <div class="chart-header-row">
-              <span class="chart-lbl">📈 路线海拔起伏剖面</span>
+              <span class="chart-lbl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle; margin-right:5px;"><path d="M22 7 13.5 15.5 8.5 10.5 2 17 M16 7h6v6"/></svg>路线海拔起伏剖面</span>
               <div class="chart-header-actions">
                 <span class="chart-hover-val" id="chart-hover-info">滑动联动地图</span>
                 <button class="chart-close-btn" id="btn-close-chart-section" type="button">✕</button>
@@ -414,7 +468,7 @@
       <div id="mobile-ele-sheet" class="floating-panel mobile-bottom-sheet" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <span>🏔️</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3l4 8 5-5 5 12H2L8 3z"/></svg>
             <span>3D 地形立体高程调节</span>
           </div>
           <button class="card-close" id="btn-close-mobile-ele">✕</button>
@@ -446,7 +500,7 @@
       <div id="favorites-drawer" class="floating-panel" style="display: none;">
         <div class="panel-header">
           <div class="panel-title">
-            <span>⭐</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
             <span>我的收藏</span>
           </div>
           <div class="panel-header-actions">
@@ -459,8 +513,14 @@
         <div class="panel-body">
           <!-- 收藏夹顶级分类切换：地点 vs 路线 -->
           <div class="fav-main-type-tabs" id="fav-main-type-tabs">
-            <button class="fav-main-tab active" data-tab="points">📍 收藏地点 (<span id="fav-pts-count">0</span>)</button>
-            <button class="fav-main-tab" data-tab="routes">🛣️ 规划路线 (<span id="fav-routes-count">0</span>)</button>
+            <button class="fav-main-tab active" data-tab="points">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+              <span>收藏地点 (<span id="fav-pts-count">0</span>)</span>
+            </button>
+            <button class="fav-main-tab" data-tab="routes">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
+              <span>规划路线 (<span id="fav-routes-count">0</span>)</span>
+            </button>
           </div>
 
           <!-- 1. 地点分类容器 -->
@@ -516,7 +576,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <span class="m-icon">📦</span>
+          <span class="m-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96L12 12.01l8.73-5.05 M12 22.08V12"/></svg></span>
           <span>离线地图下载</span>
         </div>
         <button class="modal-close-btn" id="btn-close-pyramid-modal">✕</button>
@@ -585,7 +645,10 @@
           <div class="check-group inline-checks">
             <label><input type="checkbox" id="chk-dl-dem" checked /> DEM高程图</label>
             <label><input type="checkbox" id="chk-dl-vec" checked /> OSM矢量图</label>
-            <button type="button" class="btn-check-tile-update" id="btn-check-tile-update">🔍 检查图层更新</button>
+            <button type="button" class="btn-check-tile-update" id="btn-check-tile-update">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35"/></svg>
+              <span>检查图层更新</span>
+            </button>
           </div>
         </div>
 
@@ -621,7 +684,10 @@
       <div class="modal-footer">
         <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
         <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>
-        <button class="modal-btn accent" id="btn-update-dl" style="display: none;">⚡ 增量更新</button>
+        <button class="modal-btn accent" id="btn-update-dl" style="display: none;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span>增量更新</span>
+        </button>
         <button class="modal-btn primary" id="btn-start-dl">开始下载</button>
         <button class="modal-btn success" id="btn-done-dl" style="display: none;">完成</button>
       </div>
@@ -689,7 +755,7 @@
     <div class="modal-card update-modal-card">
       <div class="modal-header">
         <div class="modal-title">
-          <span class="m-icon" id="update-modal-icon">🚀</span>
+          <span class="m-icon" id="update-modal-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v3 M12 19v3 M2 12h3 M19 12h3 M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"/></svg></span>
           <span id="update-modal-title-text">软件版本与在线更新</span>
         </div>
         <button class="modal-close-btn" id="btn-close-update-modal">✕</button>
@@ -755,9 +821,15 @@
 
       <div class="modal-footer" id="update-modal-footer">
         <button class="modal-btn secondary" id="btn-cancel-update" style="display: none;">稍后再说</button>
-        <button class="modal-btn primary update-btn-pulse" id="btn-start-update" style="display: none;">⚡ 立即更新并重启</button>
+        <button class="modal-btn primary update-btn-pulse" id="btn-start-update" style="display: none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span>立即更新并重启</span>
+        </button>
         <button class="modal-btn primary" id="btn-done-update" style="display: none;">我知道了</button>
-        <button class="modal-btn secondary" id="btn-retry-update" style="display: none;">🔄 重新检查</button>
+        <button class="modal-btn secondary" id="btn-retry-update" style="display: none;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span>重新检查</span>
+        </button>
       </div>
     </div>
   </div>
@@ -767,7 +839,7 @@
     <div class="fluent-alert-box">
       <div class="fluent-alert-header">
         <div class="fluent-alert-brand">
-          <span class="fluent-alert-icon">🗺️</span>
+          <img src="icon.png" class="fluent-alert-icon" style="width:16px;height:16px;object-fit:contain;" alt="Logo" />
           <span class="fluent-alert-title" id="fluent-alert-title">Outmap</span>
         </div>
         <button class="fluent-alert-close" id="btn-close-fluent-alert">✕</button>
@@ -781,8 +853,8 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.9.25"></script>
-  <script src="favorite-interactions.js?v=1.9.25"></script>
-  <script src="app.js?v=1.9.25"></script>
+  <script src="location-camera.js?v=1.9.26"></script>
+  <script src="favorite-interactions.js?v=1.9.26"></script>
+  <script src="app.js?v=1.9.26"></script>
 </body>
 </html>

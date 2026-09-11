@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.25';
+const APP_VERSION = '1.9.26';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2778,15 +2778,15 @@ function setupOfficeHeaderInteractions(map) {
         </div>
         <div class="landing-card-desc">${escapeHtml(metaText)}</div>
         <div class="landing-card-actions">
-          <button class="landing-act-btn primary act-fav">⭐ 收藏</button>
-          <button class="landing-act-btn act-start">🚩 起点</button>
-          <button class="landing-act-btn act-via">➕ 途径</button>
-          <button class="landing-act-btn act-end">🏁 终点</button>
+          <button class="landing-act-btn primary act-fav">${window.OutmapFavoriteInteractions?.svg('star', { size: 13, color: '#f59e0b' }) || ''}<span>收藏</span></button>
+          <button class="landing-act-btn act-start">${window.OutmapFavoriteInteractions?.svg('start', { size: 13, color: '#16a34a' }) || ''}<span>起点</span></button>
+          <button class="landing-act-btn act-via">${window.OutmapFavoriteInteractions?.svg('via', { size: 13, color: '#0284c7' }) || ''}<span>途径</span></button>
+          <button class="landing-act-btn act-end">${window.OutmapFavoriteInteractions?.svg('end', { size: 13, color: '#ef4444' }) || ''}<span>终点</span></button>
         </div>
       </div>
       <div class="pulse-pin-wrap">
         <div class="pulse-ring"></div>
-        <div class="pulse-core">📍</div>
+        <div class="pulse-core">${window.OutmapFavoriteInteractions?.svg('pin', { size: 15, color: '#ef4444' }) || '📍'}</div>
       </div>
     `;
 
@@ -4035,7 +4035,7 @@ function setupPyramidModal(map) {
         if (btnUpdate) {
           btnUpdate.style.display = 'inline-block';
           btnUpdate.disabled = false;
-          btnUpdate.innerHTML = '⚡ 增量更新';
+          btnUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 13 }) || ''} <span>增量更新</span>`;
         }
         if (btnRetry) btnRetry.style.display = 'inline-block';
         if (btnDone) btnDone.style.display = 'inline-block';
@@ -4165,28 +4165,28 @@ function setupPyramidModal(map) {
 
   btnCheckUpdate?.addEventListener('click', async () => {
     btnCheckUpdate.disabled = true;
-    btnCheckUpdate.innerText = '🔍 检查中...';
+    btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查中...</span>`;
     try {
       if (window.electronAPI && window.electronAPI.checkTileUpdates) {
         const info = await window.electronAPI.checkTileUpdates();
         if (info && info.success) {
           if (info.hasUpdates) {
-            btnCheckUpdate.innerText = '⚡ 云端有新路网';
+            btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 13, color: '#b45309' }) || ''} <span>云端有新路网</span>`;
             btnCheckUpdate.style.background = '#fef3c7';
             btnCheckUpdate.style.borderColor = '#fde047';
             btnCheckUpdate.style.color = '#b45309';
           } else {
-            btnCheckUpdate.innerText = '✅ 图层已最新';
+            btnCheckUpdate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <span>图层已最新</span>`;
             btnCheckUpdate.style.background = '#ecfdf5';
             btnCheckUpdate.style.borderColor = '#a7f3d0';
             btnCheckUpdate.style.color = '#047857';
           }
         } else {
-          btnCheckUpdate.innerText = '🔍 检查图层更新';
+          btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查图层更新</span>`;
         }
       }
     } catch (e) {
-      btnCheckUpdate.innerText = '🔍 检查图层更新';
+      btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查图层更新</span>`;
     } finally {
       setTimeout(() => {
         btnCheckUpdate.disabled = false;
@@ -4249,13 +4249,13 @@ function setupPyramidModal(map) {
       if (progressTask) {
         const curKeys = getSelectedKeys();
         const isMatched = curKeys.length === 1 && PROVINCES_DATA[curKeys[0]]?.name === provName;
-        const taskPrefix = isMatched ? '📥 正在下载' : '📥 后台正在下载';
+        const taskPrefix = isMatched ? '正在下载' : '后台正在下载';
         if (data.isIncrementalUpdate) {
-          progressTask.innerText = `⚡ 增量更新: ${provName}${zStr}`;
+          progressTask.innerText = `增量更新: ${provName}${zStr}`;
         } else if (data.isVerify) {
-          progressTask.innerText = `🔍 正在校验: ${provName}${zStr}`;
+          progressTask.innerText = `正在校验: ${provName}${zStr}`;
         } else if (isLocating) {
-          progressTask.innerText = `🔎 正在定位未下载部分: ${provName}${zStr}`;
+          progressTask.innerText = `正在定位未下载部分: ${provName}${zStr}`;
         } else {
           progressTask.innerText = `${taskPrefix}: ${provName}${zStr}`;
         }
@@ -5803,16 +5803,16 @@ function setupWaypointAndFavoritesSystem(map) {
   const refreshFolderOptions = (selectedVal) => {
     if (!wpFolderSelect) return;
     wpFolderSelect.innerHTML = `
-      <option value="default">⭐ 默认收藏夹</option>
-      <option value="camp">⛺ 我的露营地</option>
-      <option value="hiking">🥾 徒步穿越点</option>
+      <option value="default">默认收藏夹</option>
+      <option value="camp">我的露营地</option>
+      <option value="hiking">徒步穿越点</option>
     `;
     const delList = getDeletedFolders();
     customFolders.forEach(f => {
       if (isFolderDeleted(f, delList)) return;
       const opt = document.createElement('option');
       opt.value = f.id;
-      opt.innerText = `📁 ${cleanFolderTitle(f.name) || f.name}`;
+      opt.innerText = cleanFolderTitle(f.name) || f.name;
       wpFolderSelect.appendChild(opt);
     });
     if (selectedVal) wpFolderSelect.value = selectedVal;
@@ -6248,21 +6248,21 @@ function setupWaypointAndFavoritesSystem(map) {
     menu.className = 'fluent-context-menu fav-point-type-menu';
 
     const typeList = [
-      { key: 'view', name: '景点', icon: '🏔️' },
-      { key: 'camp', name: '露营', icon: '🏕️' },
-      { key: 'water', name: '水源', icon: '💧' },
-      { key: 'supply', name: '补给', icon: '⛽' },
-      { key: 'parking', name: '停车', icon: '🅿️' },
-      { key: 'hotel', name: '住宿', icon: '🏨' },
-      { key: 'photo', name: '摄影', icon: '📸' },
-      { key: 'hiking', name: '徒步', icon: '🥾' }
+      { key: 'view', name: '景点' },
+      { key: 'camp', name: '露营' },
+      { key: 'water', name: '水源' },
+      { key: 'supply', name: '补给' },
+      { key: 'parking', name: '停车' },
+      { key: 'hotel', name: '住宿' },
+      { key: 'photo', name: '摄影' },
+      { key: 'hiking', name: '徒步' }
     ];
 
     menu.innerHTML = `
       <div class="fav-type-scroll">
         ${typeList.map(t => `
           <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
-            <span class="ctx-icon">${window.OutmapFavoriteInteractions?.svg(t.key) || t.icon}</span>
+            <span class="ctx-icon">${window.OutmapFavoriteInteractions?.svg(t.key, { autoColor: true, size: 16 }) || ''}</span>
             <span class="ctx-text">${t.name}</span>
             <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
           </button>
@@ -6271,11 +6271,11 @@ function setupWaypointAndFavoritesSystem(map) {
       <div class="fav-type-footer">
         <div class="ctx-divider"></div>
         <button class="ctx-item danger fav-type-delete" type="button">
-          <span class="ctx-icon">🗑️</span>
+          <span class="ctx-icon">${window.OutmapFavoriteInteractions?.svg('trash', { size: 15, color: '#ef4444' }) || ''}</span>
           <span class="ctx-text">删除</span>
         </button>
         <button class="ctx-item fav-type-rename" type="button">
-          <span class="ctx-icon">✏️</span>
+          <span class="ctx-icon">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
           <span class="ctx-text">重命名</span>
         </button>
       </div>
@@ -6416,7 +6416,7 @@ function setupWaypointAndFavoritesSystem(map) {
         : '坐标不可用';
       const elevationText = Number.isFinite(safeEle) ? `${Math.round(safeEle)}m` : '--m';
       item.innerHTML = `
-        <span class="favorite-list-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg(wp.type) || ''}</span>
+        <span class="favorite-list-icon type-${wp.type || 'view'}" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg(wp.type, { autoColor: true, size: 18 }) || ''}</span>
         <div class="fav-item-info">
           <div class="fav-item-name">${escapeHtml(wp.name || '未命名地点')}</div>
           <div class="fav-item-meta">${coordText} · ${elevationText}</div>
@@ -6483,7 +6483,12 @@ function setupWaypointAndFavoritesSystem(map) {
       return;
     }
 
-    const modeNames = { drive: '🚗 自驾', cycle: '🚴 骑行', hike: '🥾 徒步' };
+    const modeIcons = {
+      drive: window.OutmapFavoriteInteractions?.svg('drive', { size: 13, color: '#0284c7' }) || '',
+      cycle: window.OutmapFavoriteInteractions?.svg('cycle', { size: 13, color: '#16a34a' }) || '',
+      hike: window.OutmapFavoriteInteractions?.svg('hiking', { size: 13, color: '#ea580c' }) || ''
+    };
+    const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
 
     savedRoutes.forEach((route) => {
       const card = document.createElement('div');
@@ -6501,16 +6506,19 @@ function setupWaypointAndFavoritesSystem(map) {
       card.innerHTML = `
         <div class="fav-route-header">
           <div class="fav-route-title-box">
-            <span class="fav-route-mode-tag">${modeNames[route.mode] || '🛣️ 路线'}</span>
+            <span class="fav-route-mode-tag mode-${route.mode || 'drive'}">
+              ${modeIcons[route.mode] || (window.OutmapFavoriteInteractions?.svg('route', { size: 13 }) || '')}
+              <span>${modeNames[route.mode] || '路线'}</span>
+            </span>
             <span class="fav-route-name">${escapeHtml(route.name || '未命名路线')}</span>
           </div>
           <span class="fav-route-date">${escapeHtml(route.createdAt || '')}</span>
         </div>
         <div class="fav-route-stats">
-          <span>📏 ${distStr}</span>
+          <span>${window.OutmapFavoriteInteractions?.svg('distance', { size: 13, color: '#64748b' }) || ''} ${distStr}</span>
           ${timeStr ? `<span>${timeStr}</span>` : ''}
           ${climbStr ? `<span>${climbStr}</span>` : ''}
-          <span>📍 ${viaText}</span>
+          <span>${window.OutmapFavoriteInteractions?.svg('pin', { size: 13, color: '#64748b' }) || ''} ${viaText}</span>
         </div>
       `;
 
@@ -6529,15 +6537,15 @@ function setupWaypointAndFavoritesSystem(map) {
 
         menu.innerHTML = `
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
-            <span class="ctx-icon" aria-hidden="true">📤</span>
+            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('export', { size: 15 }) || ''}</span>
             <span class="ctx-text">导出路线</span>
           </button>
           <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">
-            <span class="ctx-icon" aria-hidden="true">🗑️</span>
+            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('trash', { size: 15, color: '#ef4444' }) || ''}</span>
             <span class="ctx-text">删除路线</span>
           </button>
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
-            <span class="ctx-icon" aria-hidden="true">✏️</span>
+            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
             <span class="ctx-text">重命名路线</span>
           </button>
         `;
@@ -6767,11 +6775,11 @@ function setupWaypointAndFavoritesSystem(map) {
     menu.className = 'fluent-context-menu fav-folder-context-menu';
     menu.innerHTML = `
       <button type="button" class="ctx-item fav-folder-context-item btn-ctx-rename">
-        <span class="ctx-icon" aria-hidden="true">✏️</span>
+        <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
         <span class="ctx-text">重命名分类</span>
       </button>
       <button type="button" class="ctx-item fav-folder-context-item danger btn-ctx-del">
-        <span class="ctx-icon" aria-hidden="true">🗑️</span>
+        <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('trash', { size: 15, color: '#ef4444' }) || ''}</span>
         <span class="ctx-text">删除分类</span>
       </button>
     `;
@@ -9551,9 +9559,9 @@ function setupOutdoorRouteSystem(map) {
     map.getCanvas().style.cursor = '';
     btnPickViaInline?.classList.remove('picking');
     if (btnPickViaInline) {
-      btnPickViaInline.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+      btnPickViaInline.innerHTML = `<span class="pick-icon">${window.OutmapFavoriteInteractions?.svg('pin', { size: 13 }) || ''}</span><span class="pick-text">地图选点</span>`;
     }
-    if (btnAddViaPoint) btnAddViaPoint.innerHTML = '<span>➕ 添加途径点</span>';
+    if (btnAddViaPoint) btnAddViaPoint.innerHTML = `<span>${window.OutmapFavoriteInteractions?.svg('via', { size: 12 }) || ''} 添加途径点</span>`;
   };
   window.exitRoutePickingMode = exitRoutePickingMode;
 
@@ -11320,7 +11328,7 @@ function setupGlobalKeyboardDispatcher() {
           if (progressBox) progressBox.style.display = 'none';
           if (btnStart) {
             btnStart.disabled = false;
-            btnStart.innerText = '⚡ 立即更新并重启';
+            btnStart.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 14 }) || ''} <span>立即更新并重启</span>`;
           }
         });
         e.stopPropagation();
@@ -11350,7 +11358,7 @@ function setupGlobalKeyboardDispatcher() {
             const btnAdd = document.getElementById('btn-add-via-inline');
             btnPick?.classList.remove('picking');
             btnAdd?.classList.remove('picking');
-            if (btnPick) btnPick.innerHTML = '<span class="pick-icon">📍</span><span class="pick-text">地图选点</span>';
+            if (btnPick) btnPick.innerHTML = `<span class="pick-icon">${window.OutmapFavoriteInteractions?.svg('pin', { size: 13 }) || ''}</span><span class="pick-text">地图选点</span>`;
           }
           e.stopPropagation();
           e.stopImmediatePropagation();
