@@ -45,6 +45,7 @@ function scan({ baseDir, provinces, boxes }) {
       }
       result[key] ||= { layers: { dem: { levels: {} }, vector: { levels: {} } } };
       for (const layer of ['dem', 'vector']) {
+        if (layer === 'dem' && z > 12) continue; // DEM 瓦片最高仅到 12 级
         result[key].layers[layer].levels[z] = { expected, present: 0, complete: false };
       }
       return { key, b };
@@ -109,7 +110,8 @@ function scan({ baseDir, provinces, boxes }) {
           if (layerCfg.isProvLayer && candidates.length > 0 && inChina(z, x, y, boxes)) {
             for (const r of candidates) {
               if (y >= r.b[2] && y <= r.b[3]) {
-                result[r.key].layers[layerCfg.dirName].levels[z].present++;
+                const provLevel = result[r.key].layers[layerCfg.dirName].levels[z];
+                if (provLevel) provLevel.present++;
               }
             }
           }
@@ -167,7 +169,11 @@ function scan({ baseDir, provinces, boxes }) {
     p.dem = Object.values(p.layers.dem.levels).some(l => l.present > 0);
     p.vec = Object.values(p.layers.vector.levels).some(l => l.present > 0);
     const activeMaxZs = [];
-    if (p.layers.dem.maxZ > 0 || p.dem) activeMaxZs.push(p.layers.dem.maxZ);
+    if (p.layers.dem.maxZ > 0 || p.dem) {
+      const demZ = p.layers.dem.maxZ || 0;
+      const effectiveDemMaxZ = demZ >= 12 ? Math.max(12, p.layers.vector.maxZ || 12) : demZ;
+      activeMaxZs.push(effectiveDemMaxZ);
+    }
     if (p.layers.vector.maxZ > 0 || p.vec) activeMaxZs.push(p.layers.vector.maxZ);
     p.maxZ = activeMaxZs.length > 0 ? Math.min(...activeMaxZs) : 0;
     p.partialZ = Math.max(p.layers.dem.partialZ, p.layers.vector.partialZ);
@@ -227,7 +233,7 @@ function* enumerateTileColumns({ provinces, minZ, maxZ, downloadDem, downloadVec
     const ranges = provinces.map(prov => ({
       prov,
       b: bounds(prov.bbox, z),
-      includeDem: downloadDem && (!allowedTargets || allowedTargets.has(`${prov.key}:dem:${z}`)),
+      includeDem: downloadDem && z <= 12 && (!allowedTargets || allowedTargets.has(`${prov.key}:dem:${z}`)),
       includeVector: downloadVec && (!allowedTargets || allowedTargets.has(`${prov.key}:vector:${z}`))
     }));
     if (ranges.length === 0 || !ranges.some(range => range.includeDem || range.includeVector)) continue;
@@ -272,7 +278,7 @@ async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onPr
   let columnsSinceYield = 0;
   for (const column of enumerateTileColumns(plan)) {
     if (signal?.aborted) break;
-    const needsDem = column.segments.some(segment => segment.includeDem);
+    const needsDem = column.z <= 12 && column.segments.some(segment => segment.includeDem);
     const needsVector = column.segments.some(segment => segment.includeVector);
     const [demFiles, vectorFiles] = await Promise.all([
       needsDem ? readColumnFiles('dem', column.z, column.x) : null,
@@ -288,7 +294,7 @@ async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onPr
       for (let y = segment.startY; y <= segment.endY; y++) {
         if (signal?.aborted) break;
         const validTile = inChina(column.z, column.x, y, plan.boxes);
-        if (segment.includeDem) {
+        if (column.z <= 12 && segment.includeDem) {
           const missing = validTile && !demFiles.has(`${y}.webp`);
           if (validTile) progress.scannedCandidates++;
           if (missing) {
@@ -311,7 +317,7 @@ async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onPr
           }
         }
       }
-      if (!signal?.aborted && demRunStart !== null) {
+      if (!signal?.aborted && column.z <= 12 && demRunStart !== null) {
         yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, startY: demRunStart, endY: segment.endY, ext: 'webp' };
       }
       if (!signal?.aborted && vectorRunStart !== null) {
@@ -354,7 +360,7 @@ function* enumerateTiles(plan) {
     for (const segment of column.segments) {
       for (let y = segment.startY; y <= segment.endY; y++) {
         if (!inChina(column.z, column.x, y, plan.boxes)) continue;
-        if (segment.includeDem) {
+        if (column.z <= 12 && segment.includeDem) {
           yield { provKey: segment.provKey, provName: segment.provName, type: 'dem', z: column.z, x: column.x, y, ext: 'webp' };
         }
         if (segment.includeVector) {

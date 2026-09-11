@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.22" />
+  <link rel="stylesheet" href="style.css?v=1.9.23" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.22</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.23</span>
                 </div>
               </div>
             </div>
@@ -607,8 +607,11 @@
                 <div class="progress-bar-fill" id="dl-progress-fill"></div>
               </div>
               <div class="dl-progress-footer">
-                <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
-                <span class="dl-progress-speed" id="dl-progress-speed">0 KB/s</span>
+                <div class="dl-progress-main-row">
+                  <span class="dl-progress-detail" id="dl-progress-num">0 / 0 瓦片</span>
+                  <span class="dl-progress-speed" id="dl-progress-speed">0 KB/s</span>
+                </div>
+                <div class="dl-progress-sub-row" id="dl-progress-subline" style="display: none;"></div>
               </div>
             </div>
           </div>
@@ -778,7 +781,7 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.9.22"></script>
-  <script src="app.js?v=1.9.22"></script>
+  <script src="location-camera.js?v=1.9.23"></script>
+  <script src="app.js?v=1.9.23"></script>
 </body>
 </html>

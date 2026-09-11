@@ -871,7 +871,11 @@ function recomputeOfflineProvinceSummary(province) {
   next.dem = Object.values(next.layers.dem.levels).some(level => Number(level.present) > 0);
   next.vec = Object.values(next.layers.vector.levels).some(level => Number(level.present) > 0);
   const activeMaxZs = [];
-  if (next.dem) activeMaxZs.push(next.layers.dem.maxZ || 0);
+  if (next.dem) {
+    const demMaxZ = next.layers.dem.maxZ || 0;
+    const effectiveDemMaxZ = demMaxZ >= 12 ? Math.max(12, next.layers.vector.maxZ || 12) : demMaxZ;
+    activeMaxZs.push(effectiveDemMaxZ);
+  }
   if (next.vec) activeMaxZs.push(next.layers.vector.maxZ || 0);
   next.maxZ = activeMaxZs.length > 0 ? Math.min(...activeMaxZs) : 0;
   next.partialZ = Math.max(next.layers.dem.partialZ || 0, next.layers.vector.partialZ || 0);
@@ -1317,6 +1321,7 @@ app.whenReady().then(async () => {
     for (const prov of provTasks) {
       for (const type of requestedTypes) {
         for (let z = safeMinZ; z <= safeMaxZ; z++) {
+          if (type === 'dem' && z > 12) continue; // DEM 瓦片最高仅到 12 级
           const targetKey = `${prov.key}:${type}:${z}`;
           manifestTargetKeys.add(targetKey);
           const level = initialManifest.provinces?.[prov.key]?.layers?.[type]?.levels?.[z];
@@ -1399,11 +1404,13 @@ app.whenReady().then(async () => {
         this.cooldownUntil = 0;
       }
       async acquire() {
+        if (signal?.aborted) return () => {};
         // A CDN 429/5xx response briefly cools this origin down. Waiting here
         // prevents all workers from retrying in lock-step and getting rejected
         // again while still allowing the other layer to make progress.
         const waitMs = this.cooldownUntil - Date.now();
         if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 3000)));
+        if (signal?.aborted) return () => {};
         if (this.active < this.limit) {
           this.active++;
           return Promise.resolve(() => this.release());
@@ -1450,7 +1457,7 @@ app.whenReady().then(async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
         const release = await lane.acquire();
         try {
-          const timeout = AbortSignal.timeout(12000);
+          const timeout = AbortSignal.timeout(6000);
           const fetchSignal = typeof AbortSignal.any === 'function'
             ? AbortSignal.any([signal, timeout])
             : timeout;
@@ -1907,6 +1914,7 @@ app.whenReady().then(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
     }
+    offlineDownloadRunning = false;
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
       activeDownloadAbort = null;

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.22';
+const APP_VERSION = '1.9.23';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -924,19 +924,187 @@ function mergeRoutes(localList = [], cloudList = [], deletedList = []) {
   return result;
 }
 
-function mergeFolders(localList = [], cloudList = []) {
-  const result = [];
-  const set = new Set();
-  [...(localList || []), ...(cloudList || [])].forEach(f => {
-    if (!f) return;
-    const id = typeof f === 'string' ? f : (f.id || f.name);
-    const name = typeof f === 'string' ? f : f.name;
-    const key = (name || id || '').trim();
-    if (key && !set.has(key)) {
-      set.add(key);
-      result.push(typeof f === 'string' ? { id: key, name: key } : f);
-    }
+// 文件夹/分类同样采用删除墓碑机制，彻底阻断云端旧快照把本地已删分类重新带回！
+const DELETED_FOLDERS_STORAGE_KEY = 'outmap_deleted_folders';
+const FOLDER_TAB_ORDER_STORAGE_KEY = 'outmap_folder_tab_order';
+const BUILTIN_TAB_NAMES_STORAGE_KEY = 'outmap_builtin_tab_names';
+
+function cleanFolderTitle(name) {
+  return (name || '').replace(/^(\[导入\]|📁|\s)+/, '').trim();
+}
+
+function getDeletedFolders() {
+  try {
+    const raw = localStorage.getItem(DELETED_FOLDERS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function addDeletedFolderTombstone(folder) {
+  if (!folder) return [];
+  const id = typeof folder === 'string' ? folder : (folder.id ? String(folder.id) : '');
+  const name = typeof folder === 'string' ? folder : String(folder.name || '').trim();
+  const cleanName = cleanFolderTitle(name);
+  if (!id && !name && !cleanName) return [];
+
+  const list = getDeletedFolders();
+  const exists = list.some(item => {
+    if (!item) return false;
+    if (id && item.id && String(item.id) === id) return true;
+    if (cleanName && item.cleanName && item.cleanName === cleanName) return true;
+    if (name && item.name && item.name === name) return true;
+    return false;
   });
+
+  if (!exists) {
+    list.push({
+      id: id || '',
+      name: name || '',
+      cleanName: cleanName || '',
+      time: Date.now()
+    });
+  }
+  const cutoff = Date.now() - 365 * 24 * 3600 * 1000;
+  const trimmed = list.filter(item => !item.time || item.time > cutoff).slice(-300);
+  try {
+    localStorage.setItem(DELETED_FOLDERS_STORAGE_KEY, JSON.stringify(trimmed));
+  } catch (_) {}
+  return trimmed;
+}
+
+function isFolderDeleted(folder, deletedList = null) {
+  if (!folder) return false;
+  const list = Array.isArray(deletedList) ? deletedList : getDeletedFolders();
+  if (!list || list.length === 0) return false;
+
+  const id = typeof folder === 'string' ? folder : (folder.id ? String(folder.id) : '');
+  const name = typeof folder === 'string' ? folder : String(folder.name || '').trim();
+  const cleanName = cleanFolderTitle(name);
+
+  return list.some(item => {
+    if (!item) return false;
+    if (id && item.id && String(item.id) === id) return true;
+    if (cleanName && item.cleanName && item.cleanName === cleanName) return true;
+    if (name && item.name && item.name === name) return true;
+    return false;
+  });
+}
+
+function getBuiltinTabNames() {
+  try {
+    const raw = localStorage.getItem(BUILTIN_TAB_NAMES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function setBuiltinTabName(id, name) {
+  if (!id) return;
+  const cur = getBuiltinTabNames();
+  cur[id] = (name || '').trim();
+  try {
+    localStorage.setItem(BUILTIN_TAB_NAMES_STORAGE_KEY, JSON.stringify(cur));
+  } catch (_) {}
+}
+
+function getFolderTabOrder() {
+  try {
+    const raw = localStorage.getItem(FOLDER_TAB_ORDER_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function setFolderTabOrder(order) {
+  if (!Array.isArray(order)) return;
+  try {
+    localStorage.setItem(FOLDER_TAB_ORDER_STORAGE_KEY, JSON.stringify(order));
+  } catch (_) {}
+}
+
+// 文件夹清洗：移除墓碑中已删除分类，并严格按 ID 去重（当发生改名时，保留用户自定义/最新改名项，丢弃旧导入名前缀项）
+function sanitizeFolders(foldersList) {
+  if (!Array.isArray(foldersList)) return [];
+  const delList = getDeletedFolders();
+  const result = [];
+  const seenIds = new Set();
+  const seenCleanNames = new Map();
+
+  foldersList.forEach(f => {
+    if (!f) return;
+    const obj = typeof f === 'string' ? { id: f, name: f } : { ...f };
+    if (!obj.id) obj.id = 'folder_' + (obj.name || Date.now());
+    if (isFolderDeleted(obj, delList)) return;
+
+    const idStr = String(obj.id).trim();
+    const clean = cleanFolderTitle(obj.name);
+
+    // 1. 如果发现完全相同的 ID：检查哪一个是被重命名后的友好名称（无 [导入] 前缀）
+    if (seenIds.has(idStr)) {
+      const existingIdx = result.findIndex(item => String(item.id).trim() === idStr);
+      if (existingIdx !== -1) {
+        const existing = result[existingIdx];
+        const existingHasImport = (existing.name || '').includes('[导入]');
+        const curHasImport = (obj.name || '').includes('[导入]');
+        if (existingHasImport && !curHasImport) {
+          result[existingIdx] = obj;
+        }
+      }
+      return;
+    }
+
+    // 2. 如果 ID 不同但名字清理后完全一致
+    if (clean && seenCleanNames.has(clean)) {
+      const existingIdx = seenCleanNames.get(clean);
+      const existing = result[existingIdx];
+      const existingHasImport = (existing.name || '').includes('[导入]');
+      const curHasImport = (obj.name || '').includes('[导入]');
+      if (existingHasImport && !curHasImport) {
+        result[existingIdx] = obj;
+      }
+      return;
+    }
+
+    seenIds.add(idStr);
+    if (clean) seenCleanNames.set(clean, result.length);
+    result.push(obj);
+  });
+
+  return result;
+}
+
+function mergeFolders(localList = [], cloudList = [], deletedList = null) {
+  const delList = Array.isArray(deletedList) && deletedList.length ? deletedList : getDeletedFolders();
+  const cleanLocal = sanitizeFolders(localList);
+  const result = [...cleanLocal];
+  const seenIds = new Set(result.map(f => String(f.id).trim()));
+  const seenCleanNames = new Set(result.map(f => cleanFolderTitle(f.name).toLowerCase()));
+
+  (cloudList || []).forEach(f => {
+    if (!f) return;
+    const obj = typeof f === 'string' ? { id: f, name: f } : { ...f };
+    if (!obj.id) obj.id = 'folder_' + (obj.name || Date.now());
+    if (isFolderDeleted(obj, delList)) return;
+
+    const idStr = String(obj.id).trim();
+    const clean = cleanFolderTitle(obj.name).toLowerCase();
+
+    // 本地优先：若 ID 已在本地存在（说明本地已保留或已改名），坚决丢弃云端旧项，避免分裂为双标签！
+    if (idStr && seenIds.has(idStr)) return;
+    // 若同名项已存在，也不再推入
+    if (clean && seenCleanNames.has(clean)) return;
+
+    seenIds.add(idStr);
+    if (clean) seenCleanNames.add(clean);
+    result.push(obj);
+  });
+
   return result;
 }
 
@@ -3300,6 +3468,7 @@ function setupPyramidModal(map) {
   const progressFill = document.getElementById('dl-progress-fill');
   const progressTask = document.getElementById('dl-progress-task');
   const progressNum = document.getElementById('dl-progress-num');
+  const progressSubline = document.getElementById('dl-progress-subline');
   const progressSpeed = document.getElementById('dl-progress-speed');
   const progressPct = document.getElementById('dl-progress-pct');
 
@@ -3322,12 +3491,18 @@ function setupPyramidModal(map) {
     if (chkVec?.checked) layers.push('vector');
     return layers;
   };
-  const isLayerLevelComplete = (state, layer, z) => Boolean(state?.layers?.[layer]?.levels?.[z]?.complete);
+  const isLayerLevelComplete = (state, layer, z) => {
+    if (layer === 'dem' && z > 12) return true; // DEM 瓦片全球最高仅到 12 级
+    return Boolean(state?.layers?.[layer]?.levels?.[z]?.complete);
+  };
   const isLevelCompleteForLayers = (state, z, layers = getRequestedLayers()) => (
     Boolean(state) && layers.length > 0 && layers.every(layer => isLayerLevelComplete(state, layer, z))
   );
   const isLevelPartialForLayers = (state, z, layers = getRequestedLayers()) => (
-    Boolean(state) && layers.some(layer => Number(state?.layers?.[layer]?.levels?.[z]?.present || 0) > 0)
+    Boolean(state) && layers.some(layer => {
+      if (layer === 'dem' && z > 12) return false;
+      return Number(state?.layers?.[layer]?.levels?.[z]?.present || 0) > 0;
+    })
   );
 
   const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false, phase = '') => {
@@ -3945,6 +4120,10 @@ function setupPyramidModal(map) {
     if (btnDone) btnDone.style.display = 'none';
     progressBox.style.display = 'flex';
     progressFill.style.setProperty('--progress', '0');
+    if (progressSubline) {
+      progressSubline.innerText = '';
+      progressSubline.style.display = 'none';
+    }
     if (isIncrementalUpdate) {
       progressNum.innerText = '方案 A：正在通过 If-Modified-Since 启动切片级增量更新...';
     } else if (isVerify) {
@@ -4025,6 +4204,10 @@ function setupPyramidModal(map) {
     if (btnUpdate) btnUpdate.style.display = 'none';
     if (progressTask) progressTask.innerText = '已中止下载';
     progressNum.innerText = '下载已停止';
+    if (progressSubline) {
+      progressSubline.innerText = '';
+      progressSubline.style.display = 'none';
+    }
     progressSpeed.innerText = '';
     updateEstimation();
   });
@@ -4074,31 +4257,61 @@ function setupPyramidModal(map) {
 
       const countPart = `${formatTileCount(data.completed)} / ${formatTileCount(data.total)} 瓦片`;
       const failurePart = data.failureReason ? ` · ${data.failureReason}` : '';
-      let detail = countPart;
+      let mainText = countPart;
+      let subText = '';
       const readyCount = data.existingCount || data.skippedCount || 0;
       if (isLocating) {
         const found = Number(data.foundMissing || data.total || 0);
         const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
         const failed = Number(data.failedCount || 0);
         const unavailable = Number(data.unavailableCount || 0);
-        detail = found > 0
-          ? `已定位 ${formatTileCount(found)} 块缺片 · 已补齐 ${formatTileCount(saved)} 块${unavailable > 0 ? ` · 无数据 ${formatTileCount(unavailable)} 块` : ''}${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块${failurePart}` : ''}`
-          : '正在读取目录索引，不会逐块读取已有瓦片';
+        if (found > 0) {
+          mainText = `已定位 ${formatTileCount(found)} 块缺片`;
+          const subParts = [];
+          subParts.push(`已补齐 ${formatTileCount(saved)} 块`);
+          if (unavailable > 0) subParts.push(`无数据 ${formatTileCount(unavailable)} 块`);
+          if (failed > 0) subParts.push(`失败 ${formatTileCount(failed)} 块${failurePart}`);
+          subText = subParts.join(' · ');
+        } else {
+          mainText = '正在读取目录索引';
+          subText = '不会逐块读取已有瓦片';
+        }
       } else if (data.done && Number(data.total || 0) === 0) {
-        detail = '未发现缺片，所选范围已全部就绪';
+        mainText = '所选范围已全部就绪';
+        subText = '未发现缺片';
       } else if (data.isIncrementalUpdate) {
         const unchanged = data.unchangedCount || 0;
-        detail = (readyCount > 0 || unchanged > 0) ? `${countPart} (已就绪 ${formatTileCount(unchanged || readyCount)})` : countPart;
+        mainText = countPart;
+        if (readyCount > 0 || unchanged > 0) {
+          subText = `已就绪 ${formatTileCount(unchanged || readyCount)} 块`;
+        }
       } else if (readyCount > 0) {
-        detail = `${countPart} (已就绪 ${formatTileCount(readyCount)})`;
+        mainText = countPart;
+        subText = `已就绪 ${formatTileCount(readyCount)} 块`;
       } else if (!data.isVerify) {
+        mainText = countPart;
         const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
         const failed = Number(data.failedCount || 0);
         const unavailable = Number(data.unavailableCount || 0);
-        detail = `${countPart} · 已补齐 ${formatTileCount(saved)} 块${unavailable > 0 ? ` · 无数据 ${formatTileCount(unavailable)} 块` : ''}${failed > 0 ? ` · 失败 ${formatTileCount(failed)} 块${failurePart}` : ''}`;
+        const subParts = [];
+        if (saved > 0 || unavailable > 0 || failed > 0) {
+          subParts.push(`已补齐 ${formatTileCount(saved)} 块`);
+          if (unavailable > 0) subParts.push(`无数据 ${formatTileCount(unavailable)} 块`);
+          if (failed > 0) subParts.push(`失败 ${formatTileCount(failed)} 块${failurePart}`);
+        }
+        subText = subParts.join(' · ');
       }
 
-      progressNum.innerText = detail;
+      progressNum.innerText = mainText;
+      if (progressSubline) {
+        if (subText) {
+          progressSubline.innerText = subText;
+          progressSubline.style.display = 'block';
+        } else {
+          progressSubline.innerText = '';
+          progressSubline.style.display = 'none';
+        }
+      }
 
       // 实时网络速率计算与格式化
       let curByteSpeed = data.byteSpeed;
@@ -4639,9 +4852,17 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       const mergedDeletedRoutes = mergeRouteTombstones(localDeletedRoutes, cloudDeletedRoutes);
       try { localStorage.setItem(DELETED_ROUTES_STORAGE_KEY, JSON.stringify(mergedDeletedRoutes)); } catch (e) {}
 
+      // 分类/文件夹删除同样采用墓碑合并，彻底阻断云端旧分类死灰复燃。
+      const cloudDeletedFolders = cloudData?.deletedFolders || [];
+      const localDeletedFolders = getDeletedFolders();
+      const mergedDeletedFolders = [...localDeletedFolders, ...cloudDeletedFolders].filter((item, idx, arr) =>
+        arr.findIndex(x => (x.id && x.id === item.id) || (x.name && x.name === item.name) || (x.cleanName && x.cleanName === item.cleanName)) === idx
+      ).slice(-300);
+      try { localStorage.setItem(DELETED_FOLDERS_STORAGE_KEY, JSON.stringify(mergedDeletedFolders)); } catch (e) {}
+
       const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
       const mergedRoutes = mergeRoutes(localRoutes, cloudData?.routes || [], mergedDeletedRoutes);
-      const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
+      const mergedFolders = mergeFolders(localFolders, cloudData?.folders || [], mergedDeletedFolders);
 
       // 若发现云端有新增地标或路线，立即同步写入本地并全量刷新地图与收藏夹列表！
       const hasNewIncoming = JSON.stringify(mergedFavs) !== JSON.stringify(localFavs)
@@ -4667,6 +4888,9 @@ async function triggerRealtimeCloudSync(reason = 'change') {
           routes: mergedRoutes,
           deletedWaypoints: mergedDeleted,
           deletedRoutes: mergedDeletedRoutes,
+          deletedFolders: mergedDeletedFolders,
+          folderTabOrder: getFolderTabOrder(),
+          builtinTabNames: getBuiltinTabNames(),
           views: window.mapInstance ? {
             center: window.mapInstance.getCenter(),
             zoom: window.mapInstance.getZoom(),
@@ -4813,9 +5037,17 @@ function setupCloudSync(map) {
       const mergedDeletedRoutes = mergeRouteTombstones(localDeletedRoutes, cloudDeletedRoutes);
       try { localStorage.setItem(DELETED_ROUTES_STORAGE_KEY, JSON.stringify(mergedDeletedRoutes)); } catch (e) {}
 
+      // 分类/文件夹删除同样采用墓碑合并
+      const cloudDeletedFolders = cloudData?.deletedFolders || [];
+      const localDeletedFolders = getDeletedFolders();
+      const mergedDeletedFolders = [...localDeletedFolders, ...cloudDeletedFolders].filter((item, idx, arr) =>
+        arr.findIndex(x => (x.id && x.id === item.id) || (x.name && x.name === item.name) || (x.cleanName && x.cleanName === item.cleanName)) === idx
+      ).slice(-300);
+      try { localStorage.setItem(DELETED_FOLDERS_STORAGE_KEY, JSON.stringify(mergedDeletedFolders)); } catch (e) {}
+
       const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
       const mergedRoutes = mergeRoutes(localRoutes, cloudData?.routes || [], mergedDeletedRoutes);
-      const mergedFolders = cloudData?.folders ? mergeFolders(localFolders, cloudData.folders) : localFolders;
+      const mergedFolders = mergeFolders(localFolders, cloudData?.folders || [], mergedDeletedFolders);
 
       // 4. 写回本地并全量刷新界面标记与列表
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
@@ -4840,6 +5072,9 @@ function setupCloudSync(map) {
           routes: mergedRoutes,
           deletedWaypoints: mergedDeleted,
           deletedRoutes: mergedDeletedRoutes,
+          deletedFolders: mergedDeletedFolders,
+          folderTabOrder: getFolderTabOrder(),
+          builtinTabNames: getBuiltinTabNames(),
           views: {
             center: map.getCenter(),
             zoom: map.getZoom(),
@@ -5540,7 +5775,10 @@ function setupWaypointAndFavoritesSystem(map) {
     const raw = localStorage.getItem('outmap_saved_waypoints');
     if (raw) savedWaypoints = JSON.parse(raw);
     const rawFolders = localStorage.getItem('outmap_custom_folders');
-    if (rawFolders) customFolders = JSON.parse(rawFolders);
+    if (rawFolders) {
+      customFolders = sanitizeFolders(JSON.parse(rawFolders));
+      try { localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders)); } catch (_) {}
+    }
     const rawRoutes = localStorage.getItem('outmap_saved_routes');
     if (rawRoutes) savedRoutes = JSON.parse(rawRoutes);
   } catch (e) {}
@@ -5553,10 +5791,12 @@ function setupWaypointAndFavoritesSystem(map) {
       <option value="camp">⛺ 我的露营地</option>
       <option value="hiking">🥾 徒步穿越点</option>
     `;
+    const delList = getDeletedFolders();
     customFolders.forEach(f => {
+      if (isFolderDeleted(f, delList)) return;
       const opt = document.createElement('option');
       opt.value = f.id;
-      opt.innerText = `📁 ${f.name}`;
+      opt.innerText = `📁 ${cleanFolderTitle(f.name) || f.name}`;
       wpFolderSelect.appendChild(opt);
     });
     if (selectedVal) wpFolderSelect.value = selectedVal;
@@ -6106,7 +6346,13 @@ function setupWaypointAndFavoritesSystem(map) {
     } else if (currentFolderFilter === 'view') {
       filtered = savedWaypoints.filter(w => w.type === 'view' || w.folder === 'view');
     } else {
-      filtered = savedWaypoints.filter(w => w.folder === currentFolderFilter || w.type === currentFolderFilter);
+      const targetFolder = customFolders.find(f => f.id === currentFolderFilter);
+      const targetName = targetFolder ? targetFolder.name : null;
+      filtered = savedWaypoints.filter(w =>
+        w.folder === currentFolderFilter
+        || (targetName && w.folder === targetName)
+        || w.type === currentFolderFilter
+      );
     }
 
     if (filtered.length === 0) {
@@ -6385,27 +6631,38 @@ function setupWaypointAndFavoritesSystem(map) {
 
   let draggedFolderId = null;
 
-  const renameCustomFolder = (folderObj) => {
-    if (!folderObj) return;
+  const renameCustomFolder = (tabItem) => {
+    if (!tabItem) return;
+    const curName = tabItem.rawName || tabItem.name || '';
     showFluentPrompt({
-      title: '重命名收藏夹',
-      initialValue: folderObj.name || '',
-      placeholder: '请输入收藏夹名称',
+      title: '重命名分类',
+      initialValue: curName,
+      placeholder: '请输入分类名称',
       onConfirm: (newName) => {
         const trimmed = newName.trim();
-        if (!trimmed || trimmed === folderObj.name) return;
-        const oldId = folderObj.id;
-        const oldName = folderObj.name;
-        folderObj.name = trimmed;
-        savedWaypoints.forEach(wp => {
-          if (wp.folder === oldId || wp.folder === oldName) {
-            wp.folder = oldId;
+        if (!trimmed || trimmed === curName) return;
+
+        if (tabItem.isBuiltin) {
+          setBuiltinTabName(tabItem.id, trimmed);
+        } else if (tabItem.folderObj) {
+          const oldName = tabItem.folderObj.name;
+          const oldId = tabItem.folderObj.id;
+          // 将旧名称记入墓碑，彻底阻断云端旧名称死灰复燃造成重复双标签
+          if (oldName && oldName !== trimmed) {
+            addDeletedFolderTombstone({ id: oldId + '_old', name: oldName });
           }
-        });
-        try {
-          localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
-          localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
-        } catch (e) {}
+          tabItem.folderObj.name = trimmed;
+          savedWaypoints.forEach(wp => {
+            if (wp.folder === oldId || wp.folder === oldName) {
+              wp.folder = oldId;
+            }
+          });
+          try {
+            localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+            localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+          } catch (e) {}
+        }
+
         refreshFolderOptions(currentFolderFilter);
         renderFolderTabs();
         renderFavoritesList();
@@ -6416,23 +6673,39 @@ function setupWaypointAndFavoritesSystem(map) {
     });
   };
 
-  const deleteCustomFolder = (folderObj) => {
-    if (!folderObj) return;
-    if (!confirm(`确定删除收藏夹“${folderObj.name}”？\n该文件夹内的收藏点将移至默认分类。`)) return;
-    const folderId = folderObj.id;
+  const deleteCustomFolder = (tabItem) => {
+    if (!tabItem) return;
+    const name = tabItem.name || tabItem.rawName || '分类';
+    if (!confirm(`确定删除“${name}”分类？\n该分类下的收藏地点将保留在“全部”中。`)) return;
+
+    const folderId = tabItem.id;
+    addDeletedFolderTombstone(tabItem.folderObj || { id: folderId, name: tabItem.rawName || tabItem.name });
+
+    // 移出当前分类并将该分类下的点重置为 default，确保所有收藏点在“全部”中依然完整保留
     savedWaypoints.forEach(wp => {
-      if (wp.folder === folderId || wp.folder === folderObj.name) {
+      if (wp.folder === folderId || wp.folder === tabItem.name || (tabItem.folderObj && wp.folder === tabItem.folderObj.name)) {
         wp.folder = 'default';
       }
     });
-    customFolders = customFolders.filter(f => f.id !== folderId);
+
+    if (!tabItem.isBuiltin) {
+      customFolders = customFolders.filter(f => f.id !== folderId && f.name !== name);
+      try {
+        localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+      } catch (e) {}
+    }
+    try {
+      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+    } catch (e) {}
+
+    // 从排序序列中移除
+    const curOrder = getFolderTabOrder().filter(id => id !== folderId);
+    setFolderTabOrder(curOrder);
+
     if (currentFolderFilter === folderId) {
       currentFolderFilter = 'all';
     }
-    try {
-      localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
-      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
-    } catch (e) {}
+
     refreshFolderOptions(currentFolderFilter);
     renderFolderTabs();
     renderFavoritesList();
@@ -6441,7 +6714,7 @@ function setupWaypointAndFavoritesSystem(map) {
     }
   };
 
-  const showFolderTabContextMenu = (folderObj, x, y) => {
+  const showFolderTabContextMenu = (tabItem, x, y) => {
     document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu, .fav-folder-context-menu').forEach(m => m.remove());
     smoothCloseContextMenu();
     const menu = document.createElement('div');
@@ -6449,11 +6722,11 @@ function setupWaypointAndFavoritesSystem(map) {
     menu.innerHTML = `
       <button type="button" class="ctx-item fav-folder-context-item btn-ctx-rename">
         <span class="ctx-icon" aria-hidden="true">✏️</span>
-        <span class="ctx-text">重命名收藏夹</span>
+        <span class="ctx-text">重命名分类</span>
       </button>
       <button type="button" class="ctx-item fav-folder-context-item danger btn-ctx-del">
         <span class="ctx-icon" aria-hidden="true">🗑️</span>
-        <span class="ctx-text">删除收藏夹</span>
+        <span class="ctx-text">删除分类</span>
       </button>
     `;
     document.body.appendChild(menu);
@@ -6491,13 +6764,13 @@ function setupWaypointAndFavoritesSystem(map) {
     menu.querySelector('.btn-ctx-rename')?.addEventListener('click', (e) => {
       e.stopPropagation();
       closeMenu();
-      renameCustomFolder(folderObj);
+      renameCustomFolder(tabItem);
     });
 
     menu.querySelector('.btn-ctx-del')?.addEventListener('click', (e) => {
       e.stopPropagation();
       closeMenu();
-      deleteCustomFolder(folderObj);
+      deleteCustomFolder(tabItem);
     });
 
     map.once('movestart', closeMenu);
@@ -6510,104 +6783,219 @@ function setupWaypointAndFavoritesSystem(map) {
   const renderFolderTabs = () => {
     if (!favTabs) return;
     favTabs.innerHTML = '';
-    const tabs = [
-      { id: 'all', name: '全部', fixed: true },
-      { id: 'folders', name: '收藏夹', fixed: true },
-      { id: 'default', name: '默认', fixed: true },
-      { id: 'view', name: '景点', fixed: true }
+
+    // 1. 获取所有待渲染分类候选（包括内置分类和用户自定义分类，过滤已删除墓碑）
+    const delList = getDeletedFolders();
+    customFolders = sanitizeFolders(customFolders);
+    try {
+      localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+    } catch (_) {}
+
+    const builtinNames = getBuiltinTabNames();
+    const defaultCandidates = [
+      { id: 'folders', defaultName: '收藏夹' },
+      { id: 'default', defaultName: '默认' },
+      { id: 'view', defaultName: '景点' }
     ];
-    customFolders.forEach(f => {
-      const cleanName = (f.name || '').replace(/^(\[导入\]|📁|\s)+/, '');
-      tabs.push({ id: f.id, name: cleanName || f.name, rawName: f.name, folderObj: f, fixed: false });
+
+    const candidateTabs = [];
+
+    // 添加未删除的默认分类
+    defaultCandidates.forEach(b => {
+      if (isFolderDeleted(b.id, delList)) return;
+      const customName = builtinNames[b.id];
+      candidateTabs.push({
+        id: b.id,
+        name: customName || b.defaultName,
+        rawName: customName || b.defaultName,
+        isBuiltin: true,
+        folderObj: null
+      });
     });
 
-    tabs.forEach(t => {
+    // 添加用户自定义分类
+    customFolders.forEach(f => {
+      if (isFolderDeleted(f, delList)) return;
+      const cleanName = cleanFolderTitle(f.name);
+      candidateTabs.push({
+        id: f.id,
+        name: cleanName || f.name,
+        rawName: f.name,
+        isBuiltin: false,
+        folderObj: f
+      });
+    });
+
+    // 2. 依据持久化排序列表对 candidateTabs 排序
+    const savedOrder = getFolderTabOrder();
+    if (savedOrder && savedOrder.length > 0) {
+      candidateTabs.sort((a, b) => {
+        const idxA = savedOrder.indexOf(a.id);
+        const idxB = savedOrder.indexOf(b.id);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return 0;
+      });
+    }
+
+    // 若当前筛选的分类已被删除，自动回退到全部
+    if (currentFolderFilter !== 'all' && !candidateTabs.some(t => t.id === currentFolderFilter)) {
+      currentFolderFilter = 'all';
+    }
+
+    // 3. 渲染首位的“全部”标签（固定在最前，可作为拖拽放置目标，拖入时将分类置顶）
+    const btnAll = document.createElement('button');
+    btnAll.className = 'fav-tab' + (currentFolderFilter === 'all' ? ' active' : '');
+    btnAll.innerText = '全部';
+    btnAll.setAttribute('data-tab-id', 'all');
+    btnAll.title = '全部收藏地点（支持将其它分类拖拽至此置顶）';
+
+    btnAll.addEventListener('dragover', (e) => {
+      if (!draggedFolderId || draggedFolderId === 'all') return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      btnAll.classList.add('drag-over-right');
+    });
+
+    btnAll.addEventListener('dragleave', () => {
+      btnAll.classList.remove('drag-over-right');
+    });
+
+    btnAll.addEventListener('drop', (e) => {
+      e.preventDefault();
+      btnAll.classList.remove('drag-over-right');
+      if (!draggedFolderId || draggedFolderId === 'all') return;
+
+      const fromIdx = candidateTabs.findIndex(t => t.id === draggedFolderId);
+      if (fromIdx !== -1) {
+        const [moved] = candidateTabs.splice(fromIdx, 1);
+        candidateTabs.unshift(moved);
+        const newOrder = candidateTabs.map(t => t.id);
+        setFolderTabOrder(newOrder);
+
+        // 同步更新 customFolders 顺序
+        const customOrder = newOrder.filter(id => !['folders', 'default', 'view'].includes(id));
+        customFolders.sort((a, b) => {
+          const ia = customOrder.indexOf(a.id);
+          const ib = customOrder.indexOf(b.id);
+          return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+        });
+        try { localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders)); } catch (_) {}
+
+        renderFolderTabs();
+        refreshFolderOptions(currentFolderFilter);
+        if (typeof window.triggerRealtimeCloudSync === 'function') {
+          window.triggerRealtimeCloudSync('reorder_folders');
+        }
+      }
+    });
+
+    btnAll.addEventListener('click', () => {
+      currentFolderFilter = 'all';
+      renderFolderTabs();
+      renderFavoritesList();
+    });
+
+    favTabs.appendChild(btnAll);
+
+    // 4. 渲染每一个分类标签（统一支持拖拽排序、右键重命名与删除、双击改名）
+    candidateTabs.forEach(t => {
       const btn = document.createElement('button');
       btn.className = 'fav-tab' + (t.id === currentFolderFilter ? ' active' : '');
       btn.innerText = t.name;
       btn.setAttribute('data-tab-id', t.id);
+      btn.draggable = true;
+      btn.title = `${t.rawName || t.name}（拖拽可任意排序，右键可重命名或删除）`;
 
-      if (!t.fixed && t.folderObj) {
-        btn.draggable = true;
-        btn.title = `${t.rawName || t.name}（拖拽可排序，右键可重命名）`;
+      btn.addEventListener('dragstart', (e) => {
+        draggedFolderId = t.id;
+        btn.classList.add('is-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', t.id);
+      });
 
-        btn.addEventListener('dragstart', (e) => {
-          draggedFolderId = t.id;
-          btn.classList.add('is-dragging');
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', t.id);
+      btn.addEventListener('dragend', () => {
+        draggedFolderId = null;
+        btn.classList.remove('is-dragging');
+        favTabs.querySelectorAll('.fav-tab').forEach(el => {
+          el.classList.remove('drag-over-left', 'drag-over-right');
         });
+      });
 
-        btn.addEventListener('dragend', () => {
-          draggedFolderId = null;
-          btn.classList.remove('is-dragging');
-          favTabs.querySelectorAll('.fav-tab').forEach(el => {
-            el.classList.remove('drag-over-left', 'drag-over-right');
-          });
-        });
+      btn.addEventListener('dragover', (e) => {
+        if (!draggedFolderId || draggedFolderId === t.id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = btn.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        if (e.clientX < midX) {
+          btn.classList.add('drag-over-left');
+          btn.classList.remove('drag-over-right');
+        } else {
+          btn.classList.add('drag-over-right');
+          btn.classList.remove('drag-over-left');
+        }
+      });
 
-        btn.addEventListener('dragover', (e) => {
-          if (!draggedFolderId || draggedFolderId === t.id) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
+      btn.addEventListener('dragleave', () => {
+        btn.classList.remove('drag-over-left', 'drag-over-right');
+      });
+
+      btn.addEventListener('drop', (e) => {
+        e.preventDefault();
+        btn.classList.remove('drag-over-left', 'drag-over-right');
+        if (!draggedFolderId || draggedFolderId === t.id) return;
+
+        const fromIdx = candidateTabs.findIndex(x => x.id === draggedFolderId);
+        const toIdx = candidateTabs.findIndex(x => x.id === t.id);
+        if (fromIdx !== -1 && toIdx !== -1) {
           const rect = btn.getBoundingClientRect();
           const midX = rect.left + rect.width / 2;
-          if (e.clientX < midX) {
-            btn.classList.add('drag-over-left');
-            btn.classList.remove('drag-over-right');
-          } else {
-            btn.classList.add('drag-over-right');
-            btn.classList.remove('drag-over-left');
+          const insertAfter = e.clientX >= midX;
+          const [moved] = candidateTabs.splice(fromIdx, 1);
+          let targetIdx = candidateTabs.findIndex(x => x.id === t.id);
+          if (insertAfter) targetIdx += 1;
+          candidateTabs.splice(targetIdx, 0, moved);
+
+          const newOrder = candidateTabs.map(x => x.id);
+          setFolderTabOrder(newOrder);
+
+          // 同步更新 customFolders 的相对顺序
+          const customOrder = newOrder.filter(id => !['folders', 'default', 'view'].includes(id));
+          customFolders.sort((a, b) => {
+            const ia = customOrder.indexOf(a.id);
+            const ib = customOrder.indexOf(b.id);
+            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+          });
+          try { localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders)); } catch (_) {}
+
+          renderFolderTabs();
+          refreshFolderOptions(currentFolderFilter);
+          if (typeof window.triggerRealtimeCloudSync === 'function') {
+            window.triggerRealtimeCloudSync('reorder_folders');
           }
-        });
+        }
+      });
 
-        btn.addEventListener('dragleave', () => {
-          btn.classList.remove('drag-over-left', 'drag-over-right');
-        });
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showFolderTabContextMenu(t, e.clientX, e.clientY);
+      });
 
-        btn.addEventListener('drop', (e) => {
-          e.preventDefault();
-          btn.classList.remove('drag-over-left', 'drag-over-right');
-          if (!draggedFolderId || draggedFolderId === t.id) return;
-          const fromIdx = customFolders.findIndex(f => f.id === draggedFolderId);
-          const toIdx = customFolders.findIndex(f => f.id === t.id);
-          if (fromIdx !== -1 && toIdx !== -1) {
-            const rect = btn.getBoundingClientRect();
-            const midX = rect.left + rect.width / 2;
-            const insertAfter = e.clientX >= midX;
-            const [moved] = customFolders.splice(fromIdx, 1);
-            let targetIdx = customFolders.findIndex(f => f.id === t.id);
-            if (insertAfter) targetIdx += 1;
-            customFolders.splice(targetIdx, 0, moved);
-            try {
-              localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
-            } catch (err) {}
-            renderFolderTabs();
-            refreshFolderOptions(currentFolderFilter);
-            if (typeof window.triggerRealtimeCloudSync === 'function') {
-              window.triggerRealtimeCloudSync('reorder_folders');
-            }
-          }
-        });
-
-        btn.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          showFolderTabContextMenu(t.folderObj, e.clientX, e.clientY);
-        });
-
-        btn.addEventListener('dblclick', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          renameCustomFolder(t.folderObj);
-        });
-      }
+      btn.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        renameCustomFolder(t);
+      });
 
       btn.addEventListener('click', () => {
         currentFolderFilter = t.id;
         renderFolderTabs();
         renderFavoritesList();
       });
+
       favTabs.appendChild(btn);
     });
   };
@@ -6720,7 +7108,7 @@ function setupWaypointAndFavoritesSystem(map) {
       const raw = localStorage.getItem('outmap_saved_waypoints');
       savedWaypoints = raw ? JSON.parse(raw) : [];
       const rawFolders = localStorage.getItem('outmap_custom_folders');
-      customFolders = rawFolders ? JSON.parse(rawFolders) : [];
+      customFolders = rawFolders ? sanitizeFolders(JSON.parse(rawFolders)) : [];
       const rawRoutes = localStorage.getItem('outmap_saved_routes');
       savedRoutes = rawRoutes ? JSON.parse(rawRoutes) : [];
     } catch (e) {}

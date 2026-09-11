@@ -47,7 +47,7 @@ app.whenReady().then(async () => {
       // 2. Verify Folder Tabs DOM and Draggability
       const favTabs = document.getElementById('fav-folder-tabs');
       const tabs = Array.from(favTabs.querySelectorAll('.fav-tab'));
-      const customTabs = tabs.filter(t => t.draggable);
+      const customTabs = tabs.filter(t => t.draggable && t.getAttribute('data-tab-id')?.startsWith('folder_'));
 
       const hasCustomTabs = customTabs.length === 3;
       const customTitles = customTabs.map(t => t.innerText);

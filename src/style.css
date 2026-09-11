@@ -2032,30 +2032,45 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .dl-unified-box .dl-progress-footer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: 10.5px;
   color: #64748b;
   font-family: var(--font-mono);
 }
 
+.dl-unified-box .dl-progress-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .dl-unified-box .dl-progress-detail {
   color: #475569;
-  font-weight: 500;
+  font-weight: 600;
   min-width: 0;
   overflow: visible;
   text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
+  white-space: nowrap;
 }
 
 .dl-unified-box .dl-progress-speed {
   color: #0284c7;
   font-weight: 600;
   flex-shrink: 0;
-  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.dl-unified-box .dl-progress-sub-row {
+  font-size: 9.5px;
+  color: #64748b;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .progress-text-row {
