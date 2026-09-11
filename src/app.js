@@ -5947,11 +5947,12 @@ function setupWaypointAndFavoritesSystem(map) {
         id: 'outmap-favorite-hover', type: 'circle', source: FAVORITES_SOURCE_ID,
         filter: ['!', ['has', 'point_count']],
         paint: {
-          'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 22, ['boolean', ['feature-state', 'hover'], false], 20, 0],
+          'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 18, ['boolean', ['feature-state', 'hover'], false], 16, 0],
           'circle-color': '#38bdf8',
           'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
           'circle-blur': 0.25,
-          'circle-pitch-alignment': 'map'
+          'circle-pitch-alignment': 'viewport',
+          'circle-pitch-scale': 'viewport'
         }
       });
       map.addLayer({
@@ -5970,11 +5971,12 @@ function setupWaypointAndFavoritesSystem(map) {
         id: 'outmap-favorite-clusters', type: 'circle', source: FAVORITES_SOURCE_ID,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#38bdf8', 20, '#0284c7', 100, '#0369a1'],
-          'circle-radius': ['step', ['get', 'point_count'], 17, 20, 20, 100, 24],
-          'circle-stroke-width': 3,
-          'circle-stroke-color': 'rgba(255,255,255,0.94)',
-          'circle-pitch-alignment': 'map'
+          'circle-color': ['step', ['get', 'point_count'], '#1d4ed8', 10, '#1e40af', 30, '#1e3a8a'],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 9.5, 11, 11, 15, 12.5],
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+          'circle-pitch-alignment': 'viewport',
+          'circle-pitch-scale': 'viewport'
         }
       });
       map.addLayer({
@@ -5983,10 +5985,12 @@ function setupWaypointAndFavoritesSystem(map) {
         layout: {
           'text-field': ['get', 'point_count_abbreviated'],
           'text-font': ['Noto Sans Regular'],
-          'text-size': 12,
-          'text-allow-overlap': true
+          'text-size': 10,
+          'text-allow-overlap': true,
+          'text-pitch-alignment': 'viewport',
+          'text-rotation-alignment': 'viewport'
         },
-        paint: { 'text-color': '#ffffff', 'text-halo-color': '#ffffff', 'text-halo-width': 0.35, 'text-halo-blur': 0 }
+        paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(15,23,42,0.35)', 'text-halo-width': 0.5, 'text-halo-blur': 0 }
       });
       bindFavoriteLayerEvents();
     }
@@ -7745,11 +7749,12 @@ function ensureRoutePointLayers(map) {
       id: 'outmap-route-point-halo', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
       filter: ['!', ['has', 'point_count']],
       paint: {
-        'circle-radius': ['case', ['boolean', ['feature-state', 'dragging'], false], 21, ['boolean', ['feature-state', 'hover'], false], 19, 0],
+        'circle-radius': ['case', ['boolean', ['feature-state', 'dragging'], false], 18, ['boolean', ['feature-state', 'hover'], false], 16, 0],
         'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#0284c7'],
         'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'dragging'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
         'circle-blur': 0.22,
-        'circle-pitch-alignment': 'map'
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport'
       }
     });
     map.addLayer({
@@ -7759,7 +7764,7 @@ function ensureRoutePointLayers(map) {
         'circle-sort-key': ['match', ['get', 'role'], 'via', 1, 'end', 2, 3]
       },
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 8, 11, 10, 15, ['match', ['get', 'role'], 'via', 12, 13]],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 8, 11, 9.5, 15, ['match', ['get', 'role'], 'via', 11, 12]],
         'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#0284c7'],
         'circle-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
         'circle-stroke-width': 2,
@@ -7774,7 +7779,7 @@ function ensureRoutePointLayers(map) {
       layout: {
         'text-field': ['get', 'label'],
         'text-font': ['Noto Sans Regular'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 6, 9, 14, 11],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 6, 8.5, 14, 10.5],
         'text-pitch-alignment': 'viewport',
         'text-rotation-alignment': 'viewport',
         'text-allow-overlap': true,
@@ -7784,20 +7789,20 @@ function ensureRoutePointLayers(map) {
       paint: {
         'text-color': '#ffffff',
         'text-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
-        'text-halo-color': 'rgba(15,23,42,0.18)',
-        'text-halo-width': 0.5
+        'text-halo-color': 'rgba(15,23,42,0.25)',
+        'text-halo-width': 0.4
       }
     });
     map.addLayer({
       id: 'outmap-route-point-clusters', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color': ['step', ['get', 'point_count'], '#0f8fbf', 10, '#087aa8', 30, '#075f83'],
-        'circle-radius': ['step', ['get', 'point_count'], 15, 10, 18, 30, 21],
-        'circle-stroke-width': 3,
-        'circle-stroke-color': 'rgba(255,255,255,0.96)',
-        'circle-pitch-alignment': 'map',
-        'circle-pitch-scale': 'map'
+        'circle-color': ['step', ['get', 'point_count'], '#1d4ed8', 10, '#1e40af', 30, '#1e3a8a'],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 9.5, 11, 11, 15, 12.5],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+        'circle-pitch-alignment': 'viewport',
+        'circle-pitch-scale': 'viewport'
       }
     });
     map.addLayer({
@@ -7806,15 +7811,15 @@ function ensureRoutePointLayers(map) {
       layout: {
         'text-field': ['get', 'point_count_abbreviated'],
         'text-font': ['Noto Sans Regular'],
-        'text-size': 12,
+        'text-size': 10,
         'text-allow-overlap': true,
         'text-pitch-alignment': 'viewport',
         'text-rotation-alignment': 'viewport'
       },
       paint: {
         'text-color': '#ffffff',
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 0.35,
+        'text-halo-color': 'rgba(15,23,42,0.35)',
+        'text-halo-width': 0.5,
         'text-halo-blur': 0
       }
     });

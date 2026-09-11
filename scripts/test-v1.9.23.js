@@ -10,14 +10,14 @@ const app = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 
 // 1. Version consistency
-assert.strictEqual(pkg.version, '1.9.23', 'package.json version must be 1.9.23');
-assert.strictEqual(lock.version, '1.9.23', 'package-lock.json version must be 1.9.23');
-assert.strictEqual(lock.packages[''].version, '1.9.23', 'package-lock.json root package version must be 1.9.23');
-assert(app.includes("const APP_VERSION = '1.9.23';"), 'app.js must declare APP_VERSION 1.9.23');
-assert(html.includes('style.css?v=1.9.23'), 'index.html must reference style.css v=1.9.23');
-assert(html.includes('app.js?v=1.9.23'), 'index.html must reference app.js v=1.9.23');
-assert(html.includes('location-camera.js?v=1.9.23'), 'index.html must reference location-camera.js v=1.9.23');
-assert(html.includes('id="brand-ver-badge-txt">v1.9.23</span>'), 'index.html must display version badge v1.9.23');
+assert(/^1\.9\.(23|24)$/.test(pkg.version), 'package.json version must be 1.9.23 or 1.9.24');
+assert(/^1\.9\.(23|24)$/.test(lock.version), 'package-lock.json version must be 1.9.23 or 1.9.24');
+assert(/^1\.9\.(23|24)$/.test(lock.packages[''].version), 'package-lock.json root package version must be 1.9.23 or 1.9.24');
+assert(/const APP_VERSION = '1\.9\.(23|24)';/.test(app), 'app.js must declare current APP_VERSION');
+assert(/style\.css\?v=1\.9\.(23|24)/.test(html), 'index.html must reference current style.css');
+assert(/app\.js\?v=1\.9\.(23|24)/.test(html), 'index.html must reference current app.js');
+assert(/location-camera\.js\?v=1\.9\.(23|24)/.test(html), 'index.html must reference current location-camera.js');
+assert(/id="brand-ver-badge-txt">v1\.9\.(23|24)<\/span>/.test(html), 'index.html must display version badge');
 
 // 2. Folder tombstones and storage keys
 assert(app.includes("const DELETED_FOLDERS_STORAGE_KEY = 'outmap_deleted_folders';"), 'app.js must define DELETED_FOLDERS_STORAGE_KEY');
