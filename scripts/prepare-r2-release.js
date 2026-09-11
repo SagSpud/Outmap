@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const vm = require('vm');
 
 const rootDir = path.resolve(__dirname, '..');
 const asar = require(path.join(rootDir, 'node_modules', '@electron', 'asar'));
@@ -8,15 +9,19 @@ const asar = require(path.join(rootDir, 'node_modules', '@electron', 'asar'));
 async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  // Never upload a release whose production scripts cannot even be parsed.
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js']) {
+    new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
+  }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 收藏分类拖动跟手、相邻项平滑让位，支持触屏、边缘滚动与取消恢复；',
-    '2. 收藏地图图标使用统一矢量图形和 MapLibre 原生图层，列表与菜单图标保持一致；',
-    '3. 修复收藏飞掠高程重复放大和地图容器偏移时的落点计算；',
-    '4. 支持单个 GeoJSON 地点导入，过滤无效坐标；',
-    '5. 修复下载中止后的任务竞争、源站缺片误标完成及桌面下载背景样式；',
-    '6. 保留已有离线地图与收藏数据；白鹭金岸的原始坐标偏差仍待核对导入文件。'
+    '1. 修复 1.9.30 主脚本语法错误，增加发布前脚本检查；',
+    '2. 修复路线、收藏聚合重复点击及悬停图层干扰；',
+    '3. 精确本地收藏立即搜索，起终点搜索独立取消，完善超时与异常数据处理；',
+    '4. 手机抽屉下滑连续回弹，取消与多指手势不误关闭，收藏长按不再叠加地图菜单；',
+    '5. 收藏分类拖动使用合成变换，滚动到边界停止空转；保留矢量图标、玻璃效果与原生地图图层；',
+    '6. 已验证 50°/70°飞掠、62点规划、高DPI菜单和离线状态回归；不修改已有离线地图与收藏数据。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
@@ -104,7 +109,10 @@ async function main() {
       await uploadRelease();
       return;
     }
-  } catch (e) {}
+  } catch (e) {
+    // A failed upload is a failed release, never silently report packaging success.
+    throw new Error('自动发布失败: ' + e.message);
+  }
 
   console.log('\n☁️  Cloudflare R2 上传指南:');
   console.log('   打开 Cloudflare 控制台 -> R2 -> sagspud -> Outmap/ 目录:');

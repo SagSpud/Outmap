@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.30';
+const APP_VERSION = '1.9.31';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -249,45 +249,49 @@ function smoothCloseContextMenu(onClosed) {
 // 移动端底部抽屉原生式手势向下滑动收起手柄
 function enableMobileSwipeDownToClose(panel, header, onClosed) {
   if (!panel || !header) return;
-  let startY = 0;
-  let currentY = 0;
-  let isDragging = false;
-
-  header.addEventListener('touchstart', (e) => {
-    if (window.innerWidth > 768) return;
-    if (e.touches.length !== 1) return;
-    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a')) return;
-    startY = e.touches[0].clientY;
-    currentY = startY;
-    isDragging = true;
-    panel.style.transition = 'none';
-  }, { passive: true });
-
-  header.addEventListener('touchmove', (e) => {
-    if (!isDragging || window.innerWidth > 768) return;
-    currentY = e.touches[0].clientY;
-    const deltaY = currentY - startY;
-    if (deltaY > 0) {
-      panel.style.transform = `translateY(${deltaY}px)`;
+  if (header.dataset.swipeCloseBound) return;
+  header.dataset.swipeCloseBound = 'true';
+  let gesture = null;
+  let rebound = null;
+  const finish = (cancelled) => {
+    if (!gesture) return;
+    const g = gesture;
+    gesture = null;
+    panel.style.translate = g.original;
+    if (g.delta > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      rebound = panel.animate([{ translate: `0 ${g.delta}px` }, { translate: g.original || '0 0' }],
+        { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
     }
-  }, { passive: true });
-
-  const endDrag = () => {
-    if (!isDragging) return;
-    isDragging = false;
-    panel.style.transition = '';
-    const deltaY = currentY - startY;
-    if (deltaY > 55) {
-      panel.style.transform = '';
+    if (!cancelled && g.delta > 55) {
       if (typeof onClosed === 'function') onClosed();
       else smoothClosePanel(panel);
-    } else {
-      panel.style.transform = '';
     }
   };
-
-  header.addEventListener('touchend', endDrag, { passive: true });
-  header.addEventListener('touchcancel', endDrag, { passive: true });
+  header.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) { finish(true); return; }
+    if (window.innerWidth > 768 || e.target.closest('button,input,a,select,textarea,[role="button"]')) return;
+    rebound?.cancel();
+    const touch = e.touches[0];
+    gesture = { id: touch.identifier, y: touch.clientY, x: touch.clientX, delta: 0, original: panel.style.translate };
+  }, { passive: true });
+  header.addEventListener('touchmove', e => {
+    if (!gesture) return;
+    if (window.innerWidth > 768 || e.touches.length !== 1) { finish(true); return; }
+    const touch = Array.from(e.touches).find(t => t.identifier === gesture.id);
+    if (!touch) { finish(true); return; }
+    const dy = touch.clientY - gesture.y;
+    if (!gesture.delta && (dy < -5 || Math.abs(touch.clientX - gesture.x) > Math.max(8, Math.abs(dy)))) {
+      finish(true); return;
+    }
+    if (dy > 0 || gesture.delta > 0) {
+      if (e.cancelable) e.preventDefault();
+      gesture.delta = Math.max(0, dy);
+      // 独立 translate 不覆盖面板原有 transform/入场动画。
+      panel.style.translate = `0 ${gesture.delta}px`;
+    }
+  }, { passive: false });
+  header.addEventListener('touchend', () => finish(false), { passive: true });
+  header.addEventListener('touchcancel', () => finish(true), { passive: true });
 }
 
 // Fluent / Apple 风格全局高质感模态弹窗系统 (全局拦截原生 Win32/浏览器 alert，体验精致统一)
@@ -2155,7 +2159,10 @@ function parseCoordinates(str) {
 }
 
 /// 综合检索引擎 (中国专属极速匹配)：彻底废除拼音网络转换，本地字典 0ms 秒出，仅检索中国境内地点
-async function queryLocationCandidates(keyword) {
+const locationSearchControllers = new WeakMap();
+async function queryLocationCandidates(keyword, owner = window) {
+  locationSearchControllers.get(owner)?.abort();
+  locationSearchControllers.delete(owner);
   const raw = (keyword || '').trim();
   if (!raw) {
     return [];
@@ -2218,10 +2225,16 @@ async function queryLocationCandidates(keyword) {
   // 5. 用户本地收藏夹匹配
   if (typeof savedWaypoints !== 'undefined' && Array.isArray(savedWaypoints)) {
     savedWaypoints.forEach(wp => {
-      if (wp && wp.name && (wp.name.includes(raw) || raw.includes(wp.name))) {
+      if (wp && typeof wp.name === 'string' && wp.name &&
+          wp.lng != null && wp.lat != null &&
+          Number.isFinite(Number(wp.lng)) && Math.abs(Number(wp.lng)) <= 180 &&
+          Number.isFinite(Number(wp.lat)) && Math.abs(Number(wp.lat)) <= 90 &&
+          (wp.name.includes(raw) || raw.includes(wp.name))) {
+        const folderName = ({ default: '默认收藏夹', camp: '我的露营地', hiking: '徒步穿越点' })[wp.folder || 'default'] ||
+          (typeof customFolders !== 'undefined' ? customFolders.find(f => f.id === wp.folder)?.name : '') || wp.folder || '未分类';
         localMatches.push({
           name: wp.name,
-          desc: `我的收藏 · ${cleanFolderTitle(wp.folder || '未分类')}`,
+          desc: `我的收藏 · ${cleanFolderTitle(folderName)}`,
           coords: [Number(wp.lng), Number(wp.lat)],
           type: wp.type || 'poi',
           zoom: 14.0,
@@ -2231,9 +2244,9 @@ async function queryLocationCandidates(keyword) {
     });
   }
 
-  // 6. 若本地匹配结果已足够（>= 3 个精准匹配），直接按相关度呈现，保护网络流量与私密性
-  if (localMatches.length >= 3) {
-    localMatches.sort((a, b) => (a._score || 5) - (b._score || 5));
+  // 6. 精确本地命中立即返回，不能按候选数量决定是否联网。
+  localMatches.sort((a, b) => (a._score || 5) - (b._score || 5));
+  if (localMatches.some(item => item._score === 1)) {
     return localMatches.slice(0, 8);
   }
 
@@ -2241,7 +2254,7 @@ async function queryLocationCandidates(keyword) {
   try {
     let geojson = null;
 
-    // 优先使用 Electron 原生 IPC 直通检索 (免除渲染进程跨域限制与端口依赖，自带 8GB 堆内存切片缓存)
+    // 优先使用 Electron 原生 IPC 检索，避免渲染进程跨域限制。
     if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.searchLocation === 'function') {
       try {
         geojson = await window.electronAPI.searchLocation(raw);
@@ -2249,11 +2262,8 @@ async function queryLocationCandidates(keyword) {
     }
 
     if (!geojson) {
-      if (window._currentSearchAbortController) {
-        try { window._currentSearchAbortController.abort(); } catch (e) {}
-      }
       const ctrl = new AbortController();
-      window._currentSearchAbortController = ctrl;
+      locationSearchControllers.set(owner, ctrl);
       const timeoutId = setTimeout(() => ctrl.abort(), 6500);
 
       const isDesktop = typeof window !== 'undefined' && Boolean(window.electronAPI);
@@ -2261,6 +2271,7 @@ async function queryLocationCandidates(keyword) {
         ? `http://127.0.0.1:${localServerPort}/search?q=${encodeURIComponent(raw)}`
         : `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
 
+      try {
       let resp;
       try {
         resp = await fetch(onlineUrl, { signal: ctrl.signal });
@@ -2271,19 +2282,21 @@ async function queryLocationCandidates(keyword) {
         } else {
           throw netErr;
         }
-      } finally {
-        clearTimeout(timeoutId);
       }
 
       if (resp && resp.ok) {
         geojson = await resp.json();
       }
+      } finally {
+        clearTimeout(timeoutId);
+        if (locationSearchControllers.get(owner) === ctrl) locationSearchControllers.delete(owner);
+      }
     }
 
-    if (geojson && geojson.features) {
+    if (geojson && Array.isArray(geojson.features)) {
       geojson.features.forEach(f => {
-        const p = f.properties;
-        const coords = f.geometry.coordinates;
+        const p = f?.properties || {};
+        const coords = f?.geometry?.type === 'Point' ? f.geometry.coordinates : null;
         if (!coords || coords.length < 2) return;
 
         const lng = Number(coords[0]);
@@ -2292,10 +2305,10 @@ async function queryLocationCandidates(keyword) {
 
         // 严格边界与国家校验：仅限中国本土
         const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
-        const isCountryCn = !p.countrycode || p.countrycode.toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
+        const isCountryCn = !p.countrycode || String(p.countrycode).toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
         if (!inChinaBbox || !isCountryCn) return;
 
-        const name = p.name || p.street || p.city || raw;
+        const name = String(p.name || p.street || p.city || raw);
         const parts = [p.state, p.city, p.district, p.locality]
           .filter(Boolean)
           .filter(s => s !== 'China' && s !== '中国');
@@ -2303,7 +2316,7 @@ async function queryLocationCandidates(keyword) {
         const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
 
         let type = 'poi';
-        const osmValue = (p.osm_value || '').toLowerCase();
+        const osmValue = String(p.osm_value || '').toLowerCase();
         // 过滤名山与山峰 POI (遵循用户偏好，不展示名山高峰)
         if (osmValue.includes('mountain') || osmValue.includes('peak')) {
           return;
@@ -5757,7 +5770,8 @@ function ensureSavedRouteLayers(map) {
   }
   if (!savedRouteLayerEventsBound) {
     savedRouteLayerEventsBound = true;
-    ['outmap-saved-route-line', 'outmap-saved-route-casing'].forEach(layerId => {
+    // 外描边覆盖完整命中区域，避免内线和描边重复触发加载。
+    ['outmap-saved-route-casing'].forEach(layerId => {
       map.on('mouseenter', layerId, () => {
         if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
           map.getCanvas().style.cursor = 'pointer';
@@ -5769,6 +5783,7 @@ function ensureSavedRouteLayers(map) {
         }
       });
       map.on('click', layerId, event => {
+        if (isPickingPoint || pickingRoutePt) return;
         const routeId = event.features?.[0]?.properties?.id;
         if (routeId) loadSavedRoute(routeId, map);
       });
@@ -5915,7 +5930,9 @@ function setupWaypointAndFavoritesSystem(map) {
   const favoriteFeatureCollection = () => ({
     type: 'FeatureCollection',
     features: savedWaypoints
-      .filter(wp => wp && wp.id != null && Number.isFinite(Number(wp.lng)) && Number(wp.lat))
+      .filter(wp => wp && wp.id != null && wp.lng != null && wp.lat != null &&
+        Number.isFinite(Number(wp.lng)) && Math.abs(Number(wp.lng)) <= 180 &&
+        Number.isFinite(Number(wp.lat)) && Math.abs(Number(wp.lat)) <= 90)
       .map(waypointFeature)
   });
 
@@ -5933,8 +5950,9 @@ function setupWaypointAndFavoritesSystem(map) {
     favoriteLayerEventsBound = true;
     let hoveredId = null;
     let longPressTimer = null;
+    let favoriteLongPressUntil = 0;
 
-    const favLayers = ['outmap-favorite-icons', 'outmap-favorite-hover'];
+    const favLayers = ['outmap-favorite-icons'];
     favLayers.forEach(layerId => {
       map.on('mouseenter', layerId, e => {
         if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
@@ -5954,7 +5972,7 @@ function setupWaypointAndFavoritesSystem(map) {
       });
     });
 
-    const favClusterLayers = ['outmap-favorite-clusters', 'outmap-favorite-cluster-count'];
+    const favClusterLayers = ['outmap-favorite-clusters'];
     favClusterLayers.forEach(layerId => {
       map.on('mouseenter', layerId, () => {
         if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
@@ -5978,6 +5996,7 @@ function setupWaypointAndFavoritesSystem(map) {
       });
     });
     map.on('click', 'outmap-favorite-icons', e => {
+      if (Date.now() < favoriteLongPressUntil) return;
       if (isPickingPoint || pickingRoutePt) return;
       const feature = e.features?.[0];
       const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
@@ -6010,17 +6029,24 @@ function setupWaypointAndFavoritesSystem(map) {
     });
     map.on('touchstart', 'outmap-favorite-icons', e => {
       clearTimeout(longPressTimer);
+      favoriteLongPressUntil = 0;
+      if (e.originalEvent?.touches?.length !== 1) return;
       const feature = e.features?.[0];
       const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
       if (!wp) return;
       const touch = e.originalEvent?.touches?.[0];
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
+        favoriteLongPressUntil = Date.now() + 1000;
         window.showChangeWaypointTypeMenu?.(wp, touch?.clientX ?? e.point.x, touch?.clientY ?? e.point.y);
       }, 500);
     });
-    map.on('touchmove', 'outmap-favorite-icons', () => { clearTimeout(longPressTimer); longPressTimer = null; });
-    map.on('touchend', 'outmap-favorite-icons', () => { clearTimeout(longPressTimer); longPressTimer = null; });
+    // 手指离开图标后也必须取消计时，不能只监听命中该图层的事件。
+    const cancelFavoritePress = () => { clearTimeout(longPressTimer); longPressTimer = null; };
+    map.on('touchmove', cancelFavoritePress);
+    map.on('touchend', cancelFavoritePress);
+    map.on('movestart', cancelFavoritePress);
+    map.getCanvas().addEventListener('touchcancel', cancelFavoritePress, { passive: true });
   };
 
   const ensureFavoriteLayers = () => {
@@ -6491,6 +6517,8 @@ function setupWaypointAndFavoritesSystem(map) {
       let itemTouchTimer = null;
       let suppressNextItemClick = false;
       item.addEventListener('touchstart', (e) => {
+        clearTimeout(itemTouchTimer);
+        suppressNextItemClick = false;
         if (e.touches && e.touches.length === 1) {
           const t = e.touches[0];
           itemTouchTimer = setTimeout(() => {
@@ -6502,6 +6530,7 @@ function setupWaypointAndFavoritesSystem(map) {
       }, { passive: true });
       item.addEventListener('touchmove', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
       item.addEventListener('touchend', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
+      item.addEventListener('touchcancel', () => { clearTimeout(itemTouchTimer); itemTouchTimer = null; suppressNextItemClick = false; }, { passive: true });
 
       item.querySelector('.fav-item-info').addEventListener('click', (e) => {
         if (suppressNextItemClick) {
@@ -7742,7 +7771,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       return;
     }
     searchTimer = setTimeout(async () => {
-      const results = await queryLocationCandidates(val);
+      const results = await queryLocationCandidates(val, inputEl);
       if (seq !== requestSequence || (inputEl.value || '').trim() !== val) return;
       if (document.activeElement === inputEl && inputEl.isConnected) {
         renderCandidates(results, val);
@@ -7786,7 +7815,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         if (val) {
           clearTimeout(searchTimer);
           const seq = ++requestSequence;
-          queryLocationCandidates(val).then(res => {
+          queryLocationCandidates(val, inputEl).then(res => {
             if (seq !== requestSequence || !inputEl.isConnected || inputEl.value.trim() !== val) return;
             if (res && res.length > 0) {
               selectCandidate(res[0]);
@@ -7813,7 +7842,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const val = (inputEl.value || '').trim();
     if (val) {
       const seq = ++requestSequence;
-      queryLocationCandidates(val).then(res => {
+      queryLocationCandidates(val, inputEl).then(res => {
         if (seq === requestSequence && document.activeElement === inputEl && inputEl.isConnected && inputEl.value.trim() === val) {
           renderCandidates(res, val);
         }
@@ -7824,6 +7853,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   inputEl.addEventListener('blur', () => {
     ++requestSequence;
     clearTimeout(searchTimer);
+    locationSearchControllers.get(inputEl)?.abort();
   });
 }
 
@@ -11258,6 +11288,12 @@ function setupMapContextMenu(map) {
   let lastLongPressOpenTime = 0;
 
   map.on('touchstart', e => {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    suppressNextMapClick = false;
+    // 收藏点有自己的长按菜单，不能再叠加普通地图菜单。
+    if (map.getLayer('outmap-favorite-icons') &&
+        map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-icons'] }).length) return;
     if (e.points && e.points.length > 1) {
       if (longPressTimer) clearTimeout(longPressTimer);
       longPressTimer = null;
@@ -11288,6 +11324,9 @@ function setupMapContextMenu(map) {
       longPressTimer = null;
     }
   });
+  const cancelMapPress = () => { clearTimeout(longPressTimer); longPressTimer = null; };
+  map.on('movestart', cancelMapPress);
+  map.getCanvas().addEventListener('touchcancel', cancelMapPress, { passive: true });
 
   // 1. 右键菜单：添加地点到收藏夹 (先播放平滑收起退出动效，再展开目标弹窗)
   btnAddFav?.addEventListener('click', () => {
@@ -11546,8 +11585,6 @@ function setupGlobalKeyboardDispatcher() {
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
-      }
-
       }
 
       // 8.5. 顶栏版本翻转卡片

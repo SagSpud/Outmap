@@ -46,8 +46,9 @@
       if (!s?.active) return;
       const viewport = container.getBoundingClientRect();
       const edge = s.x < viewport.left + 24 ? -1 : s.x > viewport.right - 24 ? 1 : 0;
+      const previousScroll = container.scrollLeft;
       if (edge) container.scrollLeft += edge * 6;
-      s.ghost.style.left = (s.x - s.offset) + 'px';
+      s.ghost.style.transform = `translateX(${s.x - s.offset - parseFloat(s.ghost.style.left)}px) scale(1.06)`;
       const others = tabs().filter(el => el !== s.item);
       const layoutLeft = el => viewport.left + el.offsetLeft - container.scrollLeft;
       const next = others.find(el => s.x < layoutLeft(el) + el.offsetWidth / 2);
@@ -62,7 +63,8 @@
           }
         }
       }
-      if (edge) frame = requestAnimationFrame(update);
+      // 到达滚动边界后停帧；新的指针移动会再唤醒，不在静止时空转。
+      if (edge && container.scrollLeft !== previousScroll) frame = requestAnimationFrame(update);
     }
     container.addEventListener('pointerdown', e => {
       if (e.button !== 0 || state) return;
