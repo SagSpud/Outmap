@@ -1869,7 +1869,7 @@ app.whenReady().then(async () => {
     // The normal iterator contains missing files only; its final discovered
     // count is the exact denominator and never includes ready local tiles.
     if (!isVerify && !isIncrementalUpdate) total = completed;
-    const completedCleanly = !signal.aborted && failedCount === 0;
+    const completedCleanly = !signal.aborted && failedCount === 0 && unavailableCount === 0;
     const finalStats = applyOfflineDownloadManifest({
       targetKeys: manifestTargetKeys,
       successfulByTarget,
@@ -1889,7 +1889,7 @@ app.whenReady().then(async () => {
     }
 
     return {
-      success: !signal.aborted && failedCount === 0,
+      success: completedCleanly,
       aborted: signal.aborted,
       total,
       completed,
@@ -1914,7 +1914,8 @@ app.whenReady().then(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
     }
-    offlineDownloadRunning = false;
+    // The running handler releases ownership after its workers have settled.
+    // Releasing here allows two batches to write and publish counts together.
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
       activeDownloadAbort = null;

@@ -16,8 +16,8 @@
       const style = getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') continue;
       const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.left > rect.width * 0.4 && r.left < rect.right) {
-        right = Math.min(right, Math.max(rect.width * 0.45, r.left - 16));
+      if (r.width > 0 && r.left - rect.left > rect.width * 0.4 && r.left < rect.right) {
+        right = Math.min(right, Math.max(rect.width * 0.45, r.left - rect.left - 16));
       }
       if (global.innerWidth <= 768) {
         if (r.width > rect.width * 0.65 && r.bottom > rect.top && r.top < rect.bottom) {

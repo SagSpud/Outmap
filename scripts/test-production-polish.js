@@ -146,9 +146,10 @@ app.whenReady().then(async () => {
   assert(result.zoom15CoordinatesExact, 'high zoom must reveal route points at their exact coordinates');
   assert(result.routeStateCoordinatesPreserved, 'native clustering must never mutate route planning coordinates');
   assert(result.idleRenders <= 3, `idle map rendered ${result.idleRenders} frames in 1.6s`);
-  assert(/^(?:待测|\d+) FPS$/.test(result.fpsText), 'idle status should retain the last FPS sample without keeping a timer alive');
-  assert(result.routeBlur.includes('20px') && result.modalBlur.includes('20px') && result.layerBlur.includes('20px'),
-    'desktop panels must share one 20px acrylic recipe');
+  // v1.9.22 removed the FPS label. Actual idle render count above is the
+  // performance contract; adaptive desktop/mobile glass must remain uniform.
+  assert(result.routeBlur === result.modalBlur && result.modalBlur === result.layerBlur && result.routeBlur.includes('blur('),
+    'panels must share the adaptive acrylic recipe');
   assert.strictEqual(result.persistentDomMarkers, 0, 'native route layers must remain DOM-free outside active dragging');
   clearTimeout(watchdog);
   console.log('Exact route positions, native clustering, 3D, idle GPU, download and visual consistency checks passed.');

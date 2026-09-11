@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.23';
+const APP_VERSION = '1.9.24';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4356,14 +4356,14 @@ function setupPyramidModal(map) {
 
       if (data.done) {
         document.body.classList.remove('is-downloading');
-        const completedCleanly = !data.aborted && !(data.failedCount > 0);
+        const completedCleanly = !data.aborted && !(data.failedCount > 0) && !(data.unavailableCount > 0);
         setDownloadDotState(completedCleanly ? 'completed' : 'idle');
         if (progressTask) {
           progressTask.innerText = data.aborted
             ? '下载已中止，已完成的切片继续保留'
             : (data.failedCount > 0
               ? `下载结束，${formatTileCount(data.failedCount)} 块失败，可继续补齐`
-              : (data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪'));
+              : (data.unavailableCount > 0 ? `下载结束，源站未提供 ${formatTileCount(data.unavailableCount)} 块，已下载内容保留` : (data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪')));
         }
         progressSpeed.innerText = '';
 
@@ -5833,6 +5833,10 @@ function setupWaypointAndFavoritesSystem(map) {
   const addFavoriteIcon = (type, emoji) => {
     const id = `outmap-fav-${type}`;
     if (map.hasImage(id)) return;
+    if (window.OutmapFavoriteInteractions) {
+      map.addImage(id, window.OutmapFavoriteInteractions.icon(type), { pixelRatio: 2 });
+      return;
+    }
     const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -5901,7 +5905,7 @@ function setupWaypointAndFavoritesSystem(map) {
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
         centered: false,
-        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
       });
     });
     map.on('contextmenu', 'outmap-favorite-icons', e => {
@@ -6218,7 +6222,7 @@ function setupWaypointAndFavoritesSystem(map) {
       <div class="fav-type-scroll">
         ${typeList.map(t => `
           <button class="ctx-item fav-type-menu-item${wp.type === t.key ? ' active' : ''}" data-type="${t.key}">
-            <span class="ctx-icon">${t.icon}</span>
+            <span class="ctx-icon">${window.OutmapFavoriteInteractions?.svg(t.key) || t.icon}</span>
             <span class="ctx-text">${t.name}</span>
             <span class="fav-type-check" aria-hidden="true">${wp.type === t.key ? '✓' : ''}</span>
           </button>
@@ -6372,6 +6376,7 @@ function setupWaypointAndFavoritesSystem(map) {
         : '坐标不可用';
       const elevationText = Number.isFinite(safeEle) ? `${Math.round(safeEle)}m` : '--m';
       item.innerHTML = `
+        <span class="favorite-list-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg(wp.type) || ''}</span>
         <div class="fav-item-info">
           <div class="fav-item-name">${escapeHtml(wp.name || '未命名地点')}</div>
           <div class="fav-item-meta">${coordText} · ${elevationText}</div>
@@ -6411,7 +6416,7 @@ function setupWaypointAndFavoritesSystem(map) {
             pitch: curPitch,
             duration: flightDuration,
             centered: false,
-            elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) * (currentExaggeration || 1) : undefined
+            elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
           });
         };
         // 手机抽屉会遮挡大半地图；先完成原生式收起，再按稳定的完整
@@ -6999,6 +7004,13 @@ function setupWaypointAndFavoritesSystem(map) {
 
       favTabs.appendChild(btn);
     });
+    window.OutmapFavoriteInteractions?.bindSort(favTabs, order => {
+      setFolderTabOrder(order);
+      customFolders.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
+      refreshFolderOptions(currentFolderFilter);
+      window.triggerRealtimeCloudSync?.('reorder_folders');
+    });
   };
 
   btnFabFav?.addEventListener('click', () => {
@@ -7161,7 +7173,8 @@ function importWaypointsIntoFavorites(waypoints, sourceName, mapInstance) {
       ? Math.round(Number(rawCoords[2]))
       : (Number.isFinite(Number(wp.ele)) ? Math.round(Number(wp.ele)) : 0);
 
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    if (rawCoords[0] == null || rawCoords[1] == null || rawCoords[0] === '' || rawCoords[1] === ''
+      || !Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) return;
 
     bounds.extend([lng, lat]);
     const wpType = wp.type || guessWaypointType(wp.name, wp.desc);
@@ -10357,6 +10370,11 @@ function parseTrackFile(content, fileName) {
 
       // 1B. GeoJSON FeatureCollection 或 Feature
       const geo = parsed;
+      if (geo.type === 'Point') {
+        geo.features = [{ type: 'Feature', geometry: { type: 'Point', coordinates: geo.coordinates }, properties: {} }];
+      } else if (geo.type === 'Feature' && geo.geometry?.type === 'Point') {
+        geo.features = [{ type: 'Feature', geometry: geo.geometry, properties: geo.properties }];
+      }
       if (geo.properties && geo.properties.name) {
         name = geo.properties.name;
       }

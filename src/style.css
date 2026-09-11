@@ -3617,6 +3617,20 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-weight: 600;
 }
 
+.fav-folder-tabs { position: relative; }
+.sortable-folder { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
+.sorting-folders { cursor: grabbing; }
+.folder-drag-preview {
+  position: fixed; z-index: 100010; pointer-events: none; box-sizing: border-box;
+  margin: 0; opacity: 1; transform: scale(1.06);
+  box-shadow: 0 6px 18px rgba(15,23,42,.22); border: 1px solid rgba(2,132,199,.3);
+}
+.favorite-list-icon {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 30px; height: 30px;
+  color: #0284c7; background: #f0f9ff; border: 1px solid #dbeafe; border-radius: 9px;
+  box-shadow: inset 0 1px 0 #fff;
+}
+
 .fav-tab[draggable="true"] {
   cursor: grab;
   user-select: none;
@@ -5815,6 +5829,7 @@ body.map-is-moving #update-modal .modal-card {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+}
 
 /* Windows 200% scaling reports a narrow CSS viewport. Keep the downloader
    dialog compact instead of letting its 540px desktop width cover the map;
@@ -5833,7 +5848,6 @@ body.is-downloading #pyramid-modal .modal-card {
   background: rgba(255, 255, 255, 0.985) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-}
 }
 
 /* 路线保存内联面板 (直接在路线规划底栏顺滑展开) */
@@ -6210,4 +6224,3 @@ body.is-downloading #pyramid-modal .modal-card {
   gap: 8px;
   border-top: none;
 }
-
