@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.27';
+const APP_VERSION = '1.9.28';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -7943,7 +7943,7 @@ function bindRoutePointLayerEvents(map) {
       if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) {
         moved = true;
         document.body.classList.add('route-point-is-dragging');
-        map.getCanvas().style.cursor = 'move';
+        map.getCanvas().style.cursor = 'default';
       }
       marker.setLngLat(moveEvent.lngLat);
     };

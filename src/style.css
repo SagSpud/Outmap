@@ -19,12 +19,12 @@
   --font-base: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Cascadia Code", "Consolas", monospace;
   /* 使用系统原生指针；Windows/macOS 会自动选择正确 DPI 与平台样式。 */
-  --cursor-grab: grab;
-  --cursor-grabbing: grabbing;
+  --cursor-grab: default;
+  --cursor-grabbing: default;
   --cursor-crosshair: crosshair;
   --cursor-pointer: pointer;
   --cursor-default: default;
-  --cursor-move: move;
+  --cursor-move: default;
   --glass-surface: rgba(255, 255, 255, 0.91);
   --glass-surface-solid: rgba(255, 255, 255, 0.96);
   --glass-blur: 20px;
@@ -141,8 +141,9 @@ html, body {
   cursor: pointer !important;
 }
 
-/* 3. 拖拽状态（地图拖动平移、途径点拖动重排）：呈现 Windows 原生“移动”四向箭头 (move) */
+/* 3. 拖拽状态（地图拖动平移、途径点拖动重排）：保持标准指针 (default)，杜绝十字频繁切换闪烁 */
 .maplibregl-canvas-container.maplibregl-interactive.maplibregl-drag-pan,
+.maplibregl-canvas-container.maplibregl-interactive:active,
 body.map-is-dragging,
 body.map-is-dragging #map,
 body.map-is-dragging #map canvas,
@@ -155,8 +156,12 @@ body.route-point-is-dragging .maplibregl-canvas-container,
 .folder-drag-preview,
 body.sorting-folders,
 #map canvas[style*="cursor: move"],
-#map canvas[style*="cursor:move"] {
-  cursor: move !important;
+#map canvas[style*="cursor:move"],
+#map canvas[style*="cursor: grab"],
+#map canvas[style*="cursor:grab"],
+#map canvas[style*="cursor: grabbing"],
+#map canvas[style*="cursor:grabbing"] {
+  cursor: default !important;
 }
 
 /* 4. 选点模式 (Picking Mode) */
@@ -3147,7 +3152,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-size: 13px;
   font-weight: 700;
   color: #64748b;
-  cursor: move !important; /* var(--cursor-grab) */
+  cursor: pointer;
   flex-shrink: 0;
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
   user-select: none;
@@ -3158,11 +3163,11 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   background: #e0f2fe;
   border-color: #0284c7;
   color: #0284c7;
-  cursor: move !important; /* var(--cursor-grab) */
+  cursor: pointer;
 }
 
 .btn-drag-handle:active {
-  cursor: move !important; /* var(--cursor-grabbing) */
+  cursor: default !important;
 }
 
 .via-drag-handle {
@@ -3171,20 +3176,20 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-size: 13px;
   border-color: transparent;
   background: transparent;
-  cursor: move !important; /* var(--cursor-grab) */
+  cursor: pointer;
 }
 
 .via-drag-handle:hover {
   background: #e2e8f0;
   border-color: #cbd5e1;
   color: #0284c7;
-  cursor: move !important; /* var(--cursor-grab) */
+  cursor: pointer;
 }
 
 .via-drag-handle:active,
 .route-via-item.dragging,
 .route-via-item.dragging * {
-  cursor: move !important; /* var(--cursor-grabbing) */
+  cursor: default !important;
 }
 
 /* 动态途径点列表 (支持数十个点纵向顺滑滚动与拖拽重排) */
@@ -3248,7 +3253,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   z-index: 100 !important;
   transform: scale(1.02);
   transition: none !important;
-  cursor: move !important;
+  cursor: default !important;
 }
 
 .route-via-item.is-settling,
@@ -3791,8 +3796,8 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .fav-folder-tabs { position: relative; }
-.sortable-folder { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
-.sorting-folders { cursor: grabbing; }
+.sortable-folder { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.sorting-folders { cursor: default !important; }
 .folder-drag-preview {
   position: fixed; z-index: 100010; pointer-events: none; box-sizing: border-box;
   margin: 0; opacity: 1; transform: scale(1.06);
@@ -3861,12 +3866,12 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .fav-tab[draggable="true"] {
-  cursor: grab;
+  cursor: pointer;
   user-select: none;
 }
 
 .fav-tab[draggable="true"]:active {
-  cursor: grabbing;
+  cursor: default;
 }
 
 .fav-tab.is-dragging {
@@ -4285,7 +4290,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .maplibregl-canvas-container.maplibregl-interactive:active {
-  cursor: move;
+  cursor: default;
 }
 
 /* 多省批量选择：下拉菜单触发器与展开浮层面板 */

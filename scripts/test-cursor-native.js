@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
@@ -15,8 +15,8 @@ assert(!styleCss.includes('cursor: grab !important'), 'Must not have cursor: gra
 // 2. Default baseline cursor on canvas container and canvas must be default (图3)
 assert(styleCss.includes('.maplibregl-canvas-container.maplibregl-interactive') && styleCss.includes('cursor: default;'), 'Map container must default to cursor: default');
 
-// 3. Dragging must use move (图2)
-assert(styleCss.includes('body.map-is-dragging') && styleCss.includes('cursor: move !important;'), 'body.map-is-dragging must use move !important');
+// 3. Dragging must use default (保持普通标准指针，去除十字移动光标，杜绝频繁切换闪烁)
+assert(styleCss.includes('body.map-is-dragging') && styleCss.includes('cursor: default !important;'), 'body.map-is-dragging must use default !important');
 assert(styleCss.includes('body.route-point-is-dragging'), 'body.route-point-is-dragging must be defined');
 assert(styleCss.includes('.sorting-folders'), 'Folder sorting must be defined');
 
