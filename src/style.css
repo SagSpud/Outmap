@@ -6461,15 +6461,18 @@ body.is-downloading #pyramid-modal .modal-card {
 
 @media (max-width: 768px), (pointer: coarse) {
   .fav-point-type-menu {
-    width: 94px;
-    min-width: 0;
-    max-width: calc(100vw - 20px);
+    width: 128px;
+    min-width: 128px;
+    max-width: calc(100vw - 24px);
+    border-radius: 12px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
   }
 
   .fav-point-type-menu .ctx-item {
-    min-height: 32px;
-    padding: 5px 8px;
-    font-size: 12px;
+    min-height: 38px;
+    padding: 7px 12px;
+    font-size: 13px;
+    gap: 8px;
   }
 }
 
@@ -6526,12 +6529,6 @@ body.is-downloading #pyramid-modal .modal-card {
   transition: opacity 0.16s ease;
 }
 
-.fluent-prompt-form {
-  display: contents;
-  margin: 0;
-  padding: 0;
-}
-
 .fluent-prompt-overlay.prompt-active {
   opacity: 1;
 }
@@ -6553,6 +6550,7 @@ body.is-downloading #pyramid-modal .modal-card {
   transform: scale(0.96);
   transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
+  margin: 0;
 }
 
 .fluent-prompt-overlay.prompt-active .fluent-prompt-card {
@@ -6630,8 +6628,8 @@ body.is-downloading #pyramid-modal .modal-card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
   border: 1px solid transparent;
   background: transparent;
@@ -6662,6 +6660,12 @@ body.is-downloading #pyramid-modal .modal-card {
 
 /* 移动端视口下，输入弹窗靠顶部弹性对齐，彻底避开虚拟软键盘遮挡 */
 @media (max-width: 768px), (pointer: coarse) {
+  .fav-item-more-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+
   .fluent-prompt-overlay {
     align-items: flex-start;
     padding-top: max(24px, calc(16dvh + env(safe-area-inset-top, 0px)));

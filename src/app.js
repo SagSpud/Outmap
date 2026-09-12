@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.39';
+const APP_VERSION = '1.9.40';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -48,23 +48,21 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.innerHTML = `
-    <div class="fluent-prompt-card">
-      <form class="fluent-prompt-form" action="javascript:void(0);">
-        <div class="card-header">
-          <div class="card-title"><span>${escapeHtml(title)}</span></div>
-          <button class="card-close btn-prompt-cancel" type="button" aria-label="关闭">✕</button>
+    <form class="fluent-prompt-card fluent-prompt-form" action="javascript:void(0);">
+      <div class="card-header">
+        <div class="card-title"><span>${escapeHtml(title)}</span></div>
+        <button class="card-close btn-prompt-cancel" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="card-body">
+        <div class="form-row">
+          <input type="text" class="form-control fluent-prompt-input" value="${escapeHtml(initialValue)}" placeholder="${escapeHtml(placeholder)}" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </div>
-        <div class="card-body">
-          <div class="form-row">
-            <input type="text" class="form-control fluent-prompt-input" value="${escapeHtml(initialValue)}" placeholder="${escapeHtml(placeholder)}" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-          </div>
-        </div>
-        <div class="card-footer">
-          <button class="modal-btn secondary btn-prompt-cancel" type="button">${escapeHtml(cancelText)}</button>
-          <button class="modal-btn primary btn-prompt-confirm" type="submit">${escapeHtml(confirmText)}</button>
-        </div>
-      </form>
-    </div>
+      </div>
+      <div class="card-footer">
+        <button class="modal-btn secondary btn-prompt-cancel" type="button">${escapeHtml(cancelText)}</button>
+        <button class="modal-btn primary btn-prompt-confirm" type="submit">${escapeHtml(confirmText)}</button>
+      </div>
+    </form>
   `;
   document.body.appendChild(overlay);
   void overlay.offsetWidth;
@@ -74,7 +72,7 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   setTimeout(() => {
     input?.focus();
     input?.select();
-  }, 25);
+  }, 40);
 
   let isSettled = false;
   const closePrompt = () => {
@@ -87,6 +85,8 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
 
   const submitPrompt = () => {
     if (isSettled) return;
+    // 关键优化：失焦输入框以确保移动端拼音输入法完成合成缓冲刷新
+    if (input) input.blur();
     const val = input ? input.value.trim() : '';
     if (val) {
       isSettled = true;
@@ -108,7 +108,7 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   };
   document.addEventListener('keydown', onKeyDown);
 
-  const form = overlay.querySelector('.fluent-prompt-form');
+  const form = overlay.querySelector('.fluent-prompt-card');
   form?.addEventListener('submit', (e) => {
     e.preventDefault();
     submitPrompt();
@@ -116,17 +116,25 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
 
   overlay.querySelectorAll('.btn-prompt-cancel').forEach(btn => {
     btn.addEventListener('click', closePrompt);
+    btn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      closePrompt();
+    });
   });
 
   const confirmBtn = overlay.querySelector('.btn-prompt-confirm');
   // 移动端关键优化：软键盘升起时，点击确定按钮会先触发 input 失焦导致键盘收缩与视口位移，
   // 浏览器原生 touchend 判定位置偏差从而取消/吞掉 click 事件；
-  // 此处在 pointerdown 阶段直接截获提交，彻底根治移动端软键盘收起时点击失效问题。
+  // 此处在 pointerdown 阶段直接截获提交，并在 touchend/click/submit 均提供保底保障。
   confirmBtn?.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'touch' || e.pointerType === 'pen') {
       e.preventDefault();
       submitPrompt();
     }
+  });
+  confirmBtn?.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    submitPrompt();
   });
   confirmBtn?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -6370,6 +6378,7 @@ function setupWaypointAndFavoritesSystem(map) {
         } catch (_) {}
       });
     });
+    let favTouchStart = null;
     map.on('click', 'outmap-favorite-icons', e => {
       if (Date.now() < favoriteLongPressUntil) return;
       if (isPickingPoint || pickingRoutePt) return;
@@ -6393,6 +6402,15 @@ function setupWaypointAndFavoritesSystem(map) {
         centered: false,
         elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
       });
+      // 移动端体验关键增强：触屏端没有鼠标右键，点击地图收藏点时除平滑飞掠外，同时弹出操作菜单(重命名/分类/删除)
+      const isMobile = window.innerWidth <= 768 || window.matchMedia('(pointer: coarse)').matches;
+      if (isMobile) {
+        const clickX = e.originalEvent?.clientX ?? e.point.x;
+        const clickY = e.originalEvent?.clientY ?? e.point.y;
+        setTimeout(() => {
+          window.showChangeWaypointTypeMenu?.(wp, clickX, clickY);
+        }, 150);
+      }
     });
     map.on('contextmenu', 'outmap-favorite-icons', e => {
       const feature = e.features?.[0];
@@ -6410,15 +6428,24 @@ function setupWaypointAndFavoritesSystem(map) {
       const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
       if (!wp) return;
       const touch = e.originalEvent?.touches?.[0];
+      favTouchStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
         favoriteLongPressUntil = Date.now() + 1000;
         window.showChangeWaypointTypeMenu?.(wp, touch?.clientX ?? e.point.x, touch?.clientY ?? e.point.y);
-      }, 500);
+      }, 450);
     });
-    // 手指离开图标后也必须取消计时，不能只监听命中该图层的事件。
-    const cancelFavoritePress = () => { clearTimeout(longPressTimer); longPressTimer = null; };
-    map.on('touchmove', cancelFavoritePress);
+    // 手指离开或明显滑动超过 10px 时取消长按，微小电容微动不误取消
+    map.on('touchmove', e => {
+      if (longPressTimer && favTouchStart && e.originalEvent?.touches?.[0]) {
+        const t = e.originalEvent.touches[0];
+        if (Math.hypot(t.clientX - favTouchStart.x, t.clientY - favTouchStart.y) > 10) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      }
+    });
+    const cancelFavoritePress = () => { clearTimeout(longPressTimer); longPressTimer = null; favTouchStart = null; };
     map.on('touchend', cancelFavoritePress);
     map.on('movestart', cancelFavoritePress);
     map.getCanvas().addEventListener('touchcancel', cancelFavoritePress, { passive: true });
@@ -6748,10 +6775,28 @@ function setupWaypointAndFavoritesSystem(map) {
     const viewport = window.visualViewport;
     const viewportLeft = viewport?.offsetLeft || 0;
     const viewportTop = viewport?.offsetTop || 0;
-    const viewportRight = viewportLeft + Math.max(0, viewport?.width || window.innerWidth);
-    const viewportBottom = viewportTop + Math.max(0, viewport?.height || window.innerHeight);
-    const safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
-    const safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
+    const viewportWidth = Math.max(0, viewport?.width || window.innerWidth);
+    const viewportHeight = Math.max(0, viewport?.height || window.innerHeight);
+    const viewportRight = viewportLeft + viewportWidth;
+    const viewportBottom = viewportTop + viewportHeight;
+
+    const isMobile = window.innerWidth <= 768 || window.matchMedia('(pointer: coarse)').matches;
+    let safeX, safeY;
+    if (isMobile) {
+      safeX = Math.max(viewportLeft + 12, Math.min(Number(x) || viewportLeft + 12, viewportRight - rect.width - 12));
+      // 移动端防溢出：若向下弹出超出屏幕底端，自动翻转向上弹出，杜绝重命名和删除项被手机底栏遮挡
+      if ((Number(y) || 0) + rect.height > viewportBottom - 16) {
+        safeY = Math.max(viewportTop + 12, (Number(y) || 0) - rect.height - 8);
+        if (safeY + rect.height > viewportBottom - 16) {
+          safeY = Math.max(viewportTop + 12, viewportBottom - rect.height - 16);
+        }
+      } else {
+        safeY = Math.max(viewportTop + 12, Number(y) || viewportTop + 12);
+      }
+    } else {
+      safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
+      safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
+    }
     menu.style.left = `${safeX}px`;
     menu.style.top = `${safeY}px`;
     void menu.offsetWidth;
@@ -6777,8 +6822,9 @@ function setupWaypointAndFavoritesSystem(map) {
     };
 
     menu.querySelectorAll('.fav-type-menu-item').forEach(item => {
-      item.addEventListener('click', (e) => {
+      const handleTypeClick = (e) => {
         e.stopPropagation();
+        e.preventDefault();
         const newType = item.getAttribute('data-type');
         if (newType && newType !== wp.type) {
           wp.type = newType;
@@ -6794,16 +6840,18 @@ function setupWaypointAndFavoritesSystem(map) {
           renderWaypointMarkersOnMap({ update: [wp] });
           renderFavoritesList();
           if (typeof window.triggerRealtimeCloudSync === 'function') {
-            window.triggerRealtimeCloudSync('update_waypoint_type');
+            window.triggerRealtimeCloudSync('update_waypoint_type', true);
           }
-          // 不弹出 toast，图标实时响应立即可见
         }
         closeMenu();
-      });
+      };
+      item.addEventListener('click', handleTypeClick);
+      item.addEventListener('touchend', handleTypeClick);
     });
 
-    menu.querySelector('.fav-type-rename')?.addEventListener('click', e => {
+    const triggerRename = (e) => {
       e.stopPropagation();
+      e.preventDefault();
       closeMenu();
       showFluentPrompt({
         title: '重命名收藏点',
@@ -6825,14 +6873,19 @@ function setupWaypointAndFavoritesSystem(map) {
           renderWaypointMarkersOnMap({ update: [wp] });
           renderFavoritesList();
           if (typeof window.triggerRealtimeCloudSync === 'function') {
-            window.triggerRealtimeCloudSync('update_waypoint');
+            window.triggerRealtimeCloudSync('update_waypoint', true);
           }
+          showToast(`已重命名为“${trimmed}”`);
         }
       });
-    });
+    };
+    const renameBtn = menu.querySelector('.fav-type-rename');
+    renameBtn?.addEventListener('click', triggerRename);
+    renameBtn?.addEventListener('touchend', triggerRename);
 
-    menu.querySelector('.fav-type-delete')?.addEventListener('click', async e => {
+    const triggerDelete = async (e) => {
       e.stopPropagation();
+      e.preventDefault();
       closeMenu();
       if (!await showFluentConfirm({ title: '删除收藏点', message: `确定删除“${wp.name}”？`, confirmText: '删除', danger: true })) return;
       addDeletedWaypointTombstone(wp);
@@ -6840,8 +6893,12 @@ function setupWaypointAndFavoritesSystem(map) {
       try { localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints)); } catch (_) {}
       renderWaypointMarkersOnMap({ remove: [wp.id] });
       renderFavoritesList();
-      window.triggerRealtimeCloudSync?.('delete_waypoint');
-    });
+      window.triggerRealtimeCloudSync?.('delete_waypoint', true);
+      showToast(`已删除收藏点`);
+    };
+    const deleteBtn = menu.querySelector('.fav-type-delete');
+    deleteBtn?.addEventListener('click', triggerDelete);
+    deleteBtn?.addEventListener('touchend', triggerDelete);
 
     map.once('movestart', closeMenu);
     setTimeout(() => {
@@ -6903,12 +6960,14 @@ function setupWaypointAndFavoritesSystem(map) {
       `;
 
       const moreBtn = item.querySelector('.fav-item-more-btn');
-      moreBtn?.addEventListener('click', (e) => {
+      const openMoreMenu = (e) => {
         e.stopPropagation();
         e.preventDefault();
         const rect = moreBtn.getBoundingClientRect();
         showChangeWaypointTypeMenu(wp, rect.left, rect.bottom + 4);
-      });
+      };
+      moreBtn?.addEventListener('click', openMoreMenu);
+      moreBtn?.addEventListener('touchend', openMoreMenu);
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -6916,24 +6975,34 @@ function setupWaypointAndFavoritesSystem(map) {
         showChangeWaypointTypeMenu(wp, e.clientX, e.clientY);
       });
 
-      // 移动端长按 500ms
+      // 移动端长按 450ms (带 10px 触控微动容差，防手抖误取消)
       let itemTouchTimer = null;
+      let itemTouchStart = null;
       let suppressNextItemClick = false;
       item.addEventListener('touchstart', (e) => {
         clearTimeout(itemTouchTimer);
         suppressNextItemClick = false;
         if (e.touches && e.touches.length === 1) {
           const t = e.touches[0];
+          itemTouchStart = { x: t.clientX, y: t.clientY };
           itemTouchTimer = setTimeout(() => {
             itemTouchTimer = null;
             suppressNextItemClick = true;
             showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
-          }, 500);
+          }, 450);
         }
       }, { passive: true });
-      item.addEventListener('touchmove', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
-      item.addEventListener('touchend', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; } }, { passive: true });
-      item.addEventListener('touchcancel', () => { clearTimeout(itemTouchTimer); itemTouchTimer = null; suppressNextItemClick = false; }, { passive: true });
+      item.addEventListener('touchmove', (e) => {
+        if (itemTouchTimer && itemTouchStart && e.touches?.[0]) {
+          const t = e.touches[0];
+          if (Math.hypot(t.clientX - itemTouchStart.x, t.clientY - itemTouchStart.y) > 10) {
+            clearTimeout(itemTouchTimer);
+            itemTouchTimer = null;
+          }
+        }
+      }, { passive: true });
+      item.addEventListener('touchend', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; itemTouchStart = null; } }, { passive: true });
+      item.addEventListener('touchcancel', () => { clearTimeout(itemTouchTimer); itemTouchTimer = null; itemTouchStart = null; suppressNextItemClick = false; }, { passive: true });
 
       item.querySelector('.fav-item-info').addEventListener('click', (e) => {
         if (suppressNextItemClick) {
@@ -7115,8 +7184,9 @@ function setupWaypointAndFavoritesSystem(map) {
               renderSavedRoutesList();
               renderSavedRoutesOnMap(map);
               if (typeof window.triggerRealtimeCloudSync === 'function') {
-                window.triggerRealtimeCloudSync('update_route');
+                window.triggerRealtimeCloudSync('update_route', true);
               }
+              showToast(`已重命名路线为“${trimmed}”`);
             }
           });
         });
@@ -7141,8 +7211,9 @@ function setupWaypointAndFavoritesSystem(map) {
             renderSavedRoutesList();
             renderSavedRoutesOnMap(map);
             if (typeof window.triggerRealtimeCloudSync === 'function') {
-              window.triggerRealtimeCloudSync('delete_route');
+              window.triggerRealtimeCloudSync('delete_route', true);
             }
+            showToast('已删除收藏路线');
           }
         });
 
@@ -7159,22 +7230,33 @@ function setupWaypointAndFavoritesSystem(map) {
         showCardContextMenu(e.clientX, e.clientY);
       });
 
-      // 移动端长按 500ms 触发菜单
+      // 移动端长按 450ms 触发菜单 (带 10px 触控微动容差)
       let touchTimer = null;
+      let routeTouchStart = null;
       card.addEventListener('touchstart', (e) => {
         if (e.touches && e.touches.length === 1) {
           const t = e.touches[0];
+          routeTouchStart = { x: t.clientX, y: t.clientY };
           touchTimer = setTimeout(() => {
             touchTimer = null;
             showCardContextMenu(t.clientX, t.clientY);
-          }, 500);
+          }, 450);
         }
       }, { passive: true });
-      card.addEventListener('touchmove', () => {
-        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+      card.addEventListener('touchmove', (e) => {
+        if (touchTimer && routeTouchStart && e.touches?.[0]) {
+          const t = e.touches[0];
+          if (Math.hypot(t.clientX - routeTouchStart.x, t.clientY - routeTouchStart.y) > 10) {
+            clearTimeout(touchTimer);
+            touchTimer = null;
+          }
+        }
       }, { passive: true });
       card.addEventListener('touchend', () => {
-        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; routeTouchStart = null; }
+      }, { passive: true });
+      card.addEventListener('touchcancel', () => {
+        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; routeTouchStart = null; }
       }, { passive: true });
 
       favRoutesList.appendChild(card);
@@ -7245,8 +7327,9 @@ function setupWaypointAndFavoritesSystem(map) {
         renderFolderTabs();
         renderFavoritesList();
         if (typeof window.triggerRealtimeCloudSync === 'function') {
-          window.triggerRealtimeCloudSync('rename_folder');
+          window.triggerRealtimeCloudSync('rename_folder', true);
         }
+        showToast(`已重命名分类为“${trimmed}”`);
       }
     });
   };
