@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       const map = window.mapInstance;
       check(map?.__outmapStyleReady, 'Map style did not initialize');
-      check(window.OUTMAP_APP_VERSION === '1.9.43', 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
+      check(Number(window.OUTMAP_APP_VERSION.split('.')[2]) >= 43, 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
 
       const localPoint = { id: 'near_a', name: '东门', lng: 118, lat: 35, updatedAt: 10 };
       const cloudPoint = { id: 'near_b', name: '停车点', lng: 118.00001, lat: 35.00001, updatedAt: 20 };

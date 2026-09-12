@@ -31,13 +31,17 @@ app.whenReady().then(async () => {
     const m = new maplibregl.Map({container:'map',center:[118.35,35.10],zoom:8,pitch:50,maxPitch:85,attributionControl:false,style:{version:8,sources:{'terrain-dem':{type:'raster-dem',tiles,tileSize:256,encoding:'terrarium',maxzoom:12}},layers:[{id:'bg',type:'background',paint:{'background-color':'#a8d8f0'}}]}});
     await new Promise(r => m.once('load',r)); m.setTerrain({source:'terrain-dem',exaggeration:1.5});
     await sleep(450);
+    const waitForCameraSettle = async baseDelay => {
+      await sleep(baseDelay);
+      for (let i = 0; i < 20 && m.isMoving(); i++) await sleep(50);
+    };
     const rows=[];
     let correctiveJumps=0;
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
     function sample(name, c, centered=false) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),elevation:m.queryTerrainElevation(c),center:m.getCenter(),padding:m.getPadding()}); }
     for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
-      OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await sleep(onlineTerrainTest ? 3000 : 500); sample(name,c,centered);
+      OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 500); sample(name,c,centered);
     }
     let oldArrival=0,newArrival=0;
     OutmapLocationCamera.fly(m,[118.36,35.1],{duration:500,onArrival:()=>oldArrival++}); await sleep(30);

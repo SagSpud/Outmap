@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.43';
+const APP_VERSION = '1.9.50';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -3319,7 +3319,15 @@ function setupOfficeHeaderInteractions(map) {
     el.addEventListener('mousedown', (e) => e.stopPropagation());
     el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
 
-    currentLandingMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+    // 搜索卡片是可操作的前景 UI，不是普通地物图标。MapLibre 在 3D 地形中
+    // 默认会把被山体遮挡的 Marker 降到 20% 透明度，导致整张卡片像埋进山里。
+    // 保持地理锚点与地形投影不变，只关闭这一个交互卡片的遮挡淡化。
+    currentLandingMarker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom',
+      opacityWhenCovered: '1',
+      subpixelPositioning: true
+    })
       .setLngLat(validCoords)
       .addTo(map);
     window.currentLandingMarker = currentLandingMarker;
