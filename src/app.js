@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.33';
+const APP_VERSION = '1.9.34';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -6095,14 +6095,19 @@ function setupWaypointAndFavoritesSystem(map) {
     }
   });
 
-  const favoriteFeatureCollection = () => ({
-    type: 'FeatureCollection',
-    features: savedWaypoints
+  const favoriteFeatureCollection = () => {
+    const routeCoordinateKeys = getVisibleRoutePointCoordinateKeys();
+    return {
+      type: 'FeatureCollection',
+      features: savedWaypoints
       .filter(wp => wp && wp.id != null && wp.lng != null && wp.lat != null &&
         Number.isFinite(Number(wp.lng)) && Math.abs(Number(wp.lng)) <= 180 &&
         Number.isFinite(Number(wp.lat)) && Math.abs(Number(wp.lat)) <= 90)
+      // 路线点拥有更明确的起/途/终语义；同坐标收藏副本不参与另一套聚合。
+      .filter(wp => !routeCoordinateKeys.has(outmapCoordinateKey(wp.lng, wp.lat)))
       .map(waypointFeature)
-  });
+    };
+  };
 
   const addFavoriteIcon = (type) => {
     const id = `outmap-fav-${type}`;
@@ -6258,7 +6263,7 @@ function setupWaypointAndFavoritesSystem(map) {
         id: 'outmap-favorite-clusters', type: 'circle', source: FAVORITES_SOURCE_ID,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#f59e0b', 10, '#d97706', 30, '#b45309'],
+          'circle-color': ['step', ['get', 'point_count'], '#14b8a6', 10, '#0d9488', 30, '#0f766e'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 9.5, 11, 11, 15, 12.5],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
@@ -6303,7 +6308,8 @@ function setupWaypointAndFavoritesSystem(map) {
     favoriteLayerInitPending = false;
     const source = map.getSource(FAVORITES_SOURCE_ID);
     if (!source) return;
-    if (change && typeof source.updateData === 'function') {
+    const hasRouteVisualDedupe = getVisibleRoutePointCoordinateKeys().size > 0;
+    if (change && !hasRouteVisualDedupe && typeof source.updateData === 'function') {
       try {
         const diff = {};
         if (change.add?.length) diff.add = change.add.map(waypointFeature);
@@ -8072,6 +8078,25 @@ function getRoutePointFeatures() {
   return { type: 'FeatureCollection', features };
 }
 
+function outmapCoordinateKey(lng, lat) {
+  const x = Number(lng);
+  const y = Number(lat);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return '';
+  // 约 1 米精度，足以识别同一导入点，同时不隐藏相邻但不同的真实地点。
+  return `${Math.round(x * 1e5)}:${Math.round(y * 1e5)}`;
+}
+
+function getVisibleRoutePointCoordinateKeys() {
+  const keys = new Set();
+  if (typeof routePointLayersVisible === 'undefined' || !routePointLayersVisible) return keys;
+  getRoutePointFeatures().features.forEach(feature => {
+    const coords = feature.geometry?.coordinates;
+    const key = coords ? outmapCoordinateKey(coords[0], coords[1]) : '';
+    if (key) keys.add(key);
+  });
+  return keys;
+}
+
 function findRoutePointByFeature(feature) {
   if (!feature) return null;
   const role = feature.properties?.role;
@@ -8323,6 +8348,8 @@ function syncRouteMarkersVisualState(mapInstance) {
   routePointLayerInitPending = false;
   bindRoutePointLayerEvents(m);
   submitGeoJSONChanges(m.getSource(ROUTE_POINTS_SOURCE_ID), getRoutePointFeatures());
+  // 收藏点与路线点来自两套原生 source；路线变化时同步刷新收藏 source 的跨层去重结果。
+  window.renderWaypointMarkersOnMap?.();
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
@@ -11391,6 +11418,7 @@ function setupLayersPopover(map) {
     importedTrackMarkers.forEach(m => {
       if (m.getElement()) m.getElement().style.display = displayStyle;
     });
+    window.renderWaypointMarkersOnMap?.();
   });
 
   // 3. 3D 立体地貌起伏切换
