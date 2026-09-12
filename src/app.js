@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.35';
+const APP_VERSION = '1.9.36';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -5915,7 +5915,8 @@ let favoriteLayerEventsBound = false;
 let favoriteLayerInitPending = false;
 const SAVED_ROUTES_SOURCE_ID = 'outmap-saved-routes';
 const SAVED_ROUTE_LAYER_IDS = ['outmap-saved-route-casing', 'outmap-saved-route-line'];
-let savedRouteLayersVisible = true;
+// 收藏路线默认关闭，避免启动后与当前绿色规划路线叠加；用户可在图层面板独立开启。
+let savedRouteLayersVisible = false;
 let savedRouteLayerEventsBound = false;
 
 function savedRoutesFeatureCollection() {
@@ -9144,6 +9145,9 @@ function renderRouteGeometry(map, pathCoords) {
 
   if (map.getSource('outdoor-route-source')) {
     map.getSource('outdoor-route-source').setData(routeGeojson);
+    ['outdoor-route-casing', 'outdoor-route-line'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routePointLayersVisible ? 'visible' : 'none');
+    });
     if (beforeLabelId) {
       try {
         if (map.getLayer('outdoor-route-casing')) map.moveLayer('outdoor-route-casing', beforeLabelId);
@@ -9169,7 +9173,8 @@ function renderRouteGeometry(map, pathCoords) {
       source: 'outdoor-route-source',
       layout: {
         'line-cap': 'round',
-        'line-join': 'round'
+        'line-join': 'round',
+        visibility: routePointLayersVisible ? 'visible' : 'none'
       },
       paint: {
         'line-color': '#0e4a23',
@@ -9185,7 +9190,8 @@ function renderRouteGeometry(map, pathCoords) {
       source: 'outdoor-route-source',
       layout: {
         'line-cap': 'round',
-        'line-join': 'round'
+        'line-join': 'round',
+        visibility: routePointLayersVisible ? 'visible' : 'none'
       },
       paint: {
         'line-color': '#248a3d',
@@ -11411,14 +11417,14 @@ function setupTrackImport(map) {
   }
 }
 
-// 图层与要素显示控制卡片系统 (收藏点 / 规划路线 / 3D地形)
+// 图层与要素显示控制卡片系统（收藏点 / 收藏路线 / 当前规划路线）
 function setupLayersPopover(map) {
   const btnFabLayers = document.getElementById('btn-fab-layers');
   const popover = document.getElementById('layers-popover');
   const btnClose = document.getElementById('btn-close-layers-popover');
   const toggleFavs = document.getElementById('layer-toggle-favs');
-  const toggleRoutes = document.getElementById('layer-toggle-routes');
-  const toggleTerrain = document.getElementById('layer-toggle-terrain');
+  const toggleSavedRoutes = document.getElementById('layer-toggle-saved-routes');
+  const togglePlannedRoute = document.getElementById('layer-toggle-planned-route');
 
   if (!btnFabLayers || !popover) return;
 
@@ -11464,16 +11470,25 @@ function setupLayersPopover(map) {
     }
   });
 
-  // 2. 规划与导入路线轨迹显示/隐藏切换
-  toggleRoutes?.addEventListener('change', () => {
-    const visible = toggleRoutes.checked;
-    routePointLayersVisible = visible;
+  // 2. 已收藏的蓝色路线独立显示；默认关闭，避免与当前规划路线重叠。
+  toggleSavedRoutes?.addEventListener('change', () => {
+    const visible = toggleSavedRoutes.checked;
     savedRouteLayersVisible = visible;
     const visibility = visible ? 'visible' : 'none';
-    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line', ...ROUTE_POINT_LAYER_IDS, ...SAVED_ROUTE_LAYER_IDS].forEach(id => {
+    SAVED_ROUTE_LAYER_IDS.forEach(id => {
       if (map.getLayer(id)) {
         map.setLayoutProperty(id, 'visibility', visibility);
       }
+    });
+  });
+
+  // 3. 当前绿色规划/导入路线及其起点、途径点、终点独立显示。
+  togglePlannedRoute?.addEventListener('change', () => {
+    const visible = togglePlannedRoute.checked;
+    routePointLayersVisible = visible;
+    const visibility = visible ? 'visible' : 'none';
+    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line', ...ROUTE_POINT_LAYER_IDS].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility);
     });
     // 隐藏/显示起终点与途径点图钉
     const displayStyle = visible ? '' : 'none';
@@ -11486,18 +11501,6 @@ function setupLayersPopover(map) {
       if (m.getElement()) m.getElement().style.display = displayStyle;
     });
     window.renderWaypointMarkersOnMap?.();
-  });
-
-  // 3. 3D 立体地貌起伏切换
-  toggleTerrain?.addEventListener('change', () => {
-    const enabled = toggleTerrain.checked;
-    if (enabled) {
-      map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5 });
-      if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
-    } else {
-      map.setTerrain(null);
-      if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'none');
-    }
   });
 }
 

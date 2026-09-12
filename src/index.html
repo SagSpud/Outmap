@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.35" />
+  <link rel="stylesheet" href="style.css?v=1.9.36" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -30,7 +30,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.35</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.36</span>
                 </div>
               </div>
             </div>
@@ -180,14 +180,6 @@
         <div class="panel-body layers-popover-body">
           <label class="layer-toggle-row">
             <span class="layer-toggle-label">
-              <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3l4 8 5-5 5 12H2L8 3z"/></svg>
-              <span>3D地貌效果</span>
-            </span>
-            <input type="checkbox" id="layer-toggle-terrain" checked />
-            <span class="layer-toggle-switch"></span>
-          </label>
-          <label class="layer-toggle-row">
-            <span class="layer-toggle-label">
               <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
               <span>收藏地点</span>
             </span>
@@ -197,9 +189,17 @@
           <label class="layer-toggle-row">
             <span class="layer-toggle-label">
               <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
-              <span>收藏与规划路线</span>
+              <span>收藏路线</span>
             </span>
-            <input type="checkbox" id="layer-toggle-routes" checked />
+            <input type="checkbox" id="layer-toggle-saved-routes" />
+            <span class="layer-toggle-switch"></span>
+          </label>
+          <label class="layer-toggle-row">
+            <span class="layer-toggle-label">
+              <svg class="layer-item-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#248a3d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="17" r="2"/><circle cx="19" cy="7" r="2"/><path d="M7 17h3.5a4 4 0 0 0 4-4v-2a4 4 0 0 1 4-4H19"/></svg>
+              <span>规划路线</span>
+            </span>
+            <input type="checkbox" id="layer-toggle-planned-route" checked />
             <span class="layer-toggle-switch"></span>
           </label>
         </div>
@@ -511,7 +511,7 @@
             </button>
             <button class="fav-main-tab" data-tab="routes">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
-              <span>规划路线 (<span id="fav-routes-count">0</span>)</span>
+              <span>收藏路线 (<span id="fav-routes-count">0</span>)</span>
             </button>
           </div>
 
@@ -846,9 +846,9 @@
     </div>
   </div>
 
-  <script src="map-performance.js?v=1.9.35"></script>
-  <script src="location-camera.js?v=1.9.35"></script>
-  <script src="favorite-interactions.js?v=1.9.35"></script>
-  <script src="app.js?v=1.9.35"></script>
+  <script src="map-performance.js?v=1.9.36"></script>
+  <script src="location-camera.js?v=1.9.36"></script>
+  <script src="favorite-interactions.js?v=1.9.36"></script>
+  <script src="app.js?v=1.9.36"></script>
 </body>
 </html>
