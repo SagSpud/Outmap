@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.41';
+const APP_VERSION = '1.9.42';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1572,12 +1572,10 @@ async function initApplication() {
   window.addEventListener('touchcancel', clearMapDraggingState, { passive: true });
   window.addEventListener('blur', clearMapDraggingState);
   map.on('movestart', () => {
-    if (map.__outmapInternalQualityResize) return;
     document.body.classList.add('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(true);
   });
   map.on('moveend', () => {
-    if (map.__outmapInternalQualityResize) return;
     document.body.classList.remove('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(false);
   });

@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
       check(map?.__outmapStyleReady, 'Map style did not initialize');
 
       // 1. 验证版本号
-      check(window.OUTMAP_APP_VERSION === '1.9.41', 'Version mismatch in window.OUTMAP_APP_VERSION: ' + window.OUTMAP_APP_VERSION);
+      check(window.OUTMAP_APP_VERSION >= '1.9.41', 'Version mismatch in window.OUTMAP_APP_VERSION: ' + window.OUTMAP_APP_VERSION);
 
       // 2. 验证 syncRouteMarkersVisualState 支持 force 强刷模式
       routeViaPoints = [{ id: 'via_test_ele', coords: [118.05, 35.05], name: '测试途径点' }];

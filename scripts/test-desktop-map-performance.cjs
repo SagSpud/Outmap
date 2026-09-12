@@ -46,50 +46,34 @@ class FakeMap {
 
   let map;
   let controller;
-  for (const nativeRatio of [1, 1.5, 2]) {
+  // 1. 验证各种高分屏 DPI 下，拖动/缩放地图绝不动态降分辨率，始终保持显示器原生 DPR
+  for (const nativeRatio of [1, 1.25, 1.5, 1.75, 2]) {
     sandbox.devicePixelRatio = nativeRatio;
     map = new FakeMap(nativeRatio);
     controller = sandbox.OutmapMapPerformance.create(map, { desktop: true });
     map.fire('movestart');
-    for (let i = 0; i < 10; i++) { now += 25; map.fire('render'); }
-    if (nativeRatio === 1) assert.strictEqual(map.getPixelRatio(), 1, '100% DPI must remain native');
-    else assert(map.getPixelRatio() < nativeRatio, `${nativeRatio * 100}% DPI did not adapt to slow motion`);
+    for (let i = 0; i < 15; i++) { now += 25; map.fire('render'); }
+    assert.strictEqual(map.getPixelRatio(), nativeRatio, `${nativeRatio * 100}% DPI must never be downgraded during motion`);
     map.fire('moveend');
-    await new Promise(resolve => setTimeout(resolve, 230));
-    assert.strictEqual(map.getPixelRatio(), nativeRatio, `${nativeRatio * 100}% native DPI was not restored`);
+    assert.strictEqual(map.getPixelRatio(), nativeRatio, `${nativeRatio * 100}% DPI must stay native after moveend`);
     controller.destroy();
   }
 
+  // 2. 验证长距离飞掠或拖拽中，绝不隐藏图标图层（保持 100% 连贯显示，杜绝消失后再出现的迟滞感）
   sandbox.devicePixelRatio = 2;
   map = new FakeMap(2);
   controller = sandbox.OutmapMapPerformance.create(map, { desktop: true });
   controller.setLongFlight(true);
-  await new Promise(resolve => setTimeout(resolve, 140));
   for (const id of map.layers.keys()) {
-    assert.strictEqual(map.getLayoutProperty(id, 'visibility'), 'none', `${id} remained active in long flight`);
+    assert.notStrictEqual(map.getLayoutProperty(id, 'visibility'), 'none', `${id} must stay visible during flight/motion`);
   }
   controller.setLongFlight(false);
   for (const id of map.layers.keys()) {
-    assert.notStrictEqual(map.getLayoutProperty(id, 'visibility'), 'none', `${id} did not return at arrival`);
+    assert.notStrictEqual(map.getLayoutProperty(id, 'visibility'), 'none', `${id} must stay visible after arrival`);
   }
-  await new Promise(resolve => setTimeout(resolve, 240));
-  assert.strictEqual(map.getPaintProperty('osm-all-pois', 'text-opacity'), undefined);
-  assert.strictEqual(map.getPaintProperty('osm-all-pois', 'text-opacity-transition'), undefined);
-
-  // Replacing one long flight with another must not preserve a temporary
-  // opacity or transition as the next flight's baseline.
-  controller.setLongFlight(true);
-  await new Promise(resolve => setTimeout(resolve, 140));
-  controller.setLongFlight(false);
-  await new Promise(resolve => setTimeout(resolve, 30));
-  controller.setLongFlight(true);
-  await new Promise(resolve => setTimeout(resolve, 140));
-  controller.setLongFlight(false);
-  await new Promise(resolve => setTimeout(resolve, 240));
-  assert.strictEqual(map.getPaintProperty('osm-all-pois', 'text-opacity'), undefined);
-  assert.strictEqual(map.getPaintProperty('osm-all-pois', 'text-opacity-transition'), undefined);
   controller.destroy();
-  console.log('Desktop adaptive motion and long-flight relief passed.');
+
+  console.log('Desktop stable native motion and persistent icon visibility passed.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
