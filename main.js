@@ -807,7 +807,28 @@ let memoryTileStats = null;
 let inventoryScan = null;
 let offlineDownloadRunning = false;
 let mapInteractionActive = false;
+let mapInteractionReleaseTimer = null;
+const MAP_INTERACTION_COOLDOWN_MS = 650;
 const OFFLINE_INVENTORY_VERSION = 4;
+
+function setMapInteractionActive(active, immediate = false) {
+  clearTimeout(mapInteractionReleaseTimer);
+  mapInteractionReleaseTimer = null;
+  if (active) {
+    mapInteractionActive = true;
+    return;
+  }
+  if (immediate) {
+    mapInteractionActive = false;
+    return;
+  }
+  // moveend is when MapLibre performs landing-tile uploads, DEM decoding and
+  // final symbol placement. Avoid waking 32 download lanes in that same frame.
+  mapInteractionReleaseTimer = setTimeout(() => {
+    mapInteractionReleaseTimer = null;
+    mapInteractionActive = false;
+  }, MAP_INTERACTION_COOLDOWN_MS);
+}
 
 function refreshOfflineInventory() {
   if (inventoryScan) return inventoryScan;
@@ -983,7 +1004,7 @@ function createWindow() {
     // 1. 前台运行时：保持 60FPS+ 满血硬件加速与即时响应
     // 2. 最小化或隐藏到后台时：Chromium 自动限频休眠，释放 CPU/GPU 资源节能降温
     mainWindow.on('minimize', () => {
-      mapInteractionActive = false;
+      setMapInteractionActive(false, true);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'minimized' });
       }
@@ -1017,7 +1038,7 @@ function createWindow() {
 
     // 工业级稳定性守护：渲染进程崩溃自愈与热重载
     mainWindow.webContents.on('render-process-gone', (event, details) => {
-      mapInteractionActive = false;
+      setMapInteractionActive(false, true);
       console.warn('[Renderer Process Gone]', details.reason);
       if (details.reason !== 'clean-exit' && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.reload();
@@ -1070,7 +1091,7 @@ app.whenReady().then(async () => {
   // 地图交互期间把后台下载主动让路给 WebGL 与本地切片服务。
   // 只保留少量下载 worker，不暂停任务；结束拖动/缩放后自动恢复满速。
   ipcMain.on('map-interaction-state', (_event, active) => {
-    mapInteractionActive = Boolean(active);
+    setMapInteractionActive(Boolean(active));
   });
 
   ipcMain.handle('get-offline-manifest', async () => {

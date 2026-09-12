@@ -1442,6 +1442,8 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
+  const mapPerformanceController = window.OutmapMapPerformance?.create(map, { desktop: !isWebMode });
+  map.__outmapPerformanceController = mapPerformanceController;
   if (typeof map.setPrefetchZoomDelta === 'function') {
     map.setPrefetchZoomDelta(mapPerformance.prefetch);
   }
@@ -1460,10 +1462,12 @@ async function initApplication() {
   window.addEventListener('touchcancel', clearMapDraggingState, { passive: true });
   window.addEventListener('blur', clearMapDraggingState);
   map.on('movestart', () => {
+    if (map.__outmapInternalQualityResize) return;
     document.body.classList.add('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(true);
   });
   map.on('moveend', () => {
+    if (map.__outmapInternalQualityResize) return;
     document.body.classList.remove('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(false);
   });
@@ -1487,19 +1491,10 @@ async function initApplication() {
       exaggeration: currentExaggeration
     });
 
-    let terrainRealignDebounce = null;
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
         if (map.isMoving() || map.isZooming() || map.isRotating()) return;
-        if (!terrainRealignDebounce) {
-          terrainRealignDebounce = setTimeout(() => {
-            terrainRealignDebounce = null;
-            if (map.isMoving() || map.isZooming() || map.isRotating()) return;
-            if (typeof refreshRouteElevationProfile === 'function') {
-              refreshRouteElevationProfile(map);
-            }
-          }, 350);
-        }
+        scheduleRouteElevationProfileRefresh(map, 420);
       }
     });
     // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
@@ -2494,6 +2489,66 @@ function refreshAllRouteMarkersElevation(map) {
 }
 window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
 
+let routeElevationRefreshTimer = 0;
+let routeElevationRefreshFallback = 0;
+let routeElevationRefreshIdleHandler = null;
+let routeElevationRefreshMap = null;
+let routeElevationRefreshBurstAt = 0;
+let routeElevationRefreshToken = 0;
+
+function clearScheduledRouteElevationRefresh() {
+  clearTimeout(routeElevationRefreshTimer);
+  clearTimeout(routeElevationRefreshFallback);
+  routeElevationRefreshTimer = 0;
+  routeElevationRefreshFallback = 0;
+  if (routeElevationRefreshIdleHandler && routeElevationRefreshMap) {
+    routeElevationRefreshMap.off('idle', routeElevationRefreshIdleHandler);
+  }
+  routeElevationRefreshIdleHandler = null;
+  routeElevationRefreshMap = null;
+}
+
+// DEM tiles arrive in batches. Coalesce their notifications with camera
+// arrival, then sample the route once after MapLibre has placed its landing
+// symbols. A bounded fallback avoids waiting forever on an unavailable tile.
+function scheduleRouteElevationProfileRefresh(map, requestedDelay = 350) {
+  const chartSection = document.getElementById('route-chart-section');
+  if (!map || !chartSection || chartSection.style.display === 'none') return;
+  if (!currentPlannedRouteCoords || currentPlannedRouteCoords.length < 2 || !currentRouteMetrics) return;
+
+  const now = performance.now();
+  if (!routeElevationRefreshBurstAt) routeElevationRefreshBurstAt = now;
+  const token = ++routeElevationRefreshToken;
+  clearScheduledRouteElevationRefresh();
+  const burstRemaining = Math.max(0, 1600 - (now - routeElevationRefreshBurstAt));
+  const delay = Math.min(Math.max(0, requestedDelay), burstRemaining);
+
+  const run = () => {
+    if (token !== routeElevationRefreshToken) return;
+    clearScheduledRouteElevationRefresh();
+    routeElevationRefreshBurstAt = 0;
+    refreshRouteElevationProfile(map);
+  };
+
+  routeElevationRefreshTimer = setTimeout(() => {
+    routeElevationRefreshTimer = 0;
+    if (token !== routeElevationRefreshToken) return;
+    if (map.isMoving() || map.isZooming() || map.isRotating()) {
+      routeElevationRefreshMap = map;
+      routeElevationRefreshIdleHandler = () => {
+        routeElevationRefreshIdleHandler = null;
+        routeElevationRefreshMap = null;
+        setTimeout(run, 80);
+      };
+      map.once('idle', routeElevationRefreshIdleHandler);
+      routeElevationRefreshFallback = setTimeout(run, 1000);
+      return;
+    }
+    setTimeout(run, 80);
+  }, delay);
+}
+window.scheduleRouteElevationProfileRefresh = scheduleRouteElevationProfileRefresh;
+
 function refreshRouteElevationProfile(map) {
   try {
     const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
@@ -2519,13 +2574,15 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (window.OutmapLocationCamera?.fly) {
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
+      onFlightLoadStateChange: active => {
+        map.__outmapPerformanceController?.setLongFlight(active);
+        flyOpts.onFlightLoadStateChange?.(active);
+      },
       onArrival: () => {
         if (typeof refreshAllRouteMarkersElevation === 'function') {
           refreshAllRouteMarkersElevation(map);
         }
-        if (typeof refreshRouteElevationProfile === 'function') {
-          refreshRouteElevationProfile(map);
-        }
+        scheduleRouteElevationProfileRefresh(map, 180);
         flyOpts.onArrival?.();
       }
     });
@@ -2686,13 +2743,23 @@ function setupOfficeHeaderInteractions(map) {
   const mobileEleValText = document.getElementById('mobile-ele-val-text');
   const mobilePresetBtns = document.querySelectorAll('.mobile-ele-preset-btn');
 
+  let terrainUpdateFrame = 0;
+  let pendingTerrainExaggeration = currentExaggeration;
+  const scheduleTerrainUpdate = v => {
+    pendingTerrainExaggeration = v;
+    if (terrainUpdateFrame) return;
+    terrainUpdateFrame = requestAnimationFrame(() => {
+      terrainUpdateFrame = 0;
+      map.setTerrain({ source: 'terrain-dem', exaggeration: pendingTerrainExaggeration });
+    });
+  };
   const setExaggerationValue = (v) => {
     currentExaggeration = v;
     if (exVal) exVal.innerText = `${v.toFixed(1)}x`;
     if (exSlider) exSlider.value = v;
     if (mobileEleRange) mobileEleRange.value = v;
     if (mobileEleValText) mobileEleValText.innerText = `${v.toFixed(1)}x`;
-    map.setTerrain({ source: 'terrain-dem', exaggeration: v });
+    scheduleTerrainUpdate(v);
     mobilePresetBtns.forEach(btn => {
       btn.classList.toggle('active', Math.abs(parseFloat(btn.dataset.val) - v) < 0.05);
     });

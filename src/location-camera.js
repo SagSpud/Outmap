@@ -48,6 +48,7 @@
     cancel(map); // Remove the old arrival handler BEFORE stop emits moveend.
     map.stop();
     let disposed = false, arrived = false, internal = false, frame = 0, deadline;
+    let flightLoadStateActive = false;
     const settleTimers = [];
     let progress = 0;
     let isFlying = true;
@@ -56,10 +57,16 @@
     const listen = (type, fn) => { map.on(type, fn); subscriptions.push([type, fn]); };
     const canvas = map.getCanvas();
 
+    const setFlightLoadState = activeState => {
+      if (flightLoadStateActive === activeState) return;
+      flightLoadStateActive = activeState;
+      try { options.onFlightLoadStateChange?.(activeState); } catch (_) {}
+    };
     const dispose = () => {
       if (disposed) return;
       disposed = true;
       isFlying = false;
+      setFlightLoadState(false);
       subscriptions.forEach(([type, fn]) => map.off(type, fn));
       for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.removeEventListener(type, dispose, true);
       cancelAnimationFrame(frame);
@@ -113,9 +120,9 @@
     let refineCount = 0;
     function refine() {
       frame = 0;
-      if (disposed || !arrived || map.isMoving() || refineCount >= 1) return;
+      if (disposed || !arrived || map.isMoving() || refineCount >= 1) return false;
       const p = map.project(coords);
-      if (Math.hypot(p.x - desiredAnchor.x, p.y - desiredAnchor.y) < 6) return;
+      if (Math.hypot(p.x - desiredAnchor.x, p.y - desiredAnchor.y) < 6) return false;
       refineCount++;
       const solved = endpoint(zoom, pitch, bearing);
       internal = true;
@@ -124,6 +131,7 @@
       map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
         duration: settleDuration, easing, essential: false });
       internal = false;
+      return settleDuration > 0;
     }
     const schedule = () => { if (!disposed && arrived && !frame && refineCount < 1) frame = requestAnimationFrame(refine); };
     listen('idle', schedule);
@@ -134,14 +142,20 @@
       queueMicrotask(() => {
         if (disposed || arrived || map.isMoving()) return;
         arrived = true;
-        refine();
+        const refining = refine();
         if (!disposed) options.onArrival?.();
+        if (flightLoadStateActive) {
+          if (refining) settleTimers.push(setTimeout(() => setFlightLoadState(false), 170));
+          else setFlightLoadState(false);
+        }
       });
     });
     const solved = endpoint(zoom, pitch, bearing);
     const center = map.getCenter();
     const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
     const nearby = distDeg < 0.25;
+    const longFlight = distDeg > 2.5 || Math.abs(map.getZoom() - zoom) > 3.5;
+    if (longFlight) setFlightLoadState(true);
 
     internal = true;
     const method = nearby ? 'easeTo' : 'flyTo';
