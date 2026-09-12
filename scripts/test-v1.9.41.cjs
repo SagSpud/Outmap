@@ -62,12 +62,14 @@ app.whenReady().then(async () => {
       const favRouteMoreBtn = document.querySelector('.fav-route-card .fav-route-more-btn');
       check(favRouteMoreBtn, 'fav-route-more-btn not rendered');
 
-      // 5. 验证全平台地图收藏点点击唤起菜单
+      // 5. 桌面左键只飞掠；触屏点击应在飞掠抵达后打开管理菜单
       let menuCalled = false;
       const originalShowMenu = window.showChangeWaypointTypeMenu;
+      const originalFly = window.flyToLocationPrecisely;
       window.showChangeWaypointTypeMenu = (wp, x, y) => {
         menuCalled = true;
       };
+      window.flyToLocationPrecisely = (targetMap, coords, options = {}) => options.onArrival?.();
       savedWaypoints = [{ id: 'wp_test_click', name: '全平台点击测试', type: 'view', lng: 118.0, lat: 35.0, ele: 100 }];
       renderWaypointMarkersOnMap();
 
@@ -83,19 +85,30 @@ app.whenReady().then(async () => {
       // 模拟地图收藏点点击事件
       map.fire('click', {
         point: { x: 200, y: 200 },
-        lngLat: { lng: 118.0, lat: 35.0 }
+        lngLat: { lng: 118.0, lat: 35.0 },
+        originalEvent: { pointerType: 'mouse' }
       });
-      await sleep(280);
+      await sleep(40);
+      check(!menuCalled, 'Desktop left-click must fly only and keep the map unobstructed');
+
+      map.fire('click', {
+        point: { x: 200, y: 200 },
+        lngLat: { lng: 118.0, lat: 35.0 },
+        originalEvent: { pointerType: 'touch' }
+      });
+      await sleep(40);
       map.queryRenderedFeatures = origQRF;
       window.showChangeWaypointTypeMenu = originalShowMenu;
-      check(menuCalled, 'Map favorite click must trigger menu across all platforms (Desktop & Mobile)');
+      window.flyToLocationPrecisely = originalFly;
+      check(menuCalled, 'Touch favorite click must open menu after arrival');
 
       return {
         versionChecked: true,
         routeElevationSupport: true,
         viaTagElevationPassed: true,
         routeCardMoreBtnPassed: true,
-        allPlatformMenuClickPassed: true
+        desktopClickKeepsMapClear: true,
+        touchMenuAfterArrivalPassed: true
       };
     })()`);
 

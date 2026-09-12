@@ -10,16 +10,17 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/map-performance.js', 'src/favorite-interactions.js', 'src/download-flow.cjs']) {
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs']) {
     new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 视觉体验升级：途经点全面换回高级纯正天蓝色（#0284c7），与面板徽章统一；重叠/密集点位采用温暖醒目的琥珀橙聚合阶梯配色；',
-    '2. 桌面端交互闭环优化：ESC 快捷逃逸系统升级，支持依次取消地图途经点拖拽、取消列表排序拖拽、关闭联想候选框、输入框失焦以及平滑收起路线面板；',
-    '3. 线程安全优化：规范化自动化测试套件读取 MapLibre 5.x 工作线程 GeoJSON 数据的方式；',
-    '4. 保持纯净无轮询、零空转架构，不修改现有离线瓦片与用户收藏数据。'
+    '1. 3D 飞掠性能：将抵达后的三次路线点 GeoJSON 强刷合并为 DEM/MapLibre idle 驱动的一次刷新，快速切换时自动取消旧任务；',
+    '2. 原生图层交互：路线点只由圆点命中层接收点击与拖动，移动超过阈值后才建立临时拖动图标，减少重复事件与点击闪烁；',
+    '3. 收藏体验：桌面左键保持纯飞掠、右键管理，触屏在抵达后按新位置弹出菜单；收藏路线长按不再误触载入；',
+    '4. 跨端稳定同步：修复定时器残留和无变化重复上传，补齐分类顺序/内置名称双向 LWW 同步，并避免误合并相邻的独立收藏点；',
+    '5. 保持 MapLibre 原生 DPR、完整 3D 画质、透明与毛玻璃效果；不修改现有离线瓦片、收藏和路线数据。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 

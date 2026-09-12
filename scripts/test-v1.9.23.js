@@ -30,8 +30,10 @@ assert(app.includes('function sanitizeFolders('), 'app.js must define sanitizeFo
 
 // 3. Realtime cloud sync and login payload includes deletedFolders & folderTabOrder
 assert(app.includes('deletedFolders: mergedDeletedFolders'), 'cloud sync payload must include deletedFolders');
-assert(app.includes('folderTabOrder: getFolderTabOrder()'), 'cloud sync payload must include folderTabOrder');
-assert(app.includes('builtinTabNames: getBuiltinTabNames()'), 'cloud sync payload must include builtinTabNamer');
+assert(app.includes('folderTabOrder: syncedUi.folderTabOrder'), 'cloud sync payload must include merged folderTabOrder');
+assert(app.includes('folderTabOrderUpdatedAt: syncedUi.folderTabOrderUpdatedAt'), 'cloud sync payload must include folderTabOrder timestamp');
+assert(app.includes('builtinTabNames: syncedUi.builtinTabNames'), 'cloud sync payload must include merged builtinTabNames');
+assert(app.includes('builtinTabNamesUpdatedAt: syncedUi.builtinTabNamesUpdatedAt'), 'cloud sync payload must include builtinTabNames timestamp');
 
 // 4. Test sanitizeFolders and mergeFolders deduplication logic in isolation
 const mockStorage = {};

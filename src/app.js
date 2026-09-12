@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.42';
+const APP_VERSION = '1.9.43';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -954,13 +954,14 @@ function normalizeWaypoint(wp) {
 
 function areWaypointsEqual(a, b) {
   if (!a || !b) return false;
-  if (a.id && b.id && a.id === b.id) return true;
+  if (a.id && b.id && String(a.id) === String(b.id)) return true;
   const dLng = Math.abs(a.lng - b.lng);
   const dLat = Math.abs(a.lat - b.lat);
   const sameCoords = dLng < 0.00005 && dLat < 0.00005; // 约 5 米以内
   const sameName = a.name && b.name && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
-  if (sameCoords) return true;
-  if (sameName && dLng < 0.001 && dLat < 0.001) return true; // 同名且在 100 米内
+  // 不同 ID、不同名称的相邻地点必须保留为两个独立收藏；旧逻辑只看 5 米
+  // 距离会误吞同一建筑内的入口、停车点、拍摄点等真实记录。
+  if (sameName && (sameCoords || (dLng < 0.001 && dLat < 0.001))) return true;
   return false;
 }
 
@@ -1124,7 +1125,7 @@ function mergeRoutes(localList = [], cloudList = [], deletedList = []) {
     const dist = item.metrics?.distKm ?? item.distance ?? 0;
     const name = (item.name || '').trim();
     const existingIdx = result.findIndex(r => {
-      if (r.id && item.id && r.id === item.id) return true;
+      if (r.id && item.id && String(r.id) === String(item.id)) return true;
       const rDist = r.metrics?.distKm ?? r.distance ?? 0;
       const rName = (r.name || '').trim();
       return rName === name && Math.abs(rDist - dist) < 0.1;
@@ -1158,6 +1159,8 @@ function mergeRoutes(localList = [], cloudList = [], deletedList = []) {
 const DELETED_FOLDERS_STORAGE_KEY = 'outmap_deleted_folders';
 const FOLDER_TAB_ORDER_STORAGE_KEY = 'outmap_folder_tab_order';
 const BUILTIN_TAB_NAMES_STORAGE_KEY = 'outmap_builtin_tab_names';
+const FOLDER_TAB_ORDER_UPDATED_AT_KEY = 'outmap_folder_tab_order_updated_at';
+const BUILTIN_TAB_NAMES_UPDATED_AT_KEY = 'outmap_builtin_tab_names_updated_at';
 
 function cleanFolderTitle(name) {
   return (name || '').replace(/^(\[导入\]|📁|\s)+/, '').trim();
@@ -1238,6 +1241,7 @@ function setBuiltinTabName(id, name) {
   cur[id] = (name || '').trim();
   try {
     localStorage.setItem(BUILTIN_TAB_NAMES_STORAGE_KEY, JSON.stringify(cur));
+    localStorage.setItem(BUILTIN_TAB_NAMES_UPDATED_AT_KEY, String(Date.now()));
   } catch (_) {}
 }
 
@@ -1255,7 +1259,54 @@ function setFolderTabOrder(order) {
   if (!Array.isArray(order)) return;
   try {
     localStorage.setItem(FOLDER_TAB_ORDER_STORAGE_KEY, JSON.stringify(order));
+    localStorage.setItem(FOLDER_TAB_ORDER_UPDATED_AT_KEY, String(Date.now()));
   } catch (_) {}
+}
+
+function getSyncMetadataTimestamp(key) {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+// 分类顺序和内置分类名称此前只上传、不拉取，导致桌面和网页的分类界面长期不一致。
+// 独立时间戳只在真实本地修改时更新，拉取写回不会制造新的“本地更新”。
+function mergeSyncedUiMetadata(cloudData) {
+  let folderTabOrder = getFolderTabOrder();
+  let builtinTabNames = getBuiltinTabNames();
+  let folderTabOrderUpdatedAt = getSyncMetadataTimestamp(FOLDER_TAB_ORDER_UPDATED_AT_KEY);
+  let builtinTabNamesUpdatedAt = getSyncMetadataTimestamp(BUILTIN_TAB_NAMES_UPDATED_AT_KEY);
+  let changed = false;
+
+  const cloudOrder = Array.isArray(cloudData?.folderTabOrder) ? cloudData.folderTabOrder : [];
+  const cloudOrderTime = Number(cloudData?.folderTabOrderUpdatedAt) || 0;
+  const legacyCloudOrderDiffers = !cloudOrderTime && !folderTabOrderUpdatedAt
+    && JSON.stringify(cloudOrder.map(String)) !== JSON.stringify(folderTabOrder);
+  if (cloudOrder.length && (cloudOrderTime > folderTabOrderUpdatedAt || legacyCloudOrderDiffers || (!folderTabOrder.length && !folderTabOrderUpdatedAt))) {
+    folderTabOrder = cloudOrder.map(String);
+    folderTabOrderUpdatedAt = cloudOrderTime;
+    try {
+      localStorage.setItem(FOLDER_TAB_ORDER_STORAGE_KEY, JSON.stringify(folderTabOrder));
+      if (cloudOrderTime) localStorage.setItem(FOLDER_TAB_ORDER_UPDATED_AT_KEY, String(cloudOrderTime));
+    } catch (_) {}
+    changed = true;
+  }
+
+  const cloudNames = cloudData?.builtinTabNames && typeof cloudData.builtinTabNames === 'object'
+    ? cloudData.builtinTabNames : {};
+  const cloudNamesTime = Number(cloudData?.builtinTabNamesUpdatedAt) || 0;
+  const legacyCloudNamesDiffer = !cloudNamesTime && !builtinTabNamesUpdatedAt
+    && JSON.stringify(stableCloudSyncValue(cloudNames)) !== JSON.stringify(stableCloudSyncValue(builtinTabNames));
+  if (Object.keys(cloudNames).length && (cloudNamesTime > builtinTabNamesUpdatedAt || legacyCloudNamesDiffer || (!Object.keys(builtinTabNames).length && !builtinTabNamesUpdatedAt))) {
+    builtinTabNames = { ...cloudNames };
+    builtinTabNamesUpdatedAt = cloudNamesTime;
+    try {
+      localStorage.setItem(BUILTIN_TAB_NAMES_STORAGE_KEY, JSON.stringify(builtinTabNames));
+      if (cloudNamesTime) localStorage.setItem(BUILTIN_TAB_NAMES_UPDATED_AT_KEY, String(cloudNamesTime));
+    } catch (_) {}
+    changed = true;
+  }
+
+  return { changed, folderTabOrder, folderTabOrderUpdatedAt, builtinTabNames, builtinTabNamesUpdatedAt };
 }
 
 // 文件夹清洗：移除墓碑中已删除分类，并严格按 ID 去重（当发生改名时，保留用户自定义/最新改名项，丢弃旧导入名前缀项）
@@ -1552,8 +1603,6 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
-  const mapPerformanceController = window.OutmapMapPerformance?.create(map, { desktop: !isWebMode });
-  map.__outmapPerformanceController = mapPerformanceController;
   if (typeof map.setPrefetchZoomDelta === 'function') {
     map.setPrefetchZoomDelta(mapPerformance.prefetch);
   }
@@ -1602,6 +1651,7 @@ async function initApplication() {
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
         if (map.isMoving() || map.isZooming() || map.isRotating()) return;
+        scheduleRouteMarkerElevationRefresh(map, 80);
         scheduleRouteElevationProfileRefresh(map, 420);
       }
     });
@@ -2574,15 +2624,6 @@ if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
-// 自动触发地形高程重对齐与渲染微刷新 (纯 WebGL 硬件重绘，0ms 物理抖动，彻底杜绝屏幕跳动与微震)
-function triggerTerrainRealign(map) {
-  if (!map) return;
-  if (typeof map.triggerRepaint === 'function') {
-    map.triggerRepaint();
-  }
-}
-window.triggerTerrainRealign = triggerTerrainRealign;
-
 // MapLibre 会在地图渲染与 DEM 到达时原生重投影 DOM Marker。
 // 这里只同步角色样式；禁止在 idle 中 setLngLat/_update/triggerRepaint，
 // 否则会形成 idle -> repaint -> idle 的永久 WebGL 重绘循环。
@@ -2591,14 +2632,66 @@ function refreshAllRouteMarkersElevation(map) {
     const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
     if (!m) return;
     if (typeof syncRouteMarkersVisualState === 'function') {
-      syncRouteMarkersVisualState(m, true);
-    }
-    if (typeof renderWaypointMarkersOnMap === 'function') {
-      renderWaypointMarkersOnMap();
+      // 地形沉降只需重投递路线点；收藏点数据没有变化，不再额外序列化和
+      // 比较整份收藏 GeoJSON。
+      syncRouteMarkersVisualState(m, true, false);
     }
   } catch (err) {}
 }
 window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
+
+let routeMarkerElevationRefreshTimer = 0;
+let routeMarkerElevationRefreshFallback = 0;
+let routeMarkerElevationIdleHandler = null;
+let routeMarkerElevationRefreshMap = null;
+let routeMarkerElevationRefreshToken = 0;
+
+function clearScheduledRouteMarkerElevationRefresh() {
+  clearTimeout(routeMarkerElevationRefreshTimer);
+  clearTimeout(routeMarkerElevationRefreshFallback);
+  routeMarkerElevationRefreshTimer = 0;
+  routeMarkerElevationRefreshFallback = 0;
+  if (routeMarkerElevationIdleHandler && routeMarkerElevationRefreshMap) {
+    routeMarkerElevationRefreshMap.off('idle', routeMarkerElevationIdleHandler);
+  }
+  routeMarkerElevationIdleHandler = null;
+  routeMarkerElevationRefreshMap = null;
+}
+
+// DEM 瓦片完成和相机抵达可能在很短时间内连续触发。把它们合并为一次
+// MapLibre source 更新，并在仍有相机微调时等待原生 idle，避免旧飞掠定时器
+// 落到新地点后继续重建 worker 数据。
+function scheduleRouteMarkerElevationRefresh(map, requestedDelay = 120) {
+  const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
+  if (!m || !is3DView || typeof syncRouteMarkersVisualState !== 'function') return;
+  if (!routeStartCoord && !routeEndCoord && !routeViaPoints.some(via => Array.isArray(via?.coords))) return;
+  const token = ++routeMarkerElevationRefreshToken;
+  clearScheduledRouteMarkerElevationRefresh();
+
+  const run = () => {
+    if (token !== routeMarkerElevationRefreshToken) return;
+    clearScheduledRouteMarkerElevationRefresh();
+    refreshAllRouteMarkersElevation(m);
+  };
+
+  routeMarkerElevationRefreshTimer = setTimeout(() => {
+    routeMarkerElevationRefreshTimer = 0;
+    if (token !== routeMarkerElevationRefreshToken) return;
+    if (m.isMoving() || m.isZooming() || m.isRotating()) {
+      routeMarkerElevationRefreshMap = m;
+      routeMarkerElevationIdleHandler = () => {
+        routeMarkerElevationIdleHandler = null;
+        routeMarkerElevationRefreshMap = null;
+        routeMarkerElevationRefreshTimer = setTimeout(run, 60);
+      };
+      m.once('idle', routeMarkerElevationIdleHandler);
+      routeMarkerElevationRefreshFallback = setTimeout(run, 900);
+      return;
+    }
+    run();
+  }, Math.max(0, Number(requestedDelay) || 0));
+}
+window.scheduleRouteMarkerElevationRefresh = scheduleRouteMarkerElevationRefresh;
 
 let routeElevationRefreshTimer = 0;
 let routeElevationRefreshFallback = 0;
@@ -2685,17 +2778,11 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (window.OutmapLocationCamera?.fly) {
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
-      onFlightLoadStateChange: active => {
-        map.__outmapPerformanceController?.setLongFlight(active);
-        flyOpts.onFlightLoadStateChange?.(active);
-      },
+      onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
-        if (typeof refreshAllRouteMarkersElevation === 'function') {
-          refreshAllRouteMarkersElevation(map);
-          // 3D DEM 瓦片在相机降落后异步分批完成网格精细化；分层延迟刷新两次，确保高分辨率山峰表面图钉完美贴合浮出
-          setTimeout(() => refreshAllRouteMarkersElevation(map), 260);
-          setTimeout(() => refreshAllRouteMarkersElevation(map), 680);
-        }
+        // 由 DEM/idle 事件合并为一次强刷；取消旧飞掠遗留任务，避免落地后三次
+        // GeoJSON worker 重建叠加造成卡顿，同时保留三维山表贴合修复。
+        scheduleRouteMarkerElevationRefresh(map, 500);
         scheduleRouteElevationProfileRefresh(map, 180);
         flyOpts.onArrival?.();
       }
@@ -5187,6 +5274,34 @@ function persistSyncedCollection(key, value) {
     return false;
   }
 }
+
+function stableCloudSyncValue(value) {
+  if (Array.isArray(value)) return value.map(stableCloudSyncValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce((result, key) => {
+    result[key] = stableCloudSyncValue(value[key]);
+    return result;
+  }, {});
+}
+
+// syncedAt/version/视角是运行状态，不应让每次重新获得焦点都上传整份收藏数据。
+// 这里只比较真正参与跨端合并的数据；数组顺序仍被保留，以同步用户的列表顺序。
+function isCloudPayloadContentEqual(cloudData, nextData) {
+  if (!cloudData || !nextData) return false;
+  const contentKeys = [
+    'username', 'password', 'favorites', 'folders', 'routes',
+    'deletedWaypoints', 'deletedRoutes', 'deletedFolders',
+    'folderTabOrder', 'folderTabOrderUpdatedAt',
+    'builtinTabNames', 'builtinTabNamesUpdatedAt'
+  ];
+  const pick = data => contentKeys.reduce((result, key) => {
+    result[key] = data[key] ?? (key.endsWith('UpdatedAt') ? 0 : (key === 'builtinTabNames' ? {} : []));
+    return result;
+  }, {});
+  return JSON.stringify(stableCloudSyncValue(pick(cloudData))) ===
+    JSON.stringify(stableCloudSyncValue(pick(nextData)));
+}
+
 async function uploadCloudSyncPayload(payload) {
   if (window.electronAPI?.uploadCloudSyncData) return window.electronAPI.uploadCloudSyncData(payload);
   return uploadWebCloudSyncData(payload);
@@ -5228,7 +5343,9 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
   if (!user) return; // 只要登录即全量实时漫游，未登录则不上传
 
   clearTimeout(cloudSyncDebounceTimer);
+  cloudSyncDebounceTimer = null;
   const runSync = async () => {
+    cloudSyncDebounceTimer = null;
     if (cloudSyncUploading) {
       cloudSyncPending = true;
       return;
@@ -5279,21 +5396,21 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
       const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
       const mergedRoutes = mergeRoutes(localRoutes, cloudData?.routes || [], mergedDeletedRoutes);
       const mergedFolders = mergeFolders(localFolders, cloudData?.folders || [], mergedDeletedFolders);
+      const syncedUi = mergeSyncedUiMetadata(cloudData);
 
       // 若发现云端有新增地标或路线，立即同步写入本地并全量刷新地图与收藏夹列表！
       const hasNewIncoming = [
         persistSyncedCollection('outmap_saved_waypoints', mergedFavs),
         persistSyncedCollection('outmap_saved_routes', mergedRoutes),
-        persistSyncedCollection('outmap_custom_folders', mergedFolders)
+        persistSyncedCollection('outmap_custom_folders', mergedFolders),
+        syncedUi.changed
       ].some(Boolean);
 
       if (hasNewIncoming && typeof window.reloadFavoritesData === 'function') {
         window.reloadFavoritesData();
       }
 
-      const payload = {
-        syncKey,
-        data: {
+      const nextData = {
           version: APP_VERSION,
           username: user.username,
           password: user.password || '',
@@ -5304,8 +5421,10 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
           deletedWaypoints: mergedDeleted,
           deletedRoutes: mergedDeletedRoutes,
           deletedFolders: mergedDeletedFolders,
-          folderTabOrder: getFolderTabOrder(),
-          builtinTabNames: getBuiltinTabNames(),
+          folderTabOrder: syncedUi.folderTabOrder,
+          folderTabOrderUpdatedAt: syncedUi.folderTabOrderUpdatedAt,
+          builtinTabNames: syncedUi.builtinTabNames,
+          builtinTabNamesUpdatedAt: syncedUi.builtinTabNamesUpdatedAt,
           views: window.mapInstance ? {
             center: window.mapInstance.getCenter(),
             zoom: window.mapInstance.getZoom(),
@@ -5316,14 +5435,19 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
             pitchLocked: localStorage.getItem('outmap_pitch_locked') === '1',
             lockedPitchVal: localStorage.getItem('outmap_locked_pitch_val') || '50'
           }
-        }
+      };
+      const payload = {
+        syncKey,
+        data: nextData
       };
 
       {
-        const res = await uploadCloudSyncPayload(payload);
+        const res = isCloudPayloadContentEqual(cloudData, nextData)
+          ? { success: true, unchanged: true }
+          : await uploadCloudSyncPayload(payload);
         const userBadge = document.getElementById('sync-user-status-badge');
         if (res && res.success) {
-          console.log(`[CloudSync] 实时自动漫游同步成功 (${reason})`);
+          console.log(`[CloudSync] 实时自动漫游同步${res.unchanged ? '无需上传' : '成功'} (${reason})`);
           const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
           user.lastSyncTime = nowStr;
           try { localStorage.setItem(USER_ACCOUNT_STORAGE_KEY, JSON.stringify(user)); } catch (e) {}
@@ -5355,9 +5479,12 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
   };
 
   if (immediate) {
-    runSync();
+    return runSync();
   } else {
-    cloudSyncDebounceTimer = setTimeout(runSync, 1200);
+    cloudSyncDebounceTimer = setTimeout(() => {
+      cloudSyncDebounceTimer = null;
+      runSync();
+    }, 1200);
   }
 }
 window.triggerRealtimeCloudSync = triggerRealtimeCloudSync;
@@ -5481,12 +5608,14 @@ function setupCloudSync(map) {
       const mergedFavs = mergeWaypoints(localFavs, cloudData?.favorites || [], mergedDeleted);
       const mergedRoutes = mergeRoutes(localRoutes, cloudData?.routes || [], mergedDeletedRoutes);
       const mergedFolders = mergeFolders(localFolders, cloudData?.folders || [], mergedDeletedFolders);
+      const syncedUi = mergeSyncedUiMetadata(cloudData);
 
       // 4. 写回本地并全量刷新界面标记与列表
       const hasNewIncoming = [
         persistSyncedCollection('outmap_saved_waypoints', mergedFavs),
         persistSyncedCollection('outmap_saved_routes', mergedRoutes),
-        persistSyncedCollection('outmap_custom_folders', mergedFolders)
+        persistSyncedCollection('outmap_custom_folders', mergedFolders),
+        syncedUi.changed
       ].some(Boolean);
 
       if (hasNewIncoming && typeof window.reloadFavoritesData === 'function') {
@@ -5495,9 +5624,7 @@ function setupCloudSync(map) {
 
       // 5. 上传合并后的全量数据至云端
       const nowTime = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-      const payload = {
-        syncKey,
-        data: {
+      const nextData = {
           version: APP_VERSION,
           username: user.username,
           password: user.password || '',
@@ -5508,8 +5635,10 @@ function setupCloudSync(map) {
           deletedWaypoints: mergedDeleted,
           deletedRoutes: mergedDeletedRoutes,
           deletedFolders: mergedDeletedFolders,
-          folderTabOrder: getFolderTabOrder(),
-          builtinTabNames: getBuiltinTabNames(),
+          folderTabOrder: syncedUi.folderTabOrder,
+          folderTabOrderUpdatedAt: syncedUi.folderTabOrderUpdatedAt,
+          builtinTabNames: syncedUi.builtinTabNames,
+          builtinTabNamesUpdatedAt: syncedUi.builtinTabNamesUpdatedAt,
           views: {
             center: map.getCenter(),
             zoom: map.getZoom(),
@@ -5520,11 +5649,16 @@ function setupCloudSync(map) {
             pitchLocked: localStorage.getItem('outmap_pitch_locked') === '1',
             lockedPitchVal: localStorage.getItem('outmap_locked_pitch_val') || '50'
           }
-        }
+      };
+      const payload = {
+        syncKey,
+        data: nextData
       };
 
       {
-        const upRes = await uploadCloudSyncPayload(payload);
+        const upRes = isCloudPayloadContentEqual(cloudData, nextData)
+          ? { success: true, unchanged: true }
+          : await uploadCloudSyncPayload(payload);
         if (!upRes || !upRes.success) {
           throw new Error(upRes?.message || '上传云端失败');
         }
@@ -6404,19 +6538,25 @@ function setupWaypointAndFavoritesSystem(map) {
       const flightDuration = distDeg < 0.2
         ? 450
         : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
+      const originalEvent = e.originalEvent;
+      const touchOrigin = originalEvent?.sourceCapabilities?.firesTouchEvents === true
+        || originalEvent?.pointerType === 'touch'
+        || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
         zoom: 13.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
         centered: false,
-        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
+        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined,
+        onArrival: () => {
+          if (!touchOrigin || String(selectedFavoriteFeatureId) !== String(feature.id)) return;
+          const projected = map.project([wp.lng, wp.lat]);
+          const canvasRect = map.getCanvas().getBoundingClientRect();
+          window.showChangeWaypointTypeMenu?.(wp, canvasRect.left + projected.x, canvasRect.top + projected.y);
+        }
       });
-      // 全平台一致性体验强化：桌面左键或移动触屏点击地图收藏点，均在飞掠的同时唤起操作菜单(重命名/改类型/删除)
-      const clickX = e.originalEvent?.clientX ?? e.point.x;
-      const clickY = e.originalEvent?.clientY ?? e.point.y;
-      setTimeout(() => {
-        window.showChangeWaypointTypeMenu?.(wp, clickX, clickY);
-      }, 150);
+      // 桌面左键保持纯粹飞掠，右键打开管理菜单；触屏设备在飞掠稳定落地后
+      // 以图标的新屏幕位置打开菜单，避免菜单在运动中悬在旧坐标并遮挡地图。
     });
     map.on('contextmenu', 'outmap-favorite-icons', e => {
       const feature = e.features?.[0];
@@ -7111,7 +7251,14 @@ function setupWaypointAndFavoritesSystem(map) {
       routeMoreBtn?.addEventListener('touchend', openRouteMoreMenu);
 
       // 1. 单击默认跳转调出路线
-      card.addEventListener('click', () => {
+      let suppressNextRouteClick = false;
+      card.addEventListener('click', (e) => {
+        if (suppressNextRouteClick) {
+          suppressNextRouteClick = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         loadSavedRoute(route.id, map);
       });
 
@@ -7124,6 +7271,10 @@ function setupWaypointAndFavoritesSystem(map) {
         menu.className = 'fluent-context-menu fav-route-context-menu';
 
         menu.innerHTML = `
+          <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
+            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
+            <span class="ctx-text">重命名路线</span>
+          </button>
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
             <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('export', { size: 15 }) || ''}</span>
             <span class="ctx-text">导出路线</span>
@@ -7131,10 +7282,6 @@ function setupWaypointAndFavoritesSystem(map) {
           <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">
             <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('trash', { size: 15, color: '#ef4444' }) || ''}</span>
             <span class="ctx-text">删除路线</span>
-          </button>
-          <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
-            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
-            <span class="ctx-text">重命名路线</span>
           </button>
         `;
         document.body.appendChild(menu);
@@ -7261,11 +7408,14 @@ function setupWaypointAndFavoritesSystem(map) {
       let touchTimer = null;
       let routeTouchStart = null;
       card.addEventListener('touchstart', (e) => {
+        clearTimeout(touchTimer);
+        suppressNextRouteClick = false;
         if (e.touches && e.touches.length === 1) {
           const t = e.touches[0];
           routeTouchStart = { x: t.clientX, y: t.clientY };
           touchTimer = setTimeout(() => {
             touchTimer = null;
+            suppressNextRouteClick = true;
             showCardContextMenu(t.clientX, t.clientY);
           }, 450);
         }
@@ -7284,6 +7434,7 @@ function setupWaypointAndFavoritesSystem(map) {
       }, { passive: true });
       card.addEventListener('touchcancel', () => {
         if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; routeTouchStart = null; }
+        suppressNextRouteClick = false;
       }, { passive: true });
 
       favRoutesList.appendChild(card);
@@ -8674,37 +8825,46 @@ function bindRoutePointLayerEvents(map) {
   });
 
   const handleRoutePointMouseDown = e => {
-    if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint) return;
+    if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
     const feature = e.features?.[0];
     const point = findRoutePointByFeature(feature);
     if (!feature || !point?.coords) return;
     e.preventDefault?.();
     map.dragPan.disable();
-    const el = document.createElement('div');
-    el.className = point.role === 'start' ? 'route-start-marker-pin' : point.role === 'end' ? 'route-end-marker-pin' : 'route-via-marker-pin';
-    el.innerText = feature.properties?.label || '';
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(point.coords).addTo(map);
     const featureId = feature.id;
-    map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
     const origin = e.point;
     let moved = false;
+    let marker = null;
+    const dragSession = { featureId, marker: null, finish: null, cancel: null };
+
+    const beginVisualDrag = () => {
+      if (marker) return;
+      const el = document.createElement('div');
+      el.className = point.role === 'start' ? 'route-start-marker-pin' : point.role === 'end' ? 'route-end-marker-pin' : 'route-via-marker-pin';
+      el.innerText = feature.properties?.label || '';
+      marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(point.coords).addTo(map);
+      dragSession.marker = marker;
+      map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
+      document.body.classList.add('route-point-is-dragging');
+      map.getCanvas().style.cursor = 'default';
+    };
+
     const finish = ({ commit = true } = {}) => {
-      if (!activeRouteMapDrag || activeRouteMapDrag.marker !== marker) return;
+      if (activeRouteMapDrag !== dragSession) return;
       document.body.classList.remove('route-point-is-dragging');
       map.off('mousemove', onMove);
       map.off('mouseup', onMapMouseUp);
       window.removeEventListener('pointerup', onWindowPointerUp, true);
       window.removeEventListener('blur', onWindowBlur);
-      window.removeEventListener('keydown', onKeyDown, true);
-      const final = marker.getLngLat();
-      marker.remove();
+      const final = marker?.getLngLat();
+      marker?.remove();
       activeRouteMapDrag = null;
-      if (map.getSource(ROUTE_POINTS_SOURCE_ID)) {
+      if (marker && map.getSource(ROUTE_POINTS_SOURCE_ID)) {
         map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: false });
       }
       map.dragPan.enable();
       map.getCanvas().style.cursor = '';
-      if (!commit || !moved) return;
+      if (!commit || !moved || !final) return;
       suppressNextClick = true;
       const coords = [final.lng, final.lat];
       if (point.role === 'start') routeStartCoord = coords;
@@ -8714,23 +8874,19 @@ function bindRoutePointLayerEvents(map) {
       renderViaList(map);
       scheduleRoutePlan(map, 60);
     };
-    const onKeyDown = ke => {
-      if (ke.key === 'Escape') {
-        ke.stopPropagation();
-        ke.stopImmediatePropagation();
-        finish({ commit: false });
-      }
-    };
-    activeRouteMapDrag = { marker, featureId, finish, cancel: () => finish({ commit: false }) };
+    dragSession.finish = finish;
+    dragSession.cancel = () => finish({ commit: false });
+    activeRouteMapDrag = dragSession;
 
     const onMove = moveEvent => {
-      if (!activeRouteMapDrag) return;
+      if (activeRouteMapDrag !== dragSession) return;
       if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) {
-        moved = true;
-        document.body.classList.add('route-point-is-dragging');
-        map.getCanvas().style.cursor = 'default';
+        if (!moved) {
+          moved = true;
+          beginVisualDrag();
+        }
       }
-      marker.setLngLat(moveEvent.lngLat);
+      if (moved) marker?.setLngLat(moveEvent.lngLat);
     };
     const onMapMouseUp = () => finish({ commit: true });
     const onWindowPointerUp = () => finish({ commit: true });
@@ -8739,10 +8895,11 @@ function bindRoutePointLayerEvents(map) {
     map.on('mouseup', onMapMouseUp);
     window.addEventListener('pointerup', onWindowPointerUp, true);
     window.addEventListener('blur', onWindowBlur, { once: true });
-    window.addEventListener('keydown', onKeyDown, true);
   };
 
-  const pointLayers = ['outmap-route-point-circles', 'outmap-route-point-labels', 'outmap-route-point-halo'];
+  // 圆点本身覆盖完整命中区域；文字与光晕和它重叠时不能重复绑定，
+  // 否则一次按下会创建两次拖动会话、一次点击会连续发起两次飞掠。
+  const pointLayers = ['outmap-route-point-circles'];
   pointLayers.forEach(layerId => {
     map.on('mouseenter', layerId, e => {
       if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
@@ -8760,27 +8917,25 @@ function bindRoutePointLayerEvents(map) {
       if (hoveredId != null) map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: hoveredId }, { hover: false });
       hoveredId = null;
     });
-    if (layerId !== 'outmap-route-point-halo') {
-      map.on('click', layerId, e => {
-        if (suppressNextClick) { suppressNextClick = false; return; }
-        const point = findRoutePointByFeature(e.features?.[0]);
-        if (!point?.coords) return;
-        const ele = getRealElevation(map, point.coords);
-        flyToLocationPrecisely(map, point.coords, {
-          zoom: 13.0,
-          pitch: map.getPitch() ?? 50,
-          duration: 600,
-          centered: false,
-          elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
-        });
+    map.on('click', layerId, e => {
+      if (suppressNextClick) { suppressNextClick = false; return; }
+      const point = findRoutePointByFeature(e.features?.[0]);
+      if (!point?.coords) return;
+      const ele = getRealElevation(map, point.coords);
+      flyToLocationPrecisely(map, point.coords, {
+        zoom: 13.0,
+        pitch: map.getPitch() ?? 50,
+        duration: 600,
+        centered: false,
+        elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
       });
-      map.on('mousedown', layerId, handleRoutePointMouseDown);
-    }
+    });
+    map.on('mousedown', layerId, handleRoutePointMouseDown);
   });
 }
 
 // 同步更新地图上途径点与起终点的视觉表现；常态完全使用 MapLibre 原生图层。
-function syncRouteMarkersVisualState(mapInstance, force = false) {
+function syncRouteMarkersVisualState(mapInstance, force = false, syncFavorites = true) {
   const m = mapInstance || (typeof currentOutdoorMap !== 'undefined' ? currentOutdoorMap : null);
   if (!m) return;
   if (routeStartMarker) { try { routeStartMarker.remove(); } catch (_) {} routeStartMarker = null; }
@@ -8791,7 +8946,7 @@ function syncRouteMarkersVisualState(mapInstance, force = false) {
       routePointLayerInitPending = true;
       m.once('load', () => {
         routePointLayerInitPending = false;
-        syncRouteMarkersVisualState(m, force);
+        syncRouteMarkersVisualState(m, force, syncFavorites);
       });
     }
     return;
@@ -8800,7 +8955,7 @@ function syncRouteMarkersVisualState(mapInstance, force = false) {
   bindRoutePointLayerEvents(m);
   submitGeoJSONChanges(m.getSource(ROUTE_POINTS_SOURCE_ID), getRoutePointFeatures(), force);
   // 收藏点与路线点来自两套原生 source；路线变化时同步刷新收藏 source 的跨层去重结果。
-  window.renderWaypointMarkersOnMap?.();
+  if (syncFavorites) window.renderWaypointMarkersOnMap?.();
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
@@ -9080,7 +9235,6 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       handleEl.removeEventListener('pointerup', onPointerUp);
       handleEl.removeEventListener('pointercancel', onPointerUp);
       window.removeEventListener('blur', onWindowBlur);
-      window.removeEventListener('keydown', onKeyDown, true);
       try { handleEl.releasePointerCapture(pointerId); } catch (err) {}
 
       if (autoScrollRaf) {
@@ -9145,17 +9299,6 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       onPointerUp({ pointerId, type: 'pointercancel' });
     };
 
-    const onKeyDown = (ke) => {
-      if (ke.key === 'Escape') {
-        ke.stopPropagation();
-        ke.stopImmediatePropagation();
-        if (activeRouteDragSession?.generation === dragGeneration) {
-          activeRouteDragSession.cancel();
-          activeRouteDragSession = null;
-        }
-      }
-    };
-
     activeRouteDragSession = {
       generation: dragGeneration,
       cancel: () => {
@@ -9169,7 +9312,6 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
     handleEl.addEventListener('pointerup', onPointerUp);
     handleEl.addEventListener('pointercancel', onPointerUp);
     window.addEventListener('blur', onWindowBlur, { once: true });
-    window.addEventListener('keydown', onKeyDown, true);
   };
 
   handleEl._stopDragHandler = onPointerDown;
