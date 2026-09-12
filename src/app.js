@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.37';
+const APP_VERSION = '1.9.38';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -3015,7 +3015,7 @@ function setupOfficeHeaderInteractions(map) {
         <div class="landing-card-actions">
           <button class="landing-act-btn primary act-fav">${window.OutmapFavoriteInteractions?.svg('star', { size: 13, color: '#f59e0b' }) || ''}<span>收藏</span></button>
           <button class="landing-act-btn act-start">${window.OutmapFavoriteInteractions?.svg('start', { size: 13, color: '#16a34a' }) || ''}<span>起点</span></button>
-          <button class="landing-act-btn act-via">${window.OutmapFavoriteInteractions?.svg('via', { size: 13, color: '#6366f1' }) || ''}<span>途径</span></button>
+          <button class="landing-act-btn act-via">${window.OutmapFavoriteInteractions?.svg('via', { size: 13, color: '#0284c7' }) || ''}<span>途径</span></button>
           <button class="landing-act-btn act-end">${window.OutmapFavoriteInteractions?.svg('end', { size: 13, color: '#ef4444' }) || ''}<span>终点</span></button>
         </div>
       </div>
@@ -8112,9 +8112,23 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         }
       }
     } else if (e.key === 'Escape') {
+      const isDropdownOpen = floatingEl && floatingEl.style.display !== 'none';
       ++requestSequence;
       clearTimeout(searchTimer);
       hideRouteFloatingDropdown();
+      if (isDropdownOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (document.activeElement === inputEl) {
+        inputEl.blur();
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
     }
   });
 
@@ -8205,7 +8219,7 @@ function ensureRoutePointLayers(map) {
       filter: ['!', ['has', 'point_count']],
       paint: {
         'circle-radius': ['case', ['boolean', ['feature-state', 'dragging'], false], 18, ['boolean', ['feature-state', 'hover'], false], 16, 0],
-        'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#6366f1'],
+        'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#0284c7'],
         'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'dragging'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
         'circle-blur': 0.22,
         'circle-pitch-alignment': 'viewport',
@@ -8220,7 +8234,7 @@ function ensureRoutePointLayers(map) {
       },
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 8, 11, 9.5, 15, ['match', ['get', 'role'], 'via', 11, 12]],
-        'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#6366f1'],
+        'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#0284c7'],
         'circle-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
         'circle-stroke-width': 2,
         'circle-stroke-color': '#ffffff',
@@ -8335,17 +8349,6 @@ function bindRoutePointLayerEvents(map) {
     map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
     const origin = e.point;
     let moved = false;
-    activeRouteMapDrag = { marker, featureId };
-
-    const onMove = moveEvent => {
-      if (!activeRouteMapDrag) return;
-      if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) {
-        moved = true;
-        document.body.classList.add('route-point-is-dragging');
-        map.getCanvas().style.cursor = 'default';
-      }
-      marker.setLngLat(moveEvent.lngLat);
-    };
     const finish = ({ commit = true } = {}) => {
       if (!activeRouteMapDrag || activeRouteMapDrag.marker !== marker) return;
       document.body.classList.remove('route-point-is-dragging');
@@ -8353,6 +8356,7 @@ function bindRoutePointLayerEvents(map) {
       map.off('mouseup', onMapMouseUp);
       window.removeEventListener('pointerup', onWindowPointerUp, true);
       window.removeEventListener('blur', onWindowBlur);
+      window.removeEventListener('keydown', onKeyDown, true);
       const final = marker.getLngLat();
       marker.remove();
       activeRouteMapDrag = null;
@@ -8371,6 +8375,24 @@ function bindRoutePointLayerEvents(map) {
       renderViaList(map);
       scheduleRoutePlan(map, 60);
     };
+    const onKeyDown = ke => {
+      if (ke.key === 'Escape') {
+        ke.stopPropagation();
+        ke.stopImmediatePropagation();
+        finish({ commit: false });
+      }
+    };
+    activeRouteMapDrag = { marker, featureId, finish, cancel: () => finish({ commit: false }) };
+
+    const onMove = moveEvent => {
+      if (!activeRouteMapDrag) return;
+      if (Math.hypot(moveEvent.point.x - origin.x, moveEvent.point.y - origin.y) > 3) {
+        moved = true;
+        document.body.classList.add('route-point-is-dragging');
+        map.getCanvas().style.cursor = 'default';
+      }
+      marker.setLngLat(moveEvent.lngLat);
+    };
     const onMapMouseUp = () => finish({ commit: true });
     const onWindowPointerUp = () => finish({ commit: true });
     const onWindowBlur = () => finish({ commit: false });
@@ -8378,6 +8400,7 @@ function bindRoutePointLayerEvents(map) {
     map.on('mouseup', onMapMouseUp);
     window.addEventListener('pointerup', onWindowPointerUp, true);
     window.addEventListener('blur', onWindowBlur, { once: true });
+    window.addEventListener('keydown', onKeyDown, true);
   };
 
   const pointLayers = ['outmap-route-point-circles', 'outmap-route-point-labels', 'outmap-route-point-halo'];
@@ -8711,6 +8734,7 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       handleEl.removeEventListener('pointerup', onPointerUp);
       handleEl.removeEventListener('pointercancel', onPointerUp);
       window.removeEventListener('blur', onWindowBlur);
+      window.removeEventListener('keydown', onKeyDown, true);
       try { handleEl.releasePointerCapture(pointerId); } catch (err) {}
 
       if (autoScrollRaf) {
@@ -8775,6 +8799,17 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
       onPointerUp({ pointerId, type: 'pointercancel' });
     };
 
+    const onKeyDown = (ke) => {
+      if (ke.key === 'Escape') {
+        ke.stopPropagation();
+        ke.stopImmediatePropagation();
+        if (activeRouteDragSession?.generation === dragGeneration) {
+          activeRouteDragSession.cancel();
+          activeRouteDragSession = null;
+        }
+      }
+    };
+
     activeRouteDragSession = {
       generation: dragGeneration,
       cancel: () => {
@@ -8788,6 +8823,7 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
     handleEl.addEventListener('pointerup', onPointerUp);
     handleEl.addEventListener('pointercancel', onPointerUp);
     window.addEventListener('blur', onWindowBlur, { once: true });
+    window.addEventListener('keydown', onKeyDown, true);
   };
 
   handleEl._stopDragHandler = onPointerDown;
@@ -11757,6 +11793,30 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
+      // 0.01 正在拖拽地图途经点 (按 ESC 取消拖拽并还原)
+      if (activeRouteMapDrag) {
+        if (typeof activeRouteMapDrag.cancel === 'function') {
+          activeRouteMapDrag.cancel();
+        } else if (typeof activeRouteMapDrag.finish === 'function') {
+          activeRouteMapDrag.finish({ commit: false });
+        }
+        activeRouteMapDrag = null;
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.02 正在拖拽途经点列表行排序 (按 ESC 取消排序)
+      if (activeRouteDragSession) {
+        if (typeof activeRouteDragSession.cancel === 'function') {
+          activeRouteDragSession.cancel();
+        }
+        activeRouteDragSession = null;
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
       // 0.05 图层控制面板
       const layersPopover = document.getElementById('layers-popover');
       if (layersPopover && layersPopover.style.display !== 'none') {
@@ -11777,10 +11837,29 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 0.2 浮动路线候选联想框
+      // 0.2 浮动路线候选联想框及行内候选菜单
       const routeDropdown = getRouteFloatingDropdown();
-      if (routeDropdown && routeDropdown.style.display !== 'none') {
+      const visibleViaDropdown = document.querySelector('#route-via-list .route-search-dropdown:not([style*="display: none"])');
+      const startDropdown = document.getElementById('route-start-dropdown');
+      const endDropdown = document.getElementById('route-end-dropdown');
+      const isAnyRouteDropdownOpen = (routeDropdown && routeDropdown.style.display !== 'none') ||
+        (visibleViaDropdown && visibleViaDropdown.style.display !== 'none') ||
+        (startDropdown && startDropdown.style.display !== 'none') ||
+        (endDropdown && endDropdown.style.display !== 'none');
+      if (isAnyRouteDropdownOpen) {
         hideRouteFloatingDropdown();
+        if (visibleViaDropdown) visibleViaDropdown.style.display = 'none';
+        if (startDropdown) startDropdown.style.display = 'none';
+        if (endDropdown) endDropdown.style.display = 'none';
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.25 路线面板输入框聚焦逃逸 (避免正在输入时不小心误关整个路线面板)
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl.tagName === 'INPUT' && activeEl.closest?.('#route-panel')) {
+        activeEl.blur();
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;
@@ -11908,9 +11987,9 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 7. 路线规划面板
+      // 7. 路线规划面板 (平滑关闭，并清理下拉及导出菜单)
       const routePanel = document.getElementById('route-panel');
-      if (routePanel && routePanel.style.display !== 'none') {
+      if (routePanel && routePanel.style.display !== 'none' && !routePanel.classList.contains('panel-closing')) {
         if (pickingRoutePt) {
           if (typeof window.exitRoutePickingMode === 'function') {
             window.exitRoutePickingMode();
@@ -11928,7 +12007,14 @@ function setupGlobalKeyboardDispatcher() {
           return;
         }
         hideRouteFloatingDropdown();
-        smoothClosePanel(routePanel);
+        smoothClosePanel(routePanel, () => {
+          const sDropdown = document.getElementById('route-start-dropdown');
+          const eDropdown = document.getElementById('route-end-dropdown');
+          const rMenu = document.getElementById('route-export-menu');
+          if (sDropdown) sDropdown.style.display = 'none';
+          if (eDropdown) eDropdown.style.display = 'none';
+          if (rMenu) rMenu.style.display = 'none';
+        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;

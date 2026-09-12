@@ -16,7 +16,7 @@ for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/favorite-interac
 assert.strictEqual((appSource.match(/function escapeHtml\s*\(/g) || []).length, 1, 'escapeHtml must have one implementation');
 assert(!/\bconfirm\s*\(/.test(appSource), 'blocking native confirm remains');
 assert(appSource.includes("clusterMaxZoom: 16") && appSource.includes("'#f59e0b', 10, '#d97706', 30, '#b45309'"), 'native cluster level or amber palette missing');
-assert(appSource.includes("'end', '#ef4444', '#6366f1'"), 'waypoint palette must be distinct from cluster palette');
+assert(appSource.includes("'end', '#ef4444', '#0284c7'"), 'waypoint palette must be distinct from cluster palette');
 assert(appSource.includes("zoom: Math.min(map.getMaxZoom(), zoom)"), 'cluster expansion must respect map max zoom');
 assert(appSource.includes("document.execCommand?.('copy')"), 'HTTP clipboard fallback missing');
 assert(appSource.includes("window.addEventListener('touchcancel', clearMapDraggingState"), 'touch cancellation cleanup missing');

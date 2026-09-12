@@ -62,8 +62,8 @@ app.whenReady().then(async () => {
       const savedVisible = map.getLayoutProperty('outmap-saved-route-line', 'visibility') === 'visible';
       await sleep(50);
       const savedSource = map.getSource('outmap-saved-routes');
-      const savedSourceData = savedSource?._data || savedSource?.serialize?.().data;
-      const savedFeatureCount = savedSourceData?.features?.length || 0;
+      const savedData = await savedSource.getData();
+      const savedFeatureCount = savedData?.features?.length || 0;
       const plannedStillHidden = map.getLayoutProperty('outdoor-route-line', 'visibility') === 'none';
 
       return {

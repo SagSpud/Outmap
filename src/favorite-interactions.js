@@ -152,7 +152,7 @@
     pin: '#ef4444',
     target: '#0284c7',
     start: '#16a34a',
-    via: '#6366f1',
+    via: '#0284c7',
     end: '#ef4444',
     route: '#0284c7',
     trash: '#ef4444',
