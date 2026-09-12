@@ -6512,6 +6512,9 @@ body.is-downloading #pyramid-modal .modal-card {
 .fluent-prompt-overlay {
   position: fixed;
   inset: 0;
+  height: 100vh;
+  height: 100dvh;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.38);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -6521,6 +6524,12 @@ body.is-downloading #pyramid-modal .modal-card {
   z-index: 100000;
   opacity: 0;
   transition: opacity 0.16s ease;
+}
+
+.fluent-prompt-form {
+  display: contents;
+  margin: 0;
+  padding: 0;
 }
 
 .fluent-prompt-overlay.prompt-active {
@@ -6615,3 +6624,49 @@ body.is-downloading #pyramid-modal .modal-card {
   gap: 8px;
   border-top: none;
 }
+
+/* 收藏地点与路线卡片管理更多操作按钮 (支持桌面右键与移动端一键轻触) */
+.fav-item-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+  touch-action: manipulation;
+}
+
+.fav-item-more-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+
+.fav-item-more-btn:active {
+  background: rgba(0, 0, 0, 0.1);
+  transform: scale(0.92);
+}
+
+.fav-item-card,
+.fav-route-card {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 移动端视口下，输入弹窗靠顶部弹性对齐，彻底避开虚拟软键盘遮挡 */
+@media (max-width: 768px), (pointer: coarse) {
+  .fluent-prompt-overlay {
+    align-items: flex-start;
+    padding-top: max(24px, calc(16dvh + env(safe-area-inset-top, 0px)));
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+

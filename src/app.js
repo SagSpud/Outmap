@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.38';
+const APP_VERSION = '1.9.39';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -45,21 +45,25 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   document.querySelectorAll('.fluent-prompt-overlay').forEach(el => el.remove());
   const overlay = document.createElement('div');
   overlay.className = 'fluent-prompt-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
   overlay.innerHTML = `
     <div class="fluent-prompt-card">
-      <div class="card-header">
-        <div class="card-title"><span>${escapeHtml(title)}</span></div>
-        <button class="card-close btn-prompt-cancel" type="button">✕</button>
-      </div>
-      <div class="card-body">
-        <div class="form-row">
-          <input type="text" class="form-control fluent-prompt-input" value="${escapeHtml(initialValue)}" placeholder="${escapeHtml(placeholder)}" />
+      <form class="fluent-prompt-form" action="javascript:void(0);">
+        <div class="card-header">
+          <div class="card-title"><span>${escapeHtml(title)}</span></div>
+          <button class="card-close btn-prompt-cancel" type="button" aria-label="关闭">✕</button>
         </div>
-      </div>
-      <div class="card-footer">
-        <button class="modal-btn secondary btn-prompt-cancel" type="button">${escapeHtml(cancelText)}</button>
-        <button class="modal-btn primary btn-prompt-confirm" type="button">${escapeHtml(confirmText)}</button>
-      </div>
+        <div class="card-body">
+          <div class="form-row">
+            <input type="text" class="form-control fluent-prompt-input" value="${escapeHtml(initialValue)}" placeholder="${escapeHtml(placeholder)}" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          </div>
+        </div>
+        <div class="card-footer">
+          <button class="modal-btn secondary btn-prompt-cancel" type="button">${escapeHtml(cancelText)}</button>
+          <button class="modal-btn primary btn-prompt-confirm" type="submit">${escapeHtml(confirmText)}</button>
+        </div>
+      </form>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -72,6 +76,7 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
     input?.select();
   }, 25);
 
+  let isSettled = false;
   const closePrompt = () => {
     if (!overlay.isConnected || overlay.classList.contains('prompt-closing')) return;
     overlay.classList.remove('prompt-active');
@@ -81,8 +86,10 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   };
 
   const submitPrompt = () => {
+    if (isSettled) return;
     const val = input ? input.value.trim() : '';
     if (val) {
+      isSettled = true;
       closePrompt();
       onConfirm?.(val);
     } else {
@@ -101,12 +108,39 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   };
   document.addEventListener('keydown', onKeyDown);
 
+  const form = overlay.querySelector('.fluent-prompt-form');
+  form?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitPrompt();
+  });
+
   overlay.querySelectorAll('.btn-prompt-cancel').forEach(btn => {
     btn.addEventListener('click', closePrompt);
   });
-  overlay.querySelector('.btn-prompt-confirm')?.addEventListener('click', submitPrompt);
+
+  const confirmBtn = overlay.querySelector('.btn-prompt-confirm');
+  // 移动端关键优化：软键盘升起时，点击确定按钮会先触发 input 失焦导致键盘收缩与视口位移，
+  // 浏览器原生 touchend 判定位置偏差从而取消/吞掉 click 事件；
+  // 此处在 pointerdown 阶段直接截获提交，彻底根治移动端软键盘收起时点击失效问题。
+  confirmBtn?.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      e.preventDefault();
+      submitPrompt();
+    }
+  });
+  confirmBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    submitPrompt();
+  });
+
+  // 遮罩防误触：仅当触摸或点击在遮罩本身开始且结束时才退出，防止键盘收起时视口变化误触发关闭
+  let pointerDownOnOverlay = false;
+  overlay.addEventListener('pointerdown', (e) => {
+    pointerDownOnOverlay = (e.target === overlay);
+  });
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closePrompt();
+    if (pointerDownOnOverlay && e.target === overlay) closePrompt();
+    pointerDownOnOverlay = false;
   });
 }
 window.showFluentPrompt = showFluentPrompt;
@@ -179,8 +213,23 @@ function showFluentConfirm({
     };
     document.addEventListener('keydown', onKeyDown, true);
     overlay.querySelectorAll('.btn-confirm-cancel').forEach(btn => btn.addEventListener('click', () => settle(false)));
-    overlay.querySelector('.btn-confirm-accept')?.addEventListener('click', () => settle(true));
-    overlay.addEventListener('click', e => { if (e.target === overlay) settle(false); });
+    const acceptBtn = overlay.querySelector('.btn-confirm-accept');
+    acceptBtn?.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        e.preventDefault();
+        settle(true);
+      }
+    });
+    acceptBtn?.addEventListener('click', () => settle(true));
+
+    let pointerDownOnOverlay = false;
+    overlay.addEventListener('pointerdown', (e) => {
+      pointerDownOnOverlay = (e.target === overlay);
+    });
+    overlay.addEventListener('click', e => {
+      if (pointerDownOnOverlay && e.target === overlay) settle(false);
+      pointerDownOnOverlay = false;
+    });
     requestAnimationFrame(() => overlay.querySelector('.btn-confirm-accept')?.focus({ preventScroll: true }));
   });
 }
@@ -879,6 +928,7 @@ function normalizeWaypoint(wp) {
   const lng = Number(wp.lng ?? wp.coords?.[0]);
   const lat = Number(wp.lat ?? wp.coords?.[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  const updatedAt = Number(wp.updatedAt) || Number(wp.createdAt) || (wp.time && !isNaN(new Date(wp.time).getTime()) ? new Date(wp.time).getTime() : 0);
   return {
     ...wp,
     id: wp.id || `wp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
@@ -889,7 +939,8 @@ function normalizeWaypoint(wp) {
     lat,
     coords: [lng, lat],
     ele: (wp.ele !== undefined && wp.ele !== null) ? wp.ele : 0,
-    time: wp.time || new Date().toLocaleDateString()
+    time: wp.time || new Date().toLocaleDateString(),
+    updatedAt
   };
 }
 
@@ -934,12 +985,22 @@ function mergeWaypoints(localList = [], cloudList = [], deletedList = []) {
       result.push(item);
     } else {
       const existing = result[existingIdx];
+      const existingTime = Number(existing.updatedAt) || 0;
+      const itemTime = Number(item.updatedAt) || 0;
+      // 基于时间戳的 Last-Write-Wins (最后写入者胜出) 冲突仲裁机制
+      // 彻底根除“手机重命名上传后，被电脑端旧名字本地缓存冲刷覆写”的死循环
+      const useItem = itemTime > existingTime;
+      const primary = useItem ? item : existing;
+      const secondary = useItem ? existing : item;
       result[existingIdx] = {
-        ...item,
-        ...existing,
-        name: existing.name || item.name,
-        ele: (existing.ele !== undefined && existing.ele !== 0) ? existing.ele : item.ele,
-        folder: (existing.folder && existing.folder !== 'default') ? existing.folder : (item.folder || 'default')
+        ...secondary,
+        ...primary,
+        id: existing.id || item.id,
+        name: (primary.name || secondary.name || '').trim(),
+        type: primary.type || secondary.type,
+        ele: (primary.ele !== undefined && primary.ele !== 0) ? primary.ele : secondary.ele,
+        folder: (primary.folder && primary.folder !== 'default') ? primary.folder : (secondary.folder || 'default'),
+        updatedAt: Math.max(existingTime, itemTime)
       };
     }
   }
@@ -1060,8 +1121,26 @@ function mergeRoutes(localList = [], cloudList = [], deletedList = []) {
       const rName = (r.name || '').trim();
       return rName === name && Math.abs(rDist - dist) < 0.1;
     });
+    const itemUpdated = Number(item.updatedAt) || Number(item.timestamp) || 0;
     if (existingIdx < 0) {
-      result.push(item);
+      result.push({
+        ...item,
+        updatedAt: itemUpdated || Date.now()
+      });
+    } else {
+      const existing = result[existingIdx];
+      const existingUpdated = Number(existing.updatedAt) || Number(existing.timestamp) || 0;
+      const useItem = itemUpdated > existingUpdated;
+      const primary = useItem ? item : existing;
+      const secondary = useItem ? existing : item;
+      result[existingIdx] = {
+        ...secondary,
+        ...primary,
+        id: existing.id || item.id,
+        name: (primary.name || secondary.name || '').trim(),
+        metrics: primary.metrics || secondary.metrics,
+        updatedAt: Math.max(existingUpdated, itemUpdated)
+      };
     }
   }
   return result;
@@ -1226,8 +1305,15 @@ function mergeFolders(localList = [], cloudList = [], deletedList = null) {
   const delList = Array.isArray(deletedList) && deletedList.length ? deletedList : getDeletedFolders();
   const cleanLocal = sanitizeFolders(localList);
   const result = [...cleanLocal];
-  const seenIds = new Set(result.map(f => String(f.id).trim()));
-  const seenCleanNames = new Set(result.map(f => cleanFolderTitle(f.name).toLowerCase()));
+  const seenIds = new Map();
+  const seenCleanNames = new Map();
+
+  result.forEach((f, idx) => {
+    const idStr = String(f.id).trim();
+    if (idStr) seenIds.set(idStr, idx);
+    const clean = cleanFolderTitle(f.name).toLowerCase();
+    if (clean) seenCleanNames.set(clean, idx);
+  });
 
   (cloudList || []).forEach(f => {
     if (!f) return;
@@ -1238,14 +1324,30 @@ function mergeFolders(localList = [], cloudList = [], deletedList = null) {
     const idStr = String(obj.id).trim();
     const clean = cleanFolderTitle(obj.name).toLowerCase();
 
-    // 本地优先：若 ID 已在本地存在（说明本地已保留或已改名），坚决丢弃云端旧项，避免分裂为双标签！
-    if (idStr && seenIds.has(idStr)) return;
-    // 若同名项已存在，也不再推入
-    if (clean && seenCleanNames.has(clean)) return;
+    const existingIdx = (idStr && seenIds.has(idStr))
+      ? seenIds.get(idStr)
+      : (clean && seenCleanNames.has(clean) ? seenCleanNames.get(clean) : -1);
 
-    seenIds.add(idStr);
-    if (clean) seenCleanNames.add(clean);
-    result.push(obj);
+    const objTime = Number(obj.updatedAt) || 0;
+    if (existingIdx >= 0) {
+      const existing = result[existingIdx];
+      const existingTime = Number(existing.updatedAt) || 0;
+      if (objTime > existingTime) {
+        result[existingIdx] = {
+          ...existing,
+          ...obj,
+          updatedAt: objTime
+        };
+      }
+      return;
+    }
+
+    seenIds.set(idStr, result.length);
+    if (clean) seenCleanNames.set(clean, result.length);
+    result.push({
+      ...obj,
+      updatedAt: objTime || Date.now()
+    });
   });
 
   return result;
@@ -5109,12 +5211,12 @@ function getLoggedInUser() {
 }
 window.getLoggedInUser = getLoggedInUser;
 
-async function triggerRealtimeCloudSync(reason = 'change') {
+async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
   const user = getLoggedInUser();
   if (!user) return; // 只要登录即全量实时漫游，未登录则不上传
 
   clearTimeout(cloudSyncDebounceTimer);
-  cloudSyncDebounceTimer = setTimeout(async () => {
+  const runSync = async () => {
     if (cloudSyncUploading) {
       cloudSyncPending = true;
       return;
@@ -5238,9 +5340,27 @@ async function triggerRealtimeCloudSync(reason = 'change') {
         triggerRealtimeCloudSync('queued_change');
       }
     }
-  }, 1200);
+  };
+
+  if (immediate) {
+    runSync();
+  } else {
+    cloudSyncDebounceTimer = setTimeout(runSync, 1200);
+  }
 }
 window.triggerRealtimeCloudSync = triggerRealtimeCloudSync;
+
+// 移动端切后台 / 关闭标签页时，若有未落地的变更立即执行同步，防止数据丢失
+window.addEventListener('pagehide', () => {
+  if (cloudSyncDebounceTimer) {
+    triggerRealtimeCloudSync('pagehide', true);
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && cloudSyncDebounceTimer) {
+    triggerRealtimeCloudSync('visibility_hidden', true);
+  }
+});
 
 // 用户极简登录与全量云端漫游同步系统
 function setupCloudSync(map) {
@@ -6503,7 +6623,8 @@ function setupWaypointAndFavoritesSystem(map) {
       lng: tempPickedPoint.lng,
       lat: tempPickedPoint.lat,
       ele: tempPickedPoint.ele,
-      time: new Date().toLocaleDateString()
+      time: new Date().toLocaleDateString(),
+      updatedAt: Date.now()
     };
 
     savedWaypoints.push(newWp);
@@ -6537,7 +6658,8 @@ function setupWaypointAndFavoritesSystem(map) {
 
     const newFolderObj = {
       id: 'folder_' + Date.now(),
-      name: name
+      name: name,
+      updatedAt: Date.now()
     };
     customFolders.push(newFolderObj);
     try {
@@ -6660,6 +6782,12 @@ function setupWaypointAndFavoritesSystem(map) {
         const newType = item.getAttribute('data-type');
         if (newType && newType !== wp.type) {
           wp.type = newType;
+          wp.updatedAt = Date.now();
+          const targetWp = savedWaypoints.find(item => String(item.id) === String(wp.id) || areWaypointsEqual(item, wp));
+          if (targetWp) {
+            targetWp.type = newType;
+            targetWp.updatedAt = wp.updatedAt;
+          }
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (err) {}
@@ -6685,6 +6813,12 @@ function setupWaypointAndFavoritesSystem(map) {
           const trimmed = newName.trim();
           if (!trimmed || trimmed === wp.name) return;
           wp.name = trimmed;
+          wp.updatedAt = Date.now();
+          const targetWp = savedWaypoints.find(item => String(item.id) === String(wp.id) || areWaypointsEqual(item, wp));
+          if (targetWp) {
+            targetWp.name = trimmed;
+            targetWp.updatedAt = wp.updatedAt;
+          }
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (err) {}
@@ -6763,7 +6897,18 @@ function setupWaypointAndFavoritesSystem(map) {
           <div class="fav-item-name">${escapeHtml(wp.name || '未命名地点')}</div>
           <div class="fav-item-meta">${coordText} · ${elevationText}</div>
         </div>
+        <button type="button" class="fav-item-more-btn" aria-label="地点操作选项" title="地点操作选项">
+          ${window.OutmapFavoriteInteractions?.svg('more', { size: 16, color: '#64748b' }) || '•••'}
+        </button>
       `;
+
+      const moreBtn = item.querySelector('.fav-item-more-btn');
+      moreBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const rect = moreBtn.getBoundingClientRect();
+        showChangeWaypointTypeMenu(wp, rect.left, rect.bottom + 4);
+      });
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -6865,7 +7010,12 @@ function setupWaypointAndFavoritesSystem(map) {
             </span>
             <span class="fav-route-name">${escapeHtml(route.name || '未命名路线')}</span>
           </div>
-          <span class="fav-route-date">${escapeHtml(route.createdAt || '')}</span>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span class="fav-route-date">${escapeHtml(route.createdAt || '')}</span>
+            <button type="button" class="fav-item-more-btn fav-route-more-btn" aria-label="路线操作选项" title="路线操作选项">
+              ${window.OutmapFavoriteInteractions?.svg('more', { size: 16, color: '#64748b' }) || '•••'}
+            </button>
+          </div>
         </div>
         <div class="fav-route-stats">
           <span>${window.OutmapFavoriteInteractions?.svg('distance', { size: 13, color: '#64748b' }) || ''} ${distStr}</span>
@@ -6874,6 +7024,14 @@ function setupWaypointAndFavoritesSystem(map) {
           <span>${window.OutmapFavoriteInteractions?.svg('pin', { size: 13, color: '#64748b' }) || ''} ${viaText}</span>
         </div>
       `;
+
+      const routeMoreBtn = card.querySelector('.fav-route-more-btn');
+      routeMoreBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const rect = routeMoreBtn.getBoundingClientRect();
+        showCardContextMenu(rect.left, rect.bottom + 4);
+      });
 
       // 1. 单击默认跳转调出路线
       card.addEventListener('click', () => {
@@ -6945,6 +7103,12 @@ function setupWaypointAndFavoritesSystem(map) {
               const trimmed = newName.trim();
               if (!trimmed || trimmed === route.name) return;
               route.name = trimmed;
+              route.updatedAt = Date.now();
+              const targetRoute = savedRoutes.find(r => r.id === route.id);
+              if (targetRoute) {
+                targetRoute.name = trimmed;
+                targetRoute.updatedAt = route.updatedAt;
+              }
               try {
                 localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
               } catch (err) {}
@@ -7059,9 +7223,16 @@ function setupWaypointAndFavoritesSystem(map) {
             addDeletedFolderTombstone({ id: oldId + '_old', name: oldName });
           }
           tabItem.folderObj.name = trimmed;
+          tabItem.folderObj.updatedAt = Date.now();
+          const targetF = customFolders.find(f => f.id === tabItem.folderObj.id);
+          if (targetF) {
+            targetF.name = trimmed;
+            targetF.updatedAt = tabItem.folderObj.updatedAt;
+          }
           savedWaypoints.forEach(wp => {
             if (wp.folder === oldId || wp.folder === oldName) {
               wp.folder = oldId;
+              wp.updatedAt = Date.now();
             }
           });
           try {
@@ -7612,7 +7783,8 @@ function importWaypointsIntoFavorites(waypoints, sourceName, mapInstance) {
       lng,
       lat,
       ele,
-      time: wp.time || now
+      time: wp.time || now,
+      updatedAt: Date.now()
     });
     addedCount++;
   });
@@ -10436,6 +10608,7 @@ function setupOutdoorRouteSystem(map) {
         mode: activeRouteMode,
         createdAt: new Date().toLocaleDateString('zh-CN'),
         timestamp: Date.now(),
+        updatedAt: Date.now(),
         start: { coords: routeStartCoord, name: routeStartName || '起点' },
         end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
         viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
