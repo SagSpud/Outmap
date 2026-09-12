@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.32';
+const APP_VERSION = '1.9.33';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -111,6 +111,81 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
 }
 window.showFluentPrompt = showFluentPrompt;
 
+// 非阻塞式 Fluent 确认框：不暂停 WebGL 主线程，并与现有毛玻璃界面保持一致。
+function showFluentConfirm({
+  title = '请确认',
+  message = '',
+  confirmText = '确定',
+  cancelText = '取消',
+  danger = false
+} = {}) {
+  return new Promise(resolve => {
+    document.querySelectorAll('.fluent-confirm-overlay').forEach(el => {
+      el._resolveConfirm?.(false);
+      el.remove();
+    });
+
+    const previousFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'fluent-prompt-overlay fluent-confirm-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'fluent-confirm-title');
+    overlay.innerHTML = `
+      <div class="fluent-prompt-card fluent-confirm-card">
+        <div class="card-header">
+          <div class="card-title" id="fluent-confirm-title"><span>${escapeHtml(title)}</span></div>
+          <button class="card-close btn-confirm-cancel" type="button" aria-label="关闭">✕</button>
+        </div>
+        <div class="card-body">
+          <div class="fluent-confirm-message"></div>
+        </div>
+        <div class="card-footer">
+          <button class="modal-btn secondary btn-confirm-cancel" type="button">${escapeHtml(cancelText)}</button>
+          <button class="modal-btn ${danger ? 'danger' : 'primary'} btn-confirm-accept" type="button">${escapeHtml(confirmText)}</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector('.fluent-confirm-message').textContent = String(message || '');
+    document.body.appendChild(overlay);
+    void overlay.offsetWidth;
+    overlay.classList.add('prompt-active');
+
+    let settled = false;
+    const settle = value => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKeyDown, true);
+      overlay.classList.remove('prompt-active');
+      overlay.classList.add('prompt-closing');
+      setTimeout(() => {
+        overlay.remove();
+        if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+      }, 160);
+      resolve(Boolean(value));
+    };
+    overlay._resolveConfirm = settle;
+
+    const onKeyDown = e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        settle(false);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        settle(true);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    overlay.querySelectorAll('.btn-confirm-cancel').forEach(btn => btn.addEventListener('click', () => settle(false)));
+    overlay.querySelector('.btn-confirm-accept')?.addEventListener('click', () => settle(true));
+    overlay.addEventListener('click', e => { if (e.target === overlay) settle(false); });
+    requestAnimationFrame(() => overlay.querySelector('.btn-confirm-accept')?.focus({ preventScroll: true }));
+  });
+}
+window.showFluentConfirm = showFluentConfirm;
+
 // 1. 全国 34 省级行政区中心、地理外包围盒 (用于精确金字塔切片计算) 与三维视点
 // 1. 全国 34 省级行政区中心、地理外包围盒 (按首字母拼音 A-Z 严格排序，含港澳台)
 const PROVINCES_DATA = {
@@ -151,26 +226,41 @@ const PROVINCES_DATA = {
   zhejiang: { name: '浙江省', en: 'Zhejiang', pinyin: 'Zhejiang', py: 'zj', pinyinGroup: 'Z', center: [120.2, 29.2], zoom: 7.5, pitch: 60, bbox: [118.0, 123.0, 27.0, 31.3] }
 };
 
-function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"']/g, m => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[m]));
-}
-
 // 原生与 Web 剪贴板安全写入
-function copyTextToClipboard(text) {
-  if (typeof text !== 'string') return;
+async function copyTextToClipboard(text) {
+  if (typeof text !== 'string') return false;
   if (window.electronAPI?.writeClipboardText) {
-    window.electronAPI.writeClipboardText(text);
-    return;
+    try {
+      await window.electronAPI.writeClipboardText(text);
+      return true;
+    } catch (_) {}
   }
   if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => {});
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {}
   }
+  // HTTP 局域网、旧版 WebView 与受限权限环境的同步兜底。
+  const active = document.activeElement;
+  const selection = document.getSelection?.();
+  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.setAttribute('readonly', '');
+  input.setAttribute('aria-hidden', 'true');
+  Object.assign(input.style, { position: 'fixed', left: '-9999px', top: '0', opacity: '0', pointerEvents: 'none' });
+  document.body.appendChild(input);
+  input.select();
+  let copied = false;
+  try { copied = Boolean(document.execCommand?.('copy')); } catch (_) {}
+  input.remove();
+  if (selection) {
+    selection.removeAllRanges();
+    ranges.forEach(range => selection.addRange(range));
+  }
+  if (active instanceof HTMLElement && active.isConnected) active.focus({ preventScroll: true });
+  return copied;
 }
 window.copyTextToClipboard = copyTextToClipboard;
 
@@ -257,14 +347,19 @@ function enableMobileSwipeDownToClose(panel, header, onClosed) {
     if (!gesture) return;
     const g = gesture;
     gesture = null;
+    const shouldClose = !cancelled && g.delta > 55;
+    if (shouldClose) {
+      // 从手指释放位置继续向下退出；不先回弹，避免高刷手机上的反向抽动。
+      panel.style.translate = `0 ${g.delta}px`;
+      if (typeof onClosed === 'function') onClosed();
+      else smoothClosePanel(panel);
+      setTimeout(() => { panel.style.translate = g.original; }, 300);
+      return;
+    }
     panel.style.translate = g.original;
     if (g.delta > 0 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
       rebound = panel.animate([{ translate: `0 ${g.delta}px` }, { translate: g.original || '0 0' }],
         { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
-    }
-    if (!cancelled && g.delta > 55) {
-      if (typeof onClosed === 'function') onClosed();
-      else smoothClosePanel(panel);
     }
   };
   header.addEventListener('touchstart', e => {
@@ -1355,11 +1450,15 @@ async function initApplication() {
   // 鼠标拖拽平移地图时实时切换为 Windows 原生移动四向箭头 (move)，松手立刻恢复普通箭头 (default)
   map.on('dragstart', () => { document.body.classList.add('map-is-dragging'); });
   map.on('dragend', () => { document.body.classList.remove('map-is-dragging'); });
-  window.addEventListener('mouseup', () => {
+  const clearMapDraggingState = () => {
     if (document.body.classList.contains('map-is-dragging')) {
       document.body.classList.remove('map-is-dragging');
     }
-  });
+  };
+  window.addEventListener('mouseup', clearMapDraggingState);
+  window.addEventListener('touchend', clearMapDraggingState, { passive: true });
+  window.addEventListener('touchcancel', clearMapDraggingState, { passive: true });
+  window.addEventListener('blur', clearMapDraggingState);
   map.on('movestart', () => {
     document.body.classList.add('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(true);
@@ -2181,15 +2280,28 @@ async function queryLocationCandidates(keyword, owner = window) {
   }
 
   const localMatches = [];
+  const normalizedRaw = raw.toLowerCase().replace(/[\s'’_-]+/g, '');
+  const localMatchScore = entity => {
+    const name = String(entity?.name || '');
+    let score = Infinity;
+    if (name === raw) score = 1;
+    else if (name.startsWith(raw)) score = 2;
+    else if (name.includes(raw) || raw.includes(name)) score = 3;
+    [entity?.pinyin, entity?.py, entity?.en].filter(Boolean).forEach(value => {
+      const normalized = String(value).toLowerCase().replace(/[\s'’_-]+/g, '');
+      if (normalized === normalizedRaw) score = Math.min(score, 1);
+      else if (normalized.startsWith(normalizedRaw)) score = Math.min(score, 2);
+      else if (normalized.includes(normalizedRaw)) score = Math.min(score, 3);
+    });
+    return score;
+  };
 
   // 2. 省份匹配 (中国 34 省级行政区，中文汉字精准/包含匹配)
   if (typeof PROVINCES_DATA !== 'undefined') {
     Object.keys(PROVINCES_DATA).forEach(k => {
       const p = PROVINCES_DATA[k];
-      if (p.name.includes(raw) || raw.includes(p.name)) {
-        let score = 3;
-        if (p.name === raw) score = 1;
-        else if (p.name.startsWith(raw)) score = 2;
+      const score = localMatchScore(p);
+      if (Number.isFinite(score)) {
         localMatches.push({
           name: p.name,
           desc: `省级行政区 · ${p.name}`,
@@ -2205,10 +2317,8 @@ async function queryLocationCandidates(keyword, owner = window) {
   // 3. 全国地级市与重点城镇匹配 (中国 360+ 城市，中文汉字匹配)
   if (typeof MAJOR_CITIES !== 'undefined') {
     MAJOR_CITIES.forEach(c => {
-      if (c.name.includes(raw) || raw.includes(c.name)) {
-        let score = 4;
-        if (c.name === raw) score = 1;
-        else if (c.name.startsWith(raw)) score = 2;
+      const score = localMatchScore(c);
+      if (Number.isFinite(score)) {
 
         localMatches.push({
           name: c.name,
@@ -2707,6 +2817,7 @@ function setupOfficeHeaderInteractions(map) {
 
   let currentSearchResults = [];
   let currentSearchQuery = '';
+  let currentSearchActiveIndex = -1;
   let searchRequestSequence = 0;
   let searchDebounceTimer = null;
   currentLandingMarker = null;
@@ -2837,7 +2948,7 @@ function setupOfficeHeaderInteractions(map) {
         <div class="landing-card-actions">
           <button class="landing-act-btn primary act-fav">${window.OutmapFavoriteInteractions?.svg('star', { size: 13, color: '#f59e0b' }) || ''}<span>收藏</span></button>
           <button class="landing-act-btn act-start">${window.OutmapFavoriteInteractions?.svg('start', { size: 13, color: '#16a34a' }) || ''}<span>起点</span></button>
-          <button class="landing-act-btn act-via">${window.OutmapFavoriteInteractions?.svg('via', { size: 13, color: '#0284c7' }) || ''}<span>途径</span></button>
+          <button class="landing-act-btn act-via">${window.OutmapFavoriteInteractions?.svg('via', { size: 13, color: '#6366f1' }) || ''}<span>途径</span></button>
           <button class="landing-act-btn act-end">${window.OutmapFavoriteInteractions?.svg('end', { size: 13, color: '#ef4444' }) || ''}<span>终点</span></button>
         </div>
       </div>
@@ -2950,6 +3061,7 @@ function setupOfficeHeaderInteractions(map) {
   function renderSearchResults(items) {
     clearLandingMarker();
     currentSearchResults = items;
+    currentSearchActiveIndex = items?.length ? 0 : -1;
     if (!resultsContainer) return;
 
     if (!items || items.length === 0) {
@@ -2959,9 +3071,9 @@ function setupOfficeHeaderInteractions(map) {
     }
 
     resultsContainer.innerHTML = '';
-    items.forEach(item => {
+    items.forEach((item, index) => {
       const row = document.createElement('div');
-      row.className = 'search-result-item';
+      row.className = 'search-result-item' + (index === currentSearchActiveIndex ? ' active' : '');
       const cleanDesc = stripChinaPrefix(item.desc || '');
       const searchItemSvg = (item.type === 'province')
         ? (window.OutmapFavoriteInteractions?.svg('flag', { size: 14, color: '#ef4444' }) || '')
@@ -2986,6 +3098,10 @@ function setupOfficeHeaderInteractions(map) {
 
       row.addEventListener('click', () => {
         executeJumpToResult(item);
+      });
+      row.addEventListener('mouseenter', () => {
+        currentSearchActiveIndex = index;
+        resultsContainer.querySelectorAll('.search-result-item').forEach((el, i) => el.classList.toggle('active', i === index));
       });
 
       resultsContainer.appendChild(row);
@@ -3096,6 +3212,7 @@ function setupOfficeHeaderInteractions(map) {
       const val = sInput.value.trim();
       clearTimeout(searchDebounceTimer);
       currentSearchResults = [];
+      currentSearchActiveIndex = -1;
       currentSearchQuery = val;
       const requestSequence = ++searchRequestSequence;
       if (!val) {
@@ -3118,7 +3235,16 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     sInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && currentSearchResults.length > 0) {
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        currentSearchActiveIndex = currentSearchActiveIndex < 0
+          ? (step > 0 ? 0 : currentSearchResults.length - 1)
+          : (currentSearchActiveIndex + step + currentSearchResults.length) % currentSearchResults.length;
+        const rows = resultsContainer?.querySelectorAll('.search-result-item') || [];
+        rows.forEach((row, i) => row.classList.toggle('active', i === currentSearchActiveIndex));
+        rows[currentSearchActiveIndex]?.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
         e.preventDefault();
         doSearch();
       } else if (e.key === 'Escape') {
@@ -3139,7 +3265,9 @@ function setupOfficeHeaderInteractions(map) {
 
     // 1. 若当前列表已有匹配项，直接飞往第一项
     if (currentSearchQuery === text && currentSearchResults && currentSearchResults.length > 0) {
-      executeJumpToResult(currentSearchResults[0]);
+      const index = currentSearchActiveIndex >= 0 && currentSearchActiveIndex < currentSearchResults.length
+        ? currentSearchActiveIndex : 0;
+      executeJumpToResult(currentSearchResults[index]);
       return;
     }
 
@@ -4868,10 +4996,15 @@ async function pullWebCloudSyncData({ syncKey }) {
   return { success: true, data: await response.json() };
 }
 function persistSyncedCollection(key, value) {
-  const serialized = JSON.stringify(value);
-  if (localStorage.getItem(key) === serialized) return false;
-  localStorage.setItem(key, serialized);
-  return true;
+  try {
+    const serialized = JSON.stringify(value);
+    if (localStorage.getItem(key) === serialized) return false;
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    console.warn(`[Outmap] 无法持久化 ${key}`, error);
+    return false;
+  }
 }
 async function uploadCloudSyncPayload(payload) {
   if (window.electronAPI?.uploadCloudSyncData) return window.electronAPI.uploadCloudSyncData(payload);
@@ -6026,7 +6159,7 @@ function setupWaypointAndFavoritesSystem(map) {
         const source = map.getSource(FAVORITES_SOURCE_ID);
         try {
           const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
-          map.easeTo({ center: feature.geometry.coordinates, zoom, duration: 420, easing: t => 1 - Math.pow(1 - t, 3) });
+          map.easeTo({ center: feature.geometry.coordinates, zoom: Math.min(map.getMaxZoom(), zoom), duration: 420, easing: t => 1 - Math.pow(1 - t, 3) });
         } catch (_) {}
       });
     });
@@ -6093,8 +6226,9 @@ function setupWaypointAndFavoritesSystem(map) {
         data: favoriteFeatureCollection(),
         promoteId: 'id',
         cluster: true,
-        clusterMaxZoom: 11,
-        clusterRadius: 48
+        // 聚合覆盖到接近最大视级，避免相同坐标的收藏点在中高缩放时堆叠成多个单点。
+        clusterMaxZoom: 16,
+        clusterRadius: 42
       });
       map.addLayer({
         id: 'outmap-favorite-hover', type: 'circle', source: FAVORITES_SOURCE_ID,
@@ -6124,7 +6258,7 @@ function setupWaypointAndFavoritesSystem(map) {
         id: 'outmap-favorite-clusters', type: 'circle', source: FAVORITES_SOURCE_ID,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#1d4ed8', 10, '#1e40af', 30, '#1e3a8a'],
+          'circle-color': ['step', ['get', 'point_count'], '#f59e0b', 10, '#d97706', 30, '#b45309'],
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 9.5, 11, 11, 15, 12.5],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
@@ -6475,10 +6609,10 @@ function setupWaypointAndFavoritesSystem(map) {
       });
     });
 
-    menu.querySelector('.fav-type-delete')?.addEventListener('click', e => {
+    menu.querySelector('.fav-type-delete')?.addEventListener('click', async e => {
       e.stopPropagation();
       closeMenu();
-      if (!confirm(`确定删除收藏点“${wp.name}”？`)) return;
+      if (!await showFluentConfirm({ title: '删除收藏点', message: `确定删除“${wp.name}”？`, confirmText: '删除', danger: true })) return;
       addDeletedWaypointTombstone(wp);
       savedWaypoints = savedWaypoints.filter(item => String(item.id) !== String(wp.id));
       try { localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints)); } catch (_) {}
@@ -6741,10 +6875,10 @@ function setupWaypointAndFavoritesSystem(map) {
           exportRouteToGpx(route, map);
         });
 
-        menu.querySelector('.btn-ctx-del').addEventListener('click', (e) => {
+        menu.querySelector('.btn-ctx-del').addEventListener('click', async (e) => {
           e.stopPropagation();
           closeMenu();
-          if (confirm(`确定删除收藏路线“${route.name}”？`)) {
+          if (await showFluentConfirm({ title: '删除收藏路线', message: `确定删除“${route.name}”？`, confirmText: '删除', danger: true })) {
             // 先记录删除墓碑，再更新本地路线列表；否则下一次云端合并会把旧路线复活。
             addDeletedRouteTombstone(route);
             const nextRoutes = savedRoutes.filter(r => r.id !== route.id);
@@ -6858,10 +6992,15 @@ function setupWaypointAndFavoritesSystem(map) {
     });
   };
 
-  const deleteCustomFolder = (tabItem) => {
+  const deleteCustomFolder = async (tabItem) => {
     if (!tabItem) return;
     const name = tabItem.name || tabItem.rawName || '分类';
-    if (!confirm(`确定删除“${name}”分类？\n该分类下的收藏地点将保留在“全部”中。`)) return;
+    if (!await showFluentConfirm({
+      title: '删除分类',
+      message: `确定删除“${name}”分类？\n该分类下的收藏地点将保留在“全部”中。`,
+      confirmText: '删除',
+      danger: true
+    })) return;
 
     const folderId = tabItem.id;
     addDeletedFolderTombstone(tabItem.folderObj || { id: folderId, name: tabItem.rawName || tabItem.name });
@@ -7182,6 +7321,22 @@ function setupWaypointAndFavoritesSystem(map) {
       });
 
       favTabs.appendChild(btn);
+      if (t.id === currentFolderFilter) {
+        const actions = document.createElement('button');
+        actions.type = 'button';
+        actions.className = 'fav-tab-actions';
+        actions.setAttribute('data-folder-actions', '');
+        actions.setAttribute('aria-label', `管理${t.name}`);
+        actions.title = `管理${t.name}`;
+        actions.innerHTML = '<span aria-hidden="true">•••</span>';
+        actions.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = actions.getBoundingClientRect();
+          showFolderTabContextMenu(t, rect.right, rect.bottom + 4);
+        });
+        favTabs.appendChild(actions);
+      }
     });
     window.OutmapFavoriteInteractions?.bindSort(favTabs, order => {
       setFolderTabOrder(order);
@@ -7935,7 +8090,7 @@ function ensureRoutePointLayers(map) {
       data: getRoutePointFeatures(),
       promoteId: 'id',
       cluster: true,
-      clusterMaxZoom: 13,
+      clusterMaxZoom: 16,
       clusterRadius: 26
     });
     map.addLayer({
@@ -7943,7 +8098,7 @@ function ensureRoutePointLayers(map) {
       filter: ['!', ['has', 'point_count']],
       paint: {
         'circle-radius': ['case', ['boolean', ['feature-state', 'dragging'], false], 18, ['boolean', ['feature-state', 'hover'], false], 16, 0],
-        'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#0284c7'],
+        'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#6366f1'],
         'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'dragging'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
         'circle-blur': 0.22,
         'circle-pitch-alignment': 'viewport',
@@ -7958,7 +8113,7 @@ function ensureRoutePointLayers(map) {
       },
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 8, 11, 9.5, 15, ['match', ['get', 'role'], 'via', 11, 12]],
-        'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#0284c7'],
+        'circle-color': ['match', ['get', 'role'], 'start', '#16a34a', 'end', '#ef4444', '#6366f1'],
         'circle-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
         'circle-stroke-width': 2,
         'circle-stroke-color': '#ffffff',
@@ -7990,7 +8145,7 @@ function ensureRoutePointLayers(map) {
       id: 'outmap-route-point-clusters', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color': ['step', ['get', 'point_count'], '#1d4ed8', 10, '#1e40af', 30, '#1e3a8a'],
+        'circle-color': ['step', ['get', 'point_count'], '#f59e0b', 10, '#d97706', 30, '#b45309'],
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 9.5, 11, 11, 15, 12.5],
         'circle-stroke-width': 2,
         'circle-stroke-color': '#ffffff',
@@ -8050,7 +8205,7 @@ function bindRoutePointLayerEvents(map) {
         const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
         map.easeTo({
           center: feature.geometry.coordinates,
-          zoom: Math.min(13.0, zoom),
+          zoom: Math.min(map.getMaxZoom(), zoom),
           duration: 420,
           easing: t => 1 - Math.pow(1 - t, 3)
         });
@@ -9904,32 +10059,7 @@ function setupOutdoorRouteSystem(map) {
   };
 
   // 2. 独立顶级「导入」路线按钮 (与收藏夹导入体验一致，优先系统原生文件选择器)
-  const handleRouteTrackFile = (text, filename) => {
-    const trackData = parseTrackFile(text, filename);
-    const hasTrack = trackData && trackData.coords && trackData.coords.length >= 2;
-    const hasWaypoints = trackData && trackData.waypoints && trackData.waypoints.length > 0;
-
-    if (!hasTrack && !hasWaypoints) {
-      alert('未能解析到有效的路线轨迹或点位，请确认文件为标准的 GPX / KML / GeoJSON / TCX 格式！');
-      return;
-    }
-
-    if (!hasTrack && hasWaypoints) {
-      importWaypointsIntoFavorites(trackData.waypoints, filename, map);
-      return;
-    }
-
-    displayImportedTrack(map, trackData);
-    showToast(`已成功导入路线: ${filename}`);
-
-    if (hasWaypoints && trackData.waypoints.length > 0) {
-      setTimeout(() => {
-        if (confirm(`检测到该文件还包含 ${trackData.waypoints.length} 个途经点位，是否同时导入到【我的收藏 · 收藏地点】？`)) {
-          importWaypointsIntoFavorites(trackData.waypoints, filename, map);
-        }
-      }, 450);
-    }
-  };
+  const handleRouteTrackFile = (text, filename) => handleImportedTrackContent(map, text, filename, '路线');
 
   btnRouteImportTrigger?.addEventListener('click', async () => {
     closeRouteExportMenu();
@@ -9943,7 +10073,7 @@ function setupOutdoorRouteSystem(map) {
           ]
         });
         if (res && res.success && res.content) {
-          handleRouteTrackFile(res.content, res.filename);
+          await handleRouteTrackFile(res.content, res.filename);
         }
       } catch (err) {
         alert(`打开路线文件失败: ${err.message}`);
@@ -9962,7 +10092,7 @@ function setupOutdoorRouteSystem(map) {
     if (!file) return;
     try {
       const text = await file.text();
-      handleRouteTrackFile(text, file.name);
+      await handleRouteTrackFile(text, file.name);
     } catch (err) {
       alert(`读取路线文件失败: ${err.message}`);
     }
@@ -11058,17 +11188,37 @@ function displayImportedTrack(map, trackData) {
     duration: 1400
   });
 
-  const viaCountStr = effectiveVias.length > 0 ? ` (含 ${effectiveVias.length} 个途径打卡点)` : '';
-  if (typeof showFluentAlert === 'function') {
-    showFluentAlert({
-      title: '路线轨迹导入成功',
-      body: `已成功载入“${name}”${viaCountStr}\n全长 ${totalDistKm.toFixed(1)} km · 预估驾车 ${timeStr} · 累计爬升 +${Math.round(totalAscent)} m`
-    });
-  }
 }
 
 window.parseTrackFile = parseTrackFile;
 window.displayImportedTrack = displayImportedTrack;
+
+async function handleImportedTrackContent(map, text, filename = '导入文件', kind = '轨迹') {
+  const trackData = parseTrackFile(text, filename);
+  const hasTrack = Boolean(trackData?.coords?.length >= 2);
+  const hasWaypoints = Boolean(trackData?.waypoints?.length > 0);
+  if (!hasTrack && !hasWaypoints) {
+    alert('未能解析到有效的路线轨迹或点位，请确认文件为标准的 GPX / KML / GeoJSON / JSON / TCX 格式。');
+    return false;
+  }
+  if (!hasTrack) {
+    importWaypointsIntoFavorites(trackData.waypoints, filename, map);
+    return true;
+  }
+  displayImportedTrack(map, trackData);
+  showToast(`已导入${kind}：${filename}`);
+  if (hasWaypoints) {
+    await new Promise(resolve => setTimeout(resolve, 220));
+    const shouldImport = await showFluentConfirm({
+      title: '导入附带点位',
+      message: `文件还包含 ${trackData.waypoints.length} 个点位，是否同时加入收藏？`,
+      confirmText: '同时导入'
+    });
+    if (shouldImport) importWaypointsIntoFavorites(trackData.waypoints, filename, map);
+  }
+  return true;
+}
+window.handleImportedTrackContent = handleImportedTrackContent;
 
 function setupTrackImport(map) {
   const btnFabImport = document.getElementById('btn-fab-import');
@@ -11087,31 +11237,7 @@ function setupTrackImport(map) {
           ]
         });
         if (res && res.success && res.content) {
-          const trackData = parseTrackFile(res.content, res.filename);
-          const hasTrack = trackData && trackData.coords && trackData.coords.length >= 2;
-          const hasWaypoints = trackData && trackData.waypoints && trackData.waypoints.length > 0;
-
-          if (!hasTrack && !hasWaypoints) {
-            alert('未能解析到有效的路线轨迹或点位，请确认文件为标准的 GPX / KML / GeoJSON / TCX 格式！');
-            return;
-          }
-
-          if (!hasTrack && hasWaypoints) {
-            // 纯点位文件智能转为点位导入
-            importWaypointsIntoFavorites(trackData.waypoints, res.filename, map);
-            return;
-          }
-
-          displayImportedTrack(map, trackData);
-          showToast(`已成功导入轨迹: ${res.filename}`);
-
-          if (hasWaypoints && trackData.waypoints.length > 0) {
-            setTimeout(() => {
-              if (confirm(`检测到该文件还包含 ${trackData.waypoints.length} 个途经点位，是否同时导入到【我的收藏 · 收藏地点】？`)) {
-                importWaypointsIntoFavorites(trackData.waypoints, res.filename, map);
-              }
-            }, 450);
-          }
+          await handleImportedTrackContent(map, res.content, res.filename, '轨迹');
         }
       } catch (err) {
         alert(`导入轨迹失败: ${err.message}`);
@@ -11129,34 +11255,66 @@ function setupTrackImport(map) {
 
     try {
       const text = await file.text();
-      const trackData = parseTrackFile(text, file.name);
-      const hasTrack = trackData && trackData.coords && trackData.coords.length >= 2;
-      const hasWaypoints = trackData && trackData.waypoints && trackData.waypoints.length > 0;
-
-      if (!hasTrack && !hasWaypoints) {
-        alert('未能解析到有效的路线轨迹或点位，请确认文件为标准的 GPX / KML / GeoJSON / TCX 格式！');
-        return;
-      }
-
-      if (!hasTrack && hasWaypoints) {
-        importWaypointsIntoFavorites(trackData.waypoints, file.name, map);
-        return;
-      }
-
-      displayImportedTrack(map, trackData);
-      showToast(`已成功导入轨迹: ${file.name}`);
-
-      if (hasWaypoints && trackData.waypoints.length > 0) {
-        setTimeout(() => {
-          if (confirm(`检测到该文件还包含 ${trackData.waypoints.length} 个途经点位，是否同时导入到【我的收藏 · 收藏地点】？`)) {
-            importWaypointsIntoFavorites(trackData.waypoints, file.name, map);
-          }
-        }, 450);
-      }
+      await handleImportedTrackContent(map, text, file.name, '轨迹');
     } catch (err) {
       alert(`导入轨迹失败: ${err.message}`);
     }
   });
+
+  // 桌面窗口拖入即导入。仅在精确指针设备启用，移动端不挂载额外手势监听。
+  if (window.matchMedia?.('(any-hover: hover) and (any-pointer: fine)').matches && !window.__outmapTrackDropBound) {
+    window.__outmapTrackDropBound = true;
+    const supported = /\.(gpx|kml|geojson|json|tcx)$/i;
+    const overlay = document.createElement('div');
+    overlay.className = 'track-drop-overlay';
+    overlay.innerHTML = '<div class="track-drop-card"><span class="track-drop-icon" aria-hidden="true">↓</span><strong>松开即可导入轨迹</strong><span>GPX · KML · GeoJSON · JSON · TCX</span></div>';
+    document.body.appendChild(overlay);
+    let dragDepth = 0;
+    let dropBusy = false;
+    const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const hideDropOverlay = () => { dragDepth = 0; overlay.classList.remove('active'); };
+    window.addEventListener('dragenter', e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth += 1;
+      overlay.classList.add('active');
+    });
+    window.addEventListener('dragover', e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    window.addEventListener('dragleave', e => {
+      if (!hasFiles(e)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) overlay.classList.remove('active');
+    });
+    window.addEventListener('drop', async e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      hideDropOverlay();
+      if (dropBusy) return;
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length !== 1 || !supported.test(files[0]?.name || '')) {
+        alert('请一次拖入一个 GPX、KML、GeoJSON、JSON 或 TCX 文件。');
+        return;
+      }
+      const file = files[0];
+      if (file.size > 64 * 1024 * 1024) {
+        alert('文件超过 64 MB，请先精简轨迹后再导入。');
+        return;
+      }
+      dropBusy = true;
+      try {
+        await handleImportedTrackContent(map, await file.text(), file.name, '轨迹');
+      } catch (error) {
+        alert(`导入轨迹失败：${error.message}`);
+      } finally {
+        dropBusy = false;
+      }
+    });
+    window.addEventListener('blur', hideDropOverlay);
+  }
 }
 
 // 图层与要素显示控制卡片系统 (收藏点 / 规划路线 / 3D地形)

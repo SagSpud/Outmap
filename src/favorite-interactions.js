@@ -67,7 +67,7 @@
       if (edge && container.scrollLeft !== previousScroll) frame = requestAnimationFrame(update);
     }
     container.addEventListener('pointerdown', e => {
-      if (e.button !== 0 || state) return;
+      if (e.button !== 0 || state || e.target.closest('[data-folder-actions]')) return;
       suppressClick = false;
       const item = e.target.closest('[data-tab-id]');
       if (!item || item.dataset.tabId === 'all') return;
@@ -152,7 +152,7 @@
     pin: '#ef4444',
     target: '#0284c7',
     start: '#16a34a',
-    via: '#0284c7',
+    via: '#6366f1',
     end: '#ef4444',
     route: '#0284c7',
     trash: '#ef4444',

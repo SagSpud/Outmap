@@ -3814,6 +3814,23 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-weight: 600;
 }
 
+.fav-tab-actions {
+  display: none;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 4px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  border-radius: 7px;
+  background: rgba(238, 242, 255, 0.92);
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .fav-folder-tabs { position: relative; }
 .sortable-folder { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: pointer; }
 .sorting-folders { cursor: default !important; }
@@ -4870,6 +4887,19 @@ body.web-mode .office-prov-group {
    移动端触屏与窄屏自适应响应式系统 (Mobile Responsive UI)
    ========================================================= */
 @media (max-width: 768px) {
+  .fav-tab-actions {
+    display: inline-flex;
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    box-shadow: -5px 0 8px rgba(255,255,255,.9);
+    touch-action: manipulation;
+  }
+
+  .track-drop-overlay {
+    display: none !important;
+  }
+
   /* 1. 顶栏紧凑轻量化 */
   #unified-header {
     height: 46px;
@@ -5961,12 +5991,56 @@ body.web-mode .office-prov-group {
   z-index: 100;
 }
 .route-via-marker-pin {
-  background: #0284c7;
+  background: #6366f1;
   color: #ffffff;
   width: 22px;
   height: 22px;
   font-size: 10px;
   font-weight: 700;
+}
+
+.track-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  transition: opacity 150ms ease;
+}
+
+.track-drop-overlay.active { opacity: 1; }
+.track-drop-card {
+  min-width: 260px;
+  padding: 24px 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(255,255,255,.7);
+  border-radius: 16px;
+  background: rgba(255,255,255,.9);
+  color: #0f172a;
+  box-shadow: 0 18px 50px rgba(15,23,42,.2);
+  transform: translateY(8px) scale(.97);
+  transition: transform 180ms cubic-bezier(.16,1,.3,1);
+}
+.track-drop-overlay.active .track-drop-card { transform: translateY(0) scale(1); }
+.track-drop-card > span:last-child { color: #64748b; font-size: 12px; }
+.track-drop-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 22px;
 }
 .route-start-marker-pin {
   background: #16a34a;
@@ -6496,6 +6570,24 @@ body.is-downloading #pyramid-modal .modal-card {
 
 .fluent-prompt-card .card-body {
   padding: 14px;
+}
+
+.fluent-confirm-message {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.fluent-confirm-card .modal-btn.danger {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.fluent-confirm-card .modal-btn.danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
 
 .fluent-prompt-card .fluent-prompt-input {
