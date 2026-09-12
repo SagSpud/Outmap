@@ -10,18 +10,18 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs']) {
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/map-performance.js', 'src/favorite-interactions.js', 'src/download-flow.cjs']) {
     new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 修复收藏点与路线点两套原生数据源对同坐标点重复聚合的问题，路线显示时跨图层去重，关闭路线后收藏点自动恢复；',
-    '2. 路线聚合使用琥珀色色阶、收藏聚合使用青绿色阶、途径点使用靛紫色，数量与序号语义清晰区分；',
-    '3. 全局搜索支持上下键选择与回车直达，省市拼音、简拼使用内置数据本地秒出；',
-    '4. 原生确认框替换为非阻塞 Fluent 毛玻璃确认框，移动抽屉关闭不再先回弹，手机补齐分类管理入口；',
-    '5. 桌面支持窗口拖入 GPX/KML/GeoJSON/JSON/TCX，统一轨迹导入流程，HTTP 网页复制增加兼容兜底；',
-    '6. 补齐受限存储与触控中断保护；跨层去重仅影响显示，不删除、不迁移、不改写现有离线地图和收藏数据。'
+    '1. 桌面拖动、缩放和飞掠期间，后台下载保持低并发并在地图落地后错峰恢复，避免瓦片写盘与 3D 渲染争抢资源；',
+    '2. 高分屏根据实际运动帧耗自适应，支持 Windows 100%、150% 和 200% 缩放，静止后恢复显示器原生清晰度；',
+    '3. 长距离飞掠暂退密集 POI、门牌和建筑文字，地形、3D 建筑、道路、路线及收藏点始终保留，落地后柔和恢复；',
+    '4. 合并 DEM 到达和飞掠结束触发的海拔剖面刷新，等待地图稳定后统一计算，降低落地瞬间的主线程压力；',
+    '5. 地形夸张滑块采用逐帧合并更新，快速拖动时不再重复提交同一帧内的地形状态；',
+    '6. 不关闭 3D 地形或静止画质，不迁移、不扫描、不改写现有离线地图和收藏数据。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
