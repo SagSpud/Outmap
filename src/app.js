@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.36';
+const APP_VERSION = '1.9.37';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -5918,6 +5918,7 @@ const SAVED_ROUTE_LAYER_IDS = ['outmap-saved-route-casing', 'outmap-saved-route-
 // 收藏路线默认关闭，避免启动后与当前绿色规划路线叠加；用户可在图层面板独立开启。
 let savedRouteLayersVisible = false;
 let savedRouteLayerEventsBound = false;
+let savedRouteLayerInitPending = false;
 
 function savedRoutesFeatureCollection() {
   const compactForDisplay = coords => {
@@ -6030,7 +6031,20 @@ function submitGeoJSONChanges(source, data) {
 }
 function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
   const map = mapInstance;
-  if (!map || !ensureSavedRouteLayers(map)) return;
+  if (!map) return;
+  if (!ensureSavedRouteLayers(map)) {
+    // 收藏数据会在 MapLibre 的 load 事件前完成读取。此时 source/layer 尚不能创建，
+    // 必须在地图真正就绪后补建一次；否则图层开关虽然可点，地图上却没有对应图层。
+    if (!savedRouteLayerInitPending) {
+      savedRouteLayerInitPending = true;
+      map.once('load', () => {
+        savedRouteLayerInitPending = false;
+        renderSavedRoutesOnMap(map);
+      });
+    }
+    return;
+  }
+  savedRouteLayerInitPending = false;
   submitGeoJSONChanges(map.getSource(SAVED_ROUTES_SOURCE_ID), savedRoutesFeatureCollection());
   SAVED_ROUTE_LAYER_IDS.forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', savedRouteLayersVisible ? 'visible' : 'none');
@@ -11474,6 +11488,9 @@ function setupLayersPopover(map) {
   toggleSavedRoutes?.addEventListener('change', () => {
     const visible = toggleSavedRoutes.checked;
     savedRouteLayersVisible = visible;
+    // 除了改变现有图层的 visibility，也要覆盖地图尚未完成加载、样式重建等
+    // 图层还不存在的时序，确保打开开关后收藏路线一定能显示。
+    renderSavedRoutesOnMap(map);
     const visibility = visible ? 'visible' : 'none';
     SAVED_ROUTE_LAYER_IDS.forEach(id => {
       if (map.getLayer(id)) {

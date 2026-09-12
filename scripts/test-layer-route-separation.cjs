@@ -34,11 +34,11 @@ app.whenReady().then(async () => {
       if (!map?.__outmapStyleReady) throw new Error('map style did not initialize');
       const savedToggle = document.getElementById('layer-toggle-saved-routes');
       const plannedToggle = document.getElementById('layer-toggle-planned-route');
+      // 收藏系统在 map.load 之前初始化；load 后必须已自动补建原生路线图层。
+      const initializedAfterLoad = !!map.getLayer('outmap-saved-route-line');
 
       savedRoutes = [{ id: 'saved-one', name: '蓝色收藏路线', pathCoords: [[118, 35], [118.1, 35.1]] }];
-      window.renderSavedRoutesOnMap(map);
-      for (let i = 0; i < 100 && !map.getLayer('outmap-saved-route-line'); i++) await sleep(20);
-      if (!map.getLayer('outmap-saved-route-line')) throw new Error('saved route layer was not created');
+      if (!initializedAfterLoad) throw new Error('saved route layer was not initialized after map load');
       window.displayImportedTrack(map, {
         name: '绿色规划路线', coords: [[118, 35], [118.1, 35.1]],
         start: { name: '起点', coords: [118, 35] }, end: { name: '终点', coords: [118.1, 35.1] }, viaPoints: []
@@ -60,10 +60,14 @@ app.whenReady().then(async () => {
       savedToggle.checked = true;
       savedToggle.dispatchEvent(new Event('change'));
       const savedVisible = map.getLayoutProperty('outmap-saved-route-line', 'visibility') === 'visible';
+      await sleep(50);
+      const savedSource = map.getSource('outmap-saved-routes');
+      const savedSourceData = savedSource?._data || savedSource?.serialize?.().data;
+      const savedFeatureCount = savedSourceData?.features?.length || 0;
       const plannedStillHidden = map.getLayoutProperty('outdoor-route-line', 'visibility') === 'none';
 
       return {
-        initial, plannedHidden, savedStillHidden, savedVisible, plannedStillHidden,
+        initial, initializedAfterLoad, plannedHidden, savedStillHidden, savedVisible, savedFeatureCount, plannedStillHidden,
         terrainToggleAbsent: !document.getElementById('layer-toggle-terrain'),
         view3dPresent: !!document.getElementById('btn-3d-toggle'),
         labels: [...document.querySelectorAll('#layers-popover .layer-toggle-label span:last-child')].map(el => el.textContent.trim()),
@@ -75,8 +79,10 @@ app.whenReady().then(async () => {
     assert.strictEqual(result.initial.plannedChecked, true, 'current planned route must default on');
     assert.strictEqual(result.initial.savedVisibility, 'none');
     assert.notStrictEqual(result.initial.plannedVisibility, 'none');
+    assert(result.initializedAfterLoad, 'saved route layers must initialize after the map load event');
     assert(result.plannedHidden && result.savedStillHidden, 'planned toggle must control only the current route');
-    assert(result.savedVisible && result.plannedStillHidden, 'saved toggle must control only saved routes');
+    assert(result.savedVisible && result.savedFeatureCount === 1 && result.plannedStillHidden,
+      'saved toggle must create/update and show only saved routes');
     assert(result.terrainToggleAbsent && result.view3dPresent, 'duplicate terrain toggle must be removed while 2D/3D remains');
     assert.deepStrictEqual(result.labels, ['收藏地点', '收藏路线', '规划路线']);
     assert(result.favoritesRouteTab.startsWith('收藏路线'));
