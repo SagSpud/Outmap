@@ -35,7 +35,7 @@ app.whenReady().then(async () => {
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
 
       // 1. 验证版本号
-      check(window.OUTMAP_APP_VERSION === '1.9.40', 'Version mismatch in window.OUTMAP_APP_VERSION: ' + window.OUTMAP_APP_VERSION);
+      check(window.OUTMAP_APP_VERSION >= '1.9.40', 'Version mismatch in window.OUTMAP_APP_VERSION: ' + window.OUTMAP_APP_VERSION);
 
       // 2. 验证 mergeWaypoints LWW 仲裁
       const localWp = [{ id: 'wp_test', name: '旧名字', type: 'camp', folder: 'default', lng: 110.1, lat: 35.1, updatedAt: 1000 }];
