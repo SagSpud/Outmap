@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.31';
+const APP_VERSION = '1.9.32';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4867,6 +4867,12 @@ async function pullWebCloudSyncData({ syncKey }) {
   if (!response.ok) throw new Error(`网页同步拉取失败 (HTTP ${response.status})`);
   return { success: true, data: await response.json() };
 }
+function persistSyncedCollection(key, value) {
+  const serialized = JSON.stringify(value);
+  if (localStorage.getItem(key) === serialized) return false;
+  localStorage.setItem(key, serialized);
+  return true;
+}
 async function uploadCloudSyncPayload(payload) {
   if (window.electronAPI?.uploadCloudSyncData) return window.electronAPI.uploadCloudSyncData(payload);
   return uploadWebCloudSyncData(payload);
@@ -4961,12 +4967,11 @@ async function triggerRealtimeCloudSync(reason = 'change') {
       const mergedFolders = mergeFolders(localFolders, cloudData?.folders || [], mergedDeletedFolders);
 
       // 若发现云端有新增地标或路线，立即同步写入本地并全量刷新地图与收藏夹列表！
-      const hasNewIncoming = JSON.stringify(mergedFavs) !== JSON.stringify(localFavs)
-        || JSON.stringify(mergedRoutes) !== JSON.stringify(localRoutes)
-        || JSON.stringify(mergedFolders) !== JSON.stringify(localFolders);
-      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
-      localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
-      localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
+      const hasNewIncoming = [
+        persistSyncedCollection('outmap_saved_waypoints', mergedFavs),
+        persistSyncedCollection('outmap_saved_routes', mergedRoutes),
+        persistSyncedCollection('outmap_custom_folders', mergedFolders)
+      ].some(Boolean);
 
       if (hasNewIncoming && typeof window.reloadFavoritesData === 'function') {
         window.reloadFavoritesData();
@@ -5146,11 +5151,13 @@ function setupCloudSync(map) {
       const mergedFolders = mergeFolders(localFolders, cloudData?.folders || [], mergedDeletedFolders);
 
       // 4. 写回本地并全量刷新界面标记与列表
-      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(mergedFavs));
-      localStorage.setItem('outmap_saved_routes', JSON.stringify(mergedRoutes));
-      localStorage.setItem('outmap_custom_folders', JSON.stringify(mergedFolders));
+      const hasNewIncoming = [
+        persistSyncedCollection('outmap_saved_waypoints', mergedFavs),
+        persistSyncedCollection('outmap_saved_routes', mergedRoutes),
+        persistSyncedCollection('outmap_custom_folders', mergedFolders)
+      ].some(Boolean);
 
-      if (typeof window.reloadFavoritesData === 'function') {
+      if (hasNewIncoming && typeof window.reloadFavoritesData === 'function') {
         window.reloadFavoritesData();
       }
 
@@ -5792,10 +5799,38 @@ function ensureSavedRouteLayers(map) {
   return true;
 }
 
+const geoJSONRenderCache = new WeakMap();
+function submitGeoJSONChanges(source, data) {
+  if (!source) return;
+  const next = new Map(data.features.map(feature => [feature.id, JSON.stringify(feature)]));
+  const previous = geoJSONRenderCache.get(source);
+  const stableIds = !next.has(undefined) && next.size === data.features.length;
+  if (previous && stableIds) {
+    const add = [], update = [], remove = [];
+    for (const id of previous.keys()) if (!next.has(id)) remove.push(id);
+    for (const feature of data.features) {
+      if (!previous.has(feature.id)) add.push(feature);
+      else if (previous.get(feature.id) !== next.get(feature.id)) update.push({
+        id: feature.id, newGeometry: feature.geometry,
+        removeAllProperties: true,
+        addOrUpdateProperties: Object.entries(feature.properties || {}).map(([key, value]) => ({ key, value }))
+      });
+    }
+    if (!add.length && !update.length && !remove.length) return;
+    if (typeof source.updateData === 'function') {
+      source.updateData({ add, update, remove });
+      geoJSONRenderCache.set(source, next);
+      return;
+    }
+  }
+  source.setData(data);
+  if (stableIds) geoJSONRenderCache.set(source, next);
+  else geoJSONRenderCache.delete(source);
+}
 function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
   const map = mapInstance;
   if (!map || !ensureSavedRouteLayers(map)) return;
-  map.getSource(SAVED_ROUTES_SOURCE_ID)?.setData(savedRoutesFeatureCollection());
+  submitGeoJSONChanges(map.getSource(SAVED_ROUTES_SOURCE_ID), savedRoutesFeatureCollection());
   SAVED_ROUTE_LAYER_IDS.forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', savedRouteLayersVisible ? 'visible' : 'none');
   });
@@ -6142,15 +6177,16 @@ function setupWaypointAndFavoritesSystem(map) {
         if (change.update?.length) diff.update = change.update.map(wp => ({
           id: String(wp.id),
           newGeometry: { type: 'Point', coordinates: [Number(wp.lng), Number(wp.lat)] },
-          addOrUpdateProperties: waypointFeature(wp).properties
+          addOrUpdateProperties: Object.entries(waypointFeature(wp).properties).map(([key, value]) => ({ key, value }))
         }));
+        geoJSONRenderCache.delete(source);
         source.updateData(diff);
         return;
       } catch (error) {
         console.warn('[Favorites] Incremental update fallback:', error.message);
       }
     }
-    source.setData(favoriteFeatureCollection());
+    submitGeoJSONChanges(source, favoriteFeatureCollection());
   };
   window.renderWaypointMarkersOnMap = renderWaypointMarkersOnMap;
 
@@ -7655,6 +7691,13 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     triggerMapPick,
     selectCandidate
   };
+  inputEl._updateRouteIndex = index => { viaIndex = index; currentTarget.viaIndex = index; };
+  inputEl._disposeRouteInput = () => {
+    ++requestSequence;
+    clearTimeout(searchTimer);
+    locationSearchControllers.get(inputEl)?.abort();
+    if (activeFloatingTarget === currentTarget) hideRouteFloatingDropdown();
+  };
 
   const renderCandidates = (items, keyword) => {
     const floatingEl = getRouteFloatingDropdown();
@@ -7986,7 +8029,7 @@ function bindRoutePointLayerEvents(map) {
   let hoveredId = null;
   let suppressNextClick = false;
 
-  const clusterLayers = ['outmap-route-point-clusters', 'outmap-route-point-cluster-count'];
+  const clusterLayers = ['outmap-route-point-clusters'];
   clusterLayers.forEach(layerId => {
     map.on('mouseenter', layerId, () => {
       if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
@@ -8124,7 +8167,7 @@ function syncRouteMarkersVisualState(mapInstance) {
   }
   routePointLayerInitPending = false;
   bindRoutePointLayerEvents(m);
-  m.getSource(ROUTE_POINTS_SOURCE_ID)?.setData(getRoutePointFeatures());
+  submitGeoJSONChanges(m.getSource(ROUTE_POINTS_SOURCE_ID), getRoutePointFeatures());
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
@@ -8290,7 +8333,9 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
     try { handleEl.setPointerCapture(pointerId); } catch (err) {}
 
     const startAutoScroll = () => {
+      if (autoScrollRaf) return;
       const stepScroll = () => {
+        autoScrollRaf = null;
         if (!isDragging) return;
         if (scrollBox && scrollBoxRect) {
           const edgeThreshold = 36;
@@ -8307,11 +8352,14 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
           }
 
           if (scrollDelta !== 0) {
+            const previousScroll = scrollBox.scrollTop;
             scrollBox.scrollTop += scrollDelta;
-            scheduleUpdate();
+            if (scrollBox.scrollTop !== previousScroll) {
+              scheduleUpdate();
+              autoScrollRaf = requestAnimationFrame(stepScroll);
+            }
           }
         }
-        autoScrollRaf = requestAnimationFrame(stepScroll);
       };
       autoScrollRaf = requestAnimationFrame(stepScroll);
     };
@@ -8390,6 +8438,7 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
         startAutoScroll();
       }
 
+      startAutoScroll();
       scheduleUpdate();
     };
 
@@ -8525,14 +8574,23 @@ function renderViaList(mapInstance) {
   const map = mapInstance || currentOutdoorMap;
   const container = document.getElementById('route-via-list');
   if (!container) return;
-  container.innerHTML = '';
-
+  const existing = new Map(Array.from(container.children).map(row => [row.dataset.viaId, row]));
+  const focused = container.contains(document.activeElement) ? document.activeElement : null;
+  const selection = focused ? [focused.selectionStart, focused.selectionEnd] : null;
   routeViaPoints.forEach((via, idx) => {
-    const row = document.createElement('div');
+    if (!via.id) via.id = 'via_' + crypto.randomUUID();
+    const key = String(via.id);
+    let row = existing.get(key);
+    existing.delete(key);
+    const isNew = !row;
+    if (isNew) row = document.createElement('div');
     row.className = 'route-via-item';
     row.dataset.index = idx;
+    row.dataset.viaId = key;
+    row._via = via;
+    row._map = map;
 
-    row.innerHTML = `
+    if (isNew) row.innerHTML = `
       <span class="pt-tag via">${idx + 1}</span>
       <div class="route-input-wrap">
         <input type="text" class="route-pt-input via-name-input" placeholder="输入途径点 (支持地名/城市，回车直达)..." autocomplete="off" />
@@ -8547,29 +8605,36 @@ function renderViaList(mapInstance) {
     const delBtn = row.querySelector('.btn-via-del');
     const dragHandle = row.querySelector('.via-drag-handle');
     const tagEl = row.querySelector('.pt-tag');
-    if (inputEl) inputEl.value = via.name || '';
-
-    if (tagEl && via.coords) {
-      tagEl.style.cursor = 'pointer';
+    if (isNew || row._renderedName !== (via.name || '')) inputEl.value = via.name || '';
+    row._renderedName = via.name || '';
+    tagEl.textContent = idx + 1;
+    tagEl.style.cursor = via.coords ? 'pointer' : '';
+    if (isNew) {
       tagEl.addEventListener('click', () => {
-        if (map && via.coords) {
-          flyToLocationPrecisely(map, via.coords, { zoom: 13.0, pitch: map.getPitch() ?? 50, duration: 600, centered: false });
+        if (row._map && row._via.coords) {
+          flyToLocationPrecisely(row._map, row._via.coords, { zoom: 13.0, pitch: row._map.getPitch() ?? 50, duration: 600, centered: false });
         }
       });
-    }
-
-    bindRoutePointInput(inputEl, dropdownEl, 'via', idx, map);
-
-    delBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removeViaPoint(map, idx);
-    });
+      bindRoutePointInput(inputEl, dropdownEl, 'via', idx, map);
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeViaPoint(row._map, Number(row.dataset.index));
+      });
+    } else inputEl._updateRouteIndex(idx);
 
     const startOffset = (routeStartCoord || routeStartName) ? 1 : 0;
     bindStopRowDrag(dragHandle, row, idx + startOffset, map, null);
 
-    container.appendChild(row);
+    if (container.children[idx] !== row) container.insertBefore(row, container.children[idx] || null);
   });
+  for (const row of existing.values()) {
+    row.querySelector('input')?._disposeRouteInput?.();
+    row.remove();
+  }
+  if (focused?.isConnected && document.activeElement !== focused) {
+    focused.focus({ preventScroll: true });
+    if (selection[0] != null) focused.setSelectionRange(...selection);
+  }
 
   bindStartAndEndRowsDrag(map);
   syncRouteMarkersVisualState(map);
@@ -10154,6 +10219,9 @@ function setupOutdoorRouteSystem(map) {
 
   // Canvas 鼠标滑过联动 3D 地图
   if (canvas) {
+    let hoverFrame = 0;
+    let hoverClientX = 0;
+    let lastHoverPoint = null;
     const handleProfileHover = (clientX) => {
       if (currentProfileData.length === 0) return;
       const rect = canvas.getBoundingClientRect();
@@ -10165,6 +10233,8 @@ function setupOutdoorRouteSystem(map) {
       const idx = Math.round(ratio * (currentProfileData.length - 1));
       const pt = currentProfileData[idx];
       if (!pt) return;
+      if (pt === lastHoverPoint) return;
+      lastHoverPoint = pt;
 
       if (chartHoverInfo) {
         chartHoverInfo.innerText = `${pt.distKm.toFixed(1)}km · 海拔 ${pt.ele}m`;
@@ -10184,21 +10254,32 @@ function setupOutdoorRouteSystem(map) {
     };
 
     const clearProfileHover = () => {
+      cancelAnimationFrame(hoverFrame);
+      hoverFrame = 0;
+      lastHoverPoint = null;
       if (chartHoverInfo) chartHoverInfo.innerText = '滑过图表联动3D地图';
       if (profileCursorMarker) profileCursorMarker.remove();
       profileCursorMarker = null;
       drawElevationChart(canvas, currentProfileData, null);
     };
 
-    canvas.addEventListener('mousemove', e => handleProfileHover(e.clientX));
+    const scheduleProfileHover = clientX => {
+      hoverClientX = clientX;
+      if (!hoverFrame) hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = 0;
+        handleProfileHover(hoverClientX);
+      });
+    };
+    canvas.addEventListener('mousemove', e => scheduleProfileHover(e.clientX));
     canvas.addEventListener('touchmove', e => {
       if (e.touches && e.touches[0]) {
-        handleProfileHover(e.touches[0].clientX);
+        scheduleProfileHover(e.touches[0].clientX);
       }
     }, { passive: true });
 
     canvas.addEventListener('mouseleave', clearProfileHover);
     canvas.addEventListener('touchend', clearProfileHover);
+    canvas.addEventListener('touchcancel', clearProfileHover);
   }
 }
 
@@ -10384,6 +10465,7 @@ function loadSavedRoute(routeId, map) {
 }
 
 // 绘制精美流畅的高清 Canvas 海拔剖面图 (完美适配 Retina 高分屏，iOS 级细腻质感)
+const elevationChartCache = new WeakMap();
 function drawElevationChart(canvas, data, hoverPt = null) {
   if (!canvas || !data || data.length === 0) return;
 
@@ -10411,10 +10493,13 @@ function drawElevationChart(canvas, data, hoverPt = null) {
 
   const chartW = displayW - paddingLeft - paddingRight;
   const chartH = displayH - paddingTop - paddingBottom;
+  const cache = elevationChartCache.get(canvas);
+  const reuse = cache && cache.data === data && cache.length === data.length &&
+    cache.width === canvas.width && cache.height === canvas.height && cache.dpr === dpr;
 
-  let minEle = Infinity;
-  let maxEle = -Infinity;
-  data.forEach(d => {
+  let minEle = reuse ? cache.minEle : Infinity;
+  let maxEle = reuse ? cache.maxEle : -Infinity;
+  if (!reuse) data.forEach(d => {
     if (d.ele < minEle) minEle = d.ele;
     if (d.ele > maxEle) maxEle = d.ele;
   });
@@ -10425,6 +10510,9 @@ function drawElevationChart(canvas, data, hoverPt = null) {
   let displayMinEle = minEle >= 0 ? Math.max(0, Math.floor((minEle - rawSpan * 0.08) / 10) * 10) : Math.floor((minEle - rawSpan * 0.08) / 10) * 10;
   let displayMaxEle = Math.ceil((maxEle + rawSpan * 0.08) / 10) * 10;
   let eleSpan = Math.max(20, displayMaxEle - displayMinEle);
+  if (reuse) {
+    ctx.drawImage(cache.image, 0, 0, displayW, displayH);
+  } else {
 
   // 绘制细腻网格线与 Y 轴刻度
   ctx.strokeStyle = '#f1f5f9';
@@ -10486,6 +10574,13 @@ function drawElevationChart(canvas, data, hoverPt = null) {
   ctx.stroke();
 
   // 悬停交互高亮竖线与指示圆点
+  const image = document.createElement('canvas');
+  image.width = canvas.width;
+  image.height = canvas.height;
+  image.getContext('2d').drawImage(canvas, 0, 0);
+  elevationChartCache.set(canvas, { image, data, length: data.length, minEle, maxEle,
+    width: canvas.width, height: canvas.height, dpr });
+  }
   if (hoverPt) {
     const hx = paddingLeft + (hoverPt.distKm / totalDist) * chartW;
     const hy = paddingTop + chartH - ((hoverPt.ele - displayMinEle) / eleSpan) * chartH;

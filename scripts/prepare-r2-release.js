@@ -10,18 +10,18 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js']) {
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs']) {
     new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 修复 1.9.30 主脚本语法错误，增加发布前脚本检查；',
-    '2. 修复路线、收藏聚合重复点击及悬停图层干扰；',
-    '3. 精确本地收藏立即搜索，起终点搜索独立取消，完善超时与异常数据处理；',
-    '4. 手机抽屉下滑连续回弹，取消与多指手势不误关闭，收藏长按不再叠加地图菜单；',
-    '5. 收藏分类拖动使用合成变换，滚动到边界停止空转；保留矢量图标、玻璃效果与原生地图图层；',
-    '6. 已验证 50°/70°飞掠、62点规划、高DPI菜单和离线状态回归；不修改已有离线地图与收藏数据。'
+    '1. 下载查缺片队列设定上限，地图交互时主动让出处理时间，取消和异常时等待任务安全结束；',
+    '2. 修复路线点聚合重复缩放，途径点拖动只在需要自动滚动时持续刷新；',
+    '3. 海拔曲线缓存底图，悬停按帧合并，同一采样点不重复绘制；',
+    '4. 途径点列表按 ID 复用，新增删除不整表重建，保留输入内容与焦点；',
+    '5. 收藏与路线图层只提交有变化的数据，采用 MapLibre 原生增量更新，并修复收藏属性更新格式；',
+    '6. 同步相同收藏数据不重复写入和刷新；保留动画、玻璃效果、离线地图及收藏数据。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 

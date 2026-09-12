@@ -1259,6 +1259,7 @@ app.whenReady().then(async () => {
       activeDownloadAbort.abort();
     }
     activeDownloadAbort = new AbortController();
+    const downloadController = activeDownloadAbort;
     const signal = activeDownloadAbort.signal;
     if (inventoryScan) await inventoryScan;
     if (loadOfflineManifest().inventoryVersion !== OFFLINE_INVENTORY_VERSION) await refreshOfflineInventory();
@@ -1543,6 +1544,9 @@ app.whenReady().then(async () => {
     let missingRangeHead = 0;
     let rangeWaiters = [];
     let planningError = null;
+    const discoveryFlow = require('./src/download-flow.cjs').createDownloadFlow({
+      signal, shouldYield: () => mapInteractionActive, limit: 256
+    });
 
     function wakeRangeWaiters() {
       const waiters = rangeWaiters;
@@ -1577,6 +1581,7 @@ app.whenReady().then(async () => {
           }
           missingRanges[missingRangeHead] = null;
           missingRangeHead++;
+          discoveryFlow.release();
           if (missingRangeHead >= 4096 && missingRangeHead * 2 >= missingRanges.length) {
             missingRanges.splice(0, missingRangeHead);
             missingRangeHead = 0;
@@ -1593,7 +1598,9 @@ app.whenReady().then(async () => {
           try {
             for await (const range of enumerateMissingTileRanges(plan, {
               signal,
-              readColumnFiles: (type, z, x) => {
+              readColumnFiles: async (type, z, x) => {
+                await discoveryFlow.yieldForInteraction();
+                if (signal.aborted) return new Set();
                 const root = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
                 return checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
               },
@@ -1605,12 +1612,14 @@ app.whenReady().then(async () => {
                 sendPlanningProgress(false);
               }
             })) {
+              if (!await discoveryFlow.reserve()) break;
               enqueueMissingRange(range);
             }
           } catch (error) {
             planningError = error;
           } finally {
             planningDone = true;
+            discoveryFlow.dispose();
             total = discoveredMissing;
             wakeRangeWaiters();
             sendPlanningProgress(true);
@@ -1863,8 +1872,17 @@ app.whenReady().then(async () => {
     for (let i = 0; i < concurrency; i++) {
       workers.push(worker(i));
     }
-    await Promise.all(workers);
-    await planningPromise;
+    try {
+      await Promise.all(workers);
+      await planningPromise;
+    } catch (error) {
+      downloadController.abort();
+      wakeRangeWaiters();
+      await Promise.allSettled([...workers, planningPromise]);
+      throw error;
+    } finally {
+      discoveryFlow.dispose();
+    }
     if (planningError) throw planningError;
     // The normal iterator contains missing files only; its final discovered
     // count is the exact denominator and never includes ready local tiles.
