@@ -16,10 +16,10 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 将源站明确返回 404/410 的空白切片写入独立压缩索引，后续普通补齐直接跳过，不再重复请求；',
-    '2. 源站空白作为有效覆盖终态参与离线完成统计，省份和层级可正常显示绿色，同时不伪造本地瓦片文件；',
-    '3. 更换上游数据集时自动忽略旧空白索引并重新尝试，手动校验与增量更新仍可主动复查；',
-    '4. 不引入格式不兼容的第三方地图源；保留现有画质、3D、高分屏、下载并发和全部离线地图。'
+    '1. 修复手机轻触收藏点飞掠完成后自动打开管理菜单的问题；',
+    '2. 统一交互意图：普通单击或轻触只定位，桌面右键或手机长按才打开管理菜单；',
+    '3. 修复 3D 地形下道路编号底牌保持水平、文字却沿道路倾斜的问题；',
+    '4. 搜索落点、规划路线点与收藏路线卡片加入同类交互回归；保留现有离线地图、画质、3D、高分屏和动画效果。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
@@ -80,9 +80,17 @@ async function main() {
   const fileBuf = fs.readFileSync(outAsar);
   const sha256 = crypto.createHash('sha256').update(fileBuf).digest('hex');
 
+  const releaseNow = new Date();
+  const localReleaseDate = [
+    releaseNow.getFullYear(),
+    String(releaseNow.getMonth() + 1).padStart(2, '0'),
+    String(releaseNow.getDate()).padStart(2, '0')
+  ].join('-');
   const versionInfo = {
     version: targetVersion,
-    releaseDate: new Date().toISOString().split('T')[0],
+    // Use the host's local calendar date. ISO UTC can show yesterday for an
+    // Asia/Shanghai release published shortly after midnight.
+    releaseDate: localReleaseDate,
     notes: customNotes,
     downloadUrl: 'https://r2.053999.xyz/Outmap/app.asar',
     backupUrl: 'https://pub-9fa3d477907d4d5aa99d54b609094d73.r2.dev/Outmap/app.asar',
