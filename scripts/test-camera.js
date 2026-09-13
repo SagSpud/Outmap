@@ -5,13 +5,20 @@ const assert = require('assert');
 const watchdog = setTimeout(() => { console.error('Camera test timed out'); app.exit(1); }, 60000);
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: true, width: 1280, height: 800, webPreferences: { backgroundThrottling: false } });
-  await win.loadURL('about:blank');
+  await win.loadFile(path.join(__dirname, 'fixtures', 'maplibre-6-harness.html'));
+  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (window.maplibreHarnessReady) { clearInterval(timer); resolve(); }
+      else if (Date.now() - started > 10000) { clearInterval(timer); reject(new Error('MapLibre 6 harness timeout')); }
+    }, 20);
+  })`);
   win.webContents.debugger.attach('1.3');
   await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
   if (process.argv.includes('--mobile')) {
     await win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
   }
-  for (const file of ['src/vendor/maplibre-gl.js', 'src/location-camera.js']) {
+  for (const file of ['src/location-camera.js']) {
     await win.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'));
   }
   await win.webContents.executeJavaScript(`window.onlineTerrainTest = ${process.argv.includes('--online')};`);
@@ -25,9 +32,9 @@ app.whenReady().then(async () => {
     // Deterministic high-altitude DEM, no network or user data dependencies.
     ctx.fillStyle = 'rgb(143,160,0)'; ctx.fillRect(0,0,256,256); // 4000 m Terrarium
     const png = await new Promise(r => canvas.toBlob(async b => r(await b.arrayBuffer())));
-    let tileDelay = 0;
-    maplibregl.addProtocol('fixture', async () => { await sleep(tileDelay); return {data: png.slice(0)}; });
-    const tiles = [onlineTerrainTest ? 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp' : 'fixture://dem/{z}/{x}/{y}'];
+    const bytes = new Uint8Array(png); let binary=''; for(let i=0;i<bytes.length;i+=8192) binary += String.fromCharCode(...bytes.subarray(i,i+8192));
+    const fixtureUrl = 'data:image/png;base64,' + btoa(binary);
+    const tiles = [onlineTerrainTest ? 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp' : fixtureUrl];
     const m = new maplibregl.Map({container:'map',center:[118.35,35.10],zoom:8,pitch:50,maxPitch:85,attributionControl:false,style:{version:8,sources:{'terrain-dem':{type:'raster-dem',tiles,tileSize:256,encoding:'terrarium',maxzoom:12}},layers:[{id:'bg',type:'background',paint:{'background-color':'#a8d8f0'}}]}});
     await new Promise(r => m.once('load',r)); m.setTerrain({source:'terrain-dem',exaggeration:1.5});
     await sleep(450);
@@ -56,7 +63,6 @@ app.whenReady().then(async () => {
     let instantArrival=0;
     OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35]);
     // Simulate a late, higher resolution DEM response after arrival.
-    tileDelay=800;
     OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100}); await sleep(1500); sample('late DEM',[87,43]);
     if (innerWidth <= 768) {
       const panel = document.createElement('div'); panel.id='route-panel'; panel.style.cssText='position:fixed;left:0;right:0;bottom:0;height:300px;background:white'; document.body.appendChild(panel);

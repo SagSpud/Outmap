@@ -26,7 +26,7 @@ app.whenReady().then(async () => {
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       const map = window.mapInstance;
       check(map?.__outmapStyleReady, 'Map style did not initialize');
-      check(window.OUTMAP_APP_VERSION === '1.9.50', 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
+      check(window.OUTMAP_APP_VERSION === '1.9.51', 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
       window.showLandingMarker([101.3451, 30.06], 'G318熊猫大道', '四川省');
       await sleep(100);
       const marker = window.currentLandingMarker;
@@ -41,12 +41,12 @@ app.whenReady().then(async () => {
       return { terrainOpacity: marker._opacityWhenCovered, subpixel: marker._subpixelPositioning,
         anchorRatio: Number((anchor.y / rect.height).toFixed(3)) };
     })()`);
-    console.log('v1.9.50 3D search landing-card regression passed:', result);
+    console.log('v1.9.51 3D search landing-card regression passed:', result);
     clearTimeout(watchdog);
     win.destroy();
     app.exit(0);
   } catch (error) {
-    console.error('v1.9.50 test failed:', error);
+    console.error('v1.9.51 test failed:', error);
     clearTimeout(watchdog);
     if (win) win.destroy();
     app.exit(1);

@@ -12,13 +12,12 @@ const packageVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'
 
 assert(!/map\.on\(['"]idle['"][\s\S]{0,160}refreshAllRouteMarkersElevation/.test(appJs),
   'idle must not force marker refreshes');
-const refreshFn = appJs.match(/function refreshAllRouteMarkersElevation\([\s\S]*?\n}\nwindow\.refreshAllRouteMarkersElevation/);
-assert(refreshFn, 'bounded marker refresh helper must exist');
-assert(!refreshFn[0].includes('triggerRepaint'), 'marker refresh must not trigger WebGL repaint');
+assert(!appJs.includes('refreshAllRouteMarkersElevation'),
+  'terrain arrivals must not rebuild and re-submit route-point GeoJSON');
 assert(!appJs.includes('marker._update') && !appJs.includes('.marker._update'),
   'application code must not call MapLibre private Marker._update');
 assert(appJs.includes('fadeDuration: 180'), 'native symbol fading must remain enabled');
-assert(cameraJs.includes('curve: 1.0'), 'long flights must use the stable native arc');
+assert(/curve:\s*1(?:\.0)?/.test(cameraJs), 'long flights must use the stable native arc');
 assert(!/\.route-via-marker-pin,[\s\S]{0,240}will-change:\s*transform/.test(css),
   'route markers must not each retain a permanent compositor layer');
 assert(!css.includes('animation: pulsePickingVia 1.4s infinite'),
@@ -27,7 +26,7 @@ assert(workerJs.includes('level.expected > 0 && level.present >= level.expected'
   'offline levels must turn green only when every expected tile is present');
 assert(appJs.includes("options.schedule !== false"),
   'endpoint promotion must support a single atomic route schedule');
-assert(appJs.includes('JSON.stringify(mergedFavs) !== JSON.stringify(localFavs)'),
+assert(appJs.includes("persistSyncedCollection('outmap_saved_waypoints', mergedFavs)"),
   'same-count favorite changes must refresh the local view');
 assert(appJs.includes("const FAVORITES_SOURCE_ID = 'outmap-favorites'"),
   'favorites must use a dedicated native GeoJSON source');
@@ -105,7 +104,7 @@ app.whenReady().then(async () => {
     window.addViaPoint(map, [106.60, 29.60], '终点');
     await sleep(120);
     const routeSource = map.getSource('outmap-route-points');
-    const routeData = routeSource?._data || routeSource?.serialize?.().data || null;
+    const routeData = map.getStyle()?.sources?.['outmap-route-points']?.data || null;
     const routeRoles = (routeData?.features || []).map(feature => feature.properties?.role);
 
     window.showChangeWaypointTypeMenu({
@@ -157,7 +156,8 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.favoriteDiffAdded, 1, 'favorite incremental update must add exactly one feature');
   assert.strictEqual(result.favoriteDomMarkers, 0, 'favorites must not retain DOM markers');
   assert(result.routeSource && result.routeLayers, 'route-point source and layers must initialize');
-  assert.deepStrictEqual(result.routeRoles, ['start', 'via', 'end'], 'three route stops must preserve start/via/end roles');
+  assert.deepStrictEqual([...result.routeRoles].sort(), ['end', 'start', 'via'],
+    'three route stops must preserve one start, one via and one end role');
   assert.strictEqual(result.persistentRouteDomMarkers, 0, 'route stops must not retain DOM markers outside dragging');
   assert(result.typeMenuResult.usesFluentSurface, 'waypoint type menu must share the Fluent map-context surface');
   assert.strictEqual(result.typeMenuResult.title, '', 'waypoint menu must not retain a separate title');

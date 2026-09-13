@@ -1,0 +1,9 @@
+<!doctype html>
+<html><head><meta charset="utf-8"></head><body>
+<script type="module">
+  import * as maplibregl from '../../src/vendor/maplibre-gl.mjs';
+  maplibregl.setWorkerUrl(new URL('../../src/vendor/maplibre-gl-worker.mjs', import.meta.url).href);
+  window.maplibregl = maplibregl;
+  window.maplibreHarnessReady = true;
+</script>
+</body></html>

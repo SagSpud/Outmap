@@ -7,14 +7,12 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=1.9.50" />
+  <link rel="stylesheet" href="style.css?v=1.9.51" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
     }
   </script>
-  <script src="vendor/maplibre-gl.js"></script>
-  <script src="vendor/maplibre-contour.js"></script>
 </head>
 <body>
   <div id="app-container">
@@ -30,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.50</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v1.9.51</span>
                 </div>
               </div>
             </div>
@@ -846,8 +844,6 @@
     </div>
   </div>
 
-  <script src="location-camera.js?v=1.9.50"></script>
-  <script src="favorite-interactions.js?v=1.9.50"></script>
-  <script src="app.js?v=1.9.50"></script>
+  <script type="module" src="map-bootstrap.js?v=1.9.51"></script>
 </body>
 </html>

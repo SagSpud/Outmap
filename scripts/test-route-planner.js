@@ -119,9 +119,15 @@ app.whenReady().then(async () => {
     await sleep(100);
     const autoDistance = document.getElementById('stat-route-dist').innerText;
     const autoProfiles = state.calls.map(call => call.profile);
-    const longSource = m.getSource('outdoor-route-source');
-    const longData = longSource?._data || longSource?.serialize?.().data;
+    const longData = m.getStyle()?.sources?.['outdoor-route-source']?.data;
     const longGeometryCount = longData?.geometry?.coordinates?.length || 0;
+    const routeSource = m.getSource('outdoor-route-source');
+    const originalSetRouteData = routeSource.setData.bind(routeSource);
+    state.lastRouteData = longData;
+    routeSource.setData = data => {
+      state.lastRouteData = data;
+      return originalSetRouteData(data);
+    };
     state.dense = false;
 
     for (const mode of ['cycle', 'hike']) {
@@ -148,12 +154,12 @@ app.whenReady().then(async () => {
     window.autoPlanMultiPointRoute(m);
     await sleep(500);
     const manyCalls = state.calls.map(call => ({ profile: call.profile, pointCount: call.pointCount }));
-    const source = m.getSource('outdoor-route-source');
-    const sourceData = source?._data || source?.serialize?.().data;
+    const sourceData = state.lastRouteData;
     const mergedPointCount = sourceData?.geometry?.coordinates?.length || 0;
     const manyDistance = document.getElementById('stat-route-dist').innerText;
+    const settledGradient = m.getPaintProperty('outdoor-route-line', 'line-gradient');
     const layerIds = m.getStyle().layers.map(layer => layer.id);
-    const routeAboveRoads = layerIds.indexOf('outdoor-route-casing') > layerIds.indexOf('osm-highway-core');
+    const routeAboveRoads = layerIds.indexOf('outdoor-route-casing') > layerIds.indexOf('osm-roads-core');
     const routeBelowLabels = layerIds.indexOf('outdoor-route-line') < layerIds.indexOf('osm-road-shields');
     const debouncedAborts = state.aborts;
 
@@ -169,7 +175,7 @@ app.whenReady().then(async () => {
     window.OutmapLocationCamera.fly = originalFly;
     return { startBounds, endBounds, viaBounds, autoDistance, autoProfiles, modeProfiles,
       manyCalls, maxActive: state.maxActive, debouncedAborts, supersessionAborts, mergedPointCount, manyDistance, longGeometryCount,
-      routeAboveRoads, routeBelowLabels, routePanelVisible: getComputedStyle(routePanel).display !== 'none' };
+      routeAboveRoads, routeBelowLabels, settledGradient, routePanelVisible: getComputedStyle(routePanel).display !== 'none' };
   })()`);
 
   console.log(JSON.stringify(result, null, 2));
@@ -189,6 +195,8 @@ app.whenReady().then(async () => {
   assert(!result.manyDistance.includes('导引'), 'Successful many-waypoint route must remain a road route');
   assert(result.routeAboveRoads, 'Route ribbon must render above highway surfaces');
   assert(result.routeBelowLabels, 'Route ribbon must render below road names and shields');
+  assert(result.settledGradient === '#248a3d' || result.settledGradient === 'rgb(36, 138, 61)',
+    'Finite route reveal animation must settle back to the static route color');
   assert(result.debouncedAborts <= 2, 'Burst point mutations must be coalesced instead of creating an abort storm');
   assert(result.supersessionAborts > 0, 'A genuinely superseded in-flight request must still be cancelled');
   assert(result.routePanelVisible, 'Route panel must remain usable after planning');

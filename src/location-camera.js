@@ -1,170 +1,157 @@
-/* MapLibre 5.1 camera adapter. Keep transform-specific projection in one place. */
+/* MapLibre 6.9 camera adapter. Keep landing geometry in public native APIs. */
 (function (global) {
   'use strict';
   const active = new WeakMap();
-  const zeroPadding = { top: 0, bottom: 0, left: 0, right: 0 };
 
   function anchor(map, centered) {
     const rect = map.getContainer().getBoundingClientRect();
-    let top = 44, bottom = rect.height;
+    let top = 44;
+    let bottom = rect.height;
     let minSafeRight = rect.width;
 
-    // 适配右侧展开面板 (收藏抽屉 / 路线规划面板 / 图层控制)
     for (const id of ['route-panel', 'favorites-drawer', 'layers-popover']) {
       const el = document.getElementById(id);
       if (!el || el.style.display === 'none') continue;
       const style = getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') continue;
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.left - rect.left > rect.width * 0.4 && r.left < rect.right) {
-        // 卡片左边界留出安全间距 50px，确保地标在任何分辨率下都不被右侧卡片遮挡
-        minSafeRight = Math.min(minSafeRight, r.left - rect.left - 50);
+      const panel = el.getBoundingClientRect();
+      if (panel.width > 0 && panel.left - rect.left > rect.width * 0.4 && panel.left < rect.right) {
+        minSafeRight = Math.min(minSafeRight, panel.left - rect.left - 50);
       }
-      if (global.innerWidth <= 768) {
-        if (r.width > rect.width * 0.65 && r.bottom > rect.top && r.top < rect.bottom) {
-          bottom = Math.min(bottom, Math.max(0, r.top - rect.top - 16));
-        }
+      if (global.innerWidth <= 768 && panel.width > rect.width * 0.65 && panel.bottom > rect.top && panel.top < rect.bottom) {
+        bottom = Math.min(bottom, Math.max(0, panel.top - rect.top - 16));
       }
     }
 
-    // 视窗自然几何中心
     const naturalCenterX = rect.width * 0.5;
-    // 当自然中心本身距离右侧卡片有充裕安全距离时，保持在水平正中央；
-    // 只有当窗口较窄、自然中心会靠近甚至被卡片遮挡时，才向左平滑让位
-    const centerX = naturalCenterX <= minSafeRight ? naturalCenterX : Math.max(rect.width * 0.38, minSafeRight);
-
-    // 中间偏下：当 centered 为 false 时，将地标点落在视觉工作区中下方约 68% 位置，
-    // 上方 2/3 开阔展现 3D 地形起伏与前方路线大局走势
+    const centerX = naturalCenterX <= minSafeRight
+      ? naturalCenterX
+      : Math.max(rect.width * 0.38, minSafeRight);
     const centerY = top + (bottom - top) * (centered ? 0.5 : 0.68);
     return new maplibregl.Point(centerX, centerY);
   }
 
-  function cancel(map) { active.get(map)?.dispose(); }
+  function cancel(map) {
+    active.get(map)?.dispose();
+  }
 
-  function fly(map, coords, options = {}) {
-    if (!map || !Array.isArray(coords) || coords.length < 2) return;
-    coords = coords.slice(0, 2).map(Number);
+  function fly(map, coordinates, options = {}) {
+    if (!map || !Array.isArray(coordinates) || coordinates.length < 2) return;
+    const coords = coordinates.slice(0, 2).map(Number);
     if (!coords.every(Number.isFinite) || Math.abs(coords[0]) > 180 || Math.abs(coords[1]) > 85) return;
-    cancel(map); // Remove the old arrival handler BEFORE stop emits moveend.
-    map.stop();
-    let disposed = false, arrived = false, internal = false, frame = 0, deadline;
-    let flightLoadStateActive = false;
-    const settleTimers = [];
-    let progress = 0;
-    let isFlying = true;
-    const previousCameraUpdate = map.transformCameraUpdate;
-    const subscriptions = [];
-    const listen = (type, fn) => { map.on(type, fn); subscriptions.push([type, fn]); };
-    const canvas = map.getCanvas();
 
-    const setFlightLoadState = activeState => {
-      if (flightLoadStateActive === activeState) return;
-      flightLoadStateActive = activeState;
-      try { options.onFlightLoadStateChange?.(activeState); } catch (_) {}
+    cancel(map);
+    map.stop();
+
+    const canvas = map.getCanvas();
+    const subscriptions = [];
+    const timers = [];
+    let disposed = false;
+    let internalMove = false;
+    let arrivalDelivered = false;
+    let refinementCount = 0;
+    let flightLoadStateActive = false;
+    let expectedMoveEnd = 0;
+
+    const listen = (type, handler) => {
+      map.on(type, handler);
+      subscriptions.push([type, handler]);
+    };
+    const setFlightLoadState = state => {
+      if (flightLoadStateActive === state) return;
+      flightLoadStateActive = state;
+      try { options.onFlightLoadStateChange?.(state); } catch (_) {}
     };
     const dispose = () => {
       if (disposed) return;
       disposed = true;
-      isFlying = false;
+      subscriptions.forEach(([type, handler]) => map.off(type, handler));
+      for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) {
+        canvas.removeEventListener(type, dispose, true);
+      }
+      timers.forEach(clearTimeout);
       setFlightLoadState(false);
-      subscriptions.forEach(([type, fn]) => map.off(type, fn));
-      for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.removeEventListener(type, dispose, true);
-      cancelAnimationFrame(frame);
-      clearTimeout(deadline);
-      settleTimers.forEach(clearTimeout);
-      if (map.transformCameraUpdate === cameraUpdate) map.transformCameraUpdate = previousCameraUpdate;
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
-    active.set(map, { dispose });
-    for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) canvas.addEventListener(type, dispose, { capture: true, passive: true });
-    listen('remove', dispose);
-    listen('movestart', () => { if (!internal) dispose(); });
 
-    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 13.0));
+    active.set(map, { dispose });
+    for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) {
+      canvas.addEventListener(type, dispose, { capture: true, passive: true });
+    }
+    listen('remove', dispose);
+    listen('movestart', () => { if (!internalMove) dispose(); });
+
+    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 13));
     const pitch = Math.max(map.getMinPitch(), Math.min(map.getMaxPitch(), Number.isFinite(options.pitch) ? options.pitch : map.getPitch()));
     const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
-    const target = maplibregl.LngLat.convert(coords);
     const desiredAnchor = anchor(map, options.centered);
 
-    function endpoint(targetZoom, targetPitch, targetBearing) {
-      const tr = map.transform.clone();
-      tr.setPadding(zeroPadding);
-      tr.setZoom(targetZoom);
-      tr.setPitch(targetPitch);
-      tr.setBearing(targetBearing);
-      tr.setCenter(target);
-      const ex = map.getTerrain ? (map.getTerrain()?.exaggeration || 1.0) : 1.0;
-      let elevation = map.queryTerrainElevation ? map.queryTerrainElevation(coords) : null;
-      if (!Number.isFinite(elevation) && Number.isFinite(options.elevation) && options.elevation > 0) {
-        elevation = options.elevation * ex;
-      }
-      if (Number.isFinite(elevation)) tr.setElevation(elevation);
-      tr.setLocationAtPoint(target, desiredAnchor);
-      return { center: tr.center, elevation: tr.elevation };
-    }
+    const cameraOptions = refineDuration => {
+      const rect = map.getContainer().getBoundingClientRect();
+      const viewportCenter = new maplibregl.Point(rect.width / 2, rect.height / 2);
+      return {
+        center: coords,
+        zoom,
+        pitch,
+        bearing,
+        offset: desiredAnchor.sub(viewportCenter),
+        duration: refineDuration,
+        curve: 1,
+        easing: t => t * t * (3 - 2 * t),
+        essential: false
+      };
+    };
 
-    function cameraUpdate(transform) {
-      const prior = previousCameraUpdate?.(transform) || {};
-      if (disposed) return prior;
-      if (!isFlying && !internal && !map.isEasing()) return prior;
-      if (progress >= 1) {
-        return { ...prior, ...endpoint(zoom, pitch, bearing), zoom, pitch, bearing };
-      }
-      return prior;
-    }
-    const easing = t => { progress = t; return t * t * (3 - 2 * t); };
-    map.transformCameraUpdate = cameraUpdate;
+    const landingError = () => {
+      const point = map.project(coords);
+      return Math.hypot(point.x - desiredAnchor.x, point.y - desiredAnchor.y);
+    };
 
-    let refineCount = 0;
-    function refine() {
-      frame = 0;
-      if (disposed || !arrived || map.isMoving() || refineCount >= 1) return false;
-      const p = map.project(coords);
-      if (Math.hypot(p.x - desiredAnchor.x, p.y - desiredAnchor.y) < 6) return false;
-      refineCount++;
-      const solved = endpoint(zoom, pitch, bearing);
-      internal = true;
-      const settleDuration = (reduced || duration === 0) ? 0 : 150;
-      progress = settleDuration === 0 ? 1 : 0;
-      map.easeTo({ center: solved.center, zoom, pitch, bearing, padding: zeroPadding,
-        duration: settleDuration, easing, essential: false });
-      internal = false;
-      return settleDuration > 0;
-    }
-    const schedule = () => { if (!disposed && arrived && !frame && refineCount < 1) frame = requestAnimationFrame(refine); };
-    listen('idle', schedule);
-    listen('resize', schedule);
+    const startNativeMove = (method, moveDuration) => {
+      expectedMoveEnd = performance.now() + Math.max(0, moveDuration);
+      internalMove = true;
+      map[method](cameraOptions(moveDuration));
+      internalMove = false;
+    };
+
+    const refineIfNeeded = () => {
+      if (disposed || map.isMoving() || refinementCount >= 2 || landingError() < 3) return false;
+      refinementCount++;
+      startNativeMove('easeTo', reduced ? 0 : 140);
+      return true;
+    };
+
     listen('moveend', () => {
-      if (disposed || arrived) return;
-      isFlying = false;
-      queueMicrotask(() => {
-        if (disposed || arrived || map.isMoving()) return;
-        arrived = true;
-        const refining = refine();
-        if (!disposed) options.onArrival?.();
-        if (flightLoadStateActive) {
-          if (refining) settleTimers.push(setTimeout(() => setFlightLoadState(false), 170));
-          else setFlightLoadState(false);
-        }
-      });
+      if (disposed) return;
+      // A programmatic jump/another component can interrupt an in-flight
+      // animation without emitting a second movestart. Do not pull the map
+      // back to our old target from the moveend handler.
+      if (performance.now() + 24 < expectedMoveEnd && landingError() >= 3) {
+        dispose();
+        return;
+      }
+      if (refineIfNeeded()) return;
+      if (!arrivalDelivered) {
+        arrivalDelivered = true;
+        try { options.onArrival?.(); } catch (_) {}
+        setFlightLoadState(false);
+        // One bounded late-DEM correction opportunity. No persistent idle
+        // listener and no GeoJSON/source resubmission are involved.
+        timers.push(setTimeout(() => {
+          if (!disposed && !refineIfNeeded()) dispose();
+        }, 900));
+        timers.push(setTimeout(dispose, 2200));
+      }
     });
-    const solved = endpoint(zoom, pitch, bearing);
-    const center = map.getCenter();
-    const distDeg = Math.hypot((center.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), center.lat - coords[1]);
-    const nearby = distDeg < 0.25;
-    const longFlight = distDeg > 2.5 || Math.abs(map.getZoom() - zoom) > 3.5;
-    if (longFlight) setFlightLoadState(true);
 
-    internal = true;
-    const method = nearby ? 'easeTo' : 'flyTo';
-    if (duration === 0) progress = 1;
-    map[method]({ center: solved.center, elevation: solved.elevation, zoom, pitch, bearing,
-      padding: zeroPadding, duration, curve: 1.0, easing, essential: false });
-    internal = false;
-    deadline = setTimeout(dispose, duration + 10000);
+    const current = map.getCenter();
+    const distance = Math.hypot((current.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), current.lat - coords[1]);
+    const nearby = distance < 0.25;
+    if (distance > 2.5 || Math.abs(map.getZoom() - zoom) > 3.5) setFlightLoadState(true);
+    startNativeMove(nearby ? 'easeTo' : 'flyTo', duration);
   }
 
-  global.OutmapLocationCamera = { fly, cancel, anchor };
+  global.OutmapLocationCamera = Object.freeze({ fly, cancel, anchor });
 })(window);

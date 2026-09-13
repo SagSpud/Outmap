@@ -16,3 +16,4 @@ build/
 scratch_test.json
 build_icon_test.png
 itinerary_output/
+.vendor-*/

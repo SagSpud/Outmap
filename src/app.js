@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '1.9.50';
+const APP_VERSION = '1.9.51';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1549,11 +1549,13 @@ async function initApplication() {
   const compactDevice = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
   const constrainedWeb = isWebMode && (compactDevice || deviceMemory <= 4);
   const mapPerformance = constrainedWeb
-    ? { workers: 2, demCache: 96, tileCache: 256, prefetch: 0 }
+    ? { workers: 2, demCache: 96, tileCache: 256 }
     : isWebMode
-      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 192, tileCache: 512, prefetch: 1 }
-      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 384, tileCache: 1024, prefetch: 1 };
-  maplibregl.workerCount = mapPerformance.workers;
+      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 192, tileCache: 512 }
+      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 384, tileCache: 1024 };
+  // MapLibre 6 uses an explicit setter; assigning an ESM namespace property is
+  // ignored by browsers and silently leaves the default worker count active.
+  maplibregl.setWorkerCount(mapPerformance.workers);
 
   // DEM 解码缓存按设备分级。无上限扩大会在长时间飞掠后造成内存/显存压力与回收卡顿。
   const demSource = new mlcontour.DemSource({
@@ -1563,6 +1565,10 @@ async function initApplication() {
     worker: true,
     cacheSize: mapPerformance.demCache,
     timeoutMs: 16000
+  });
+  window.OutmapTerrainContours?.installPersistentCache(demSource, {
+    port,
+    webMode: isWebMode
   });
   demSource.setupMaplibre(maplibregl);
 
@@ -1608,9 +1614,6 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
-  if (typeof map.setPrefetchZoomDelta === 'function') {
-    map.setPrefetchZoomDelta(mapPerformance.prefetch);
-  }
 
 
   // 鼠标拖拽平移地图时实时切换为 Windows 原生移动四向箭头 (move)，松手立刻恢复普通箭头 (default)
@@ -1639,6 +1642,7 @@ async function initApplication() {
     // terrain/vector sources.  Keep a monotonic readiness flag for Outmap's own
     // runtime layers so they cannot miss the one-time load event.
     map.__outmapStyleReady = true;
+    window.OutmapNativeIcons?.register(map);
     // 3D 地形高度网格
     map.addSource('terrain-dem', {
       type: 'raster-dem',
@@ -1656,7 +1660,6 @@ async function initApplication() {
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
         if (map.isMoving() || map.isZooming() || map.isRotating()) return;
-        scheduleRouteMarkerElevationRefresh(map, 80);
         scheduleRouteElevationProfileRefresh(map, 420);
       }
     });
@@ -1916,84 +1919,42 @@ async function initApplication() {
       }
     });
 
-    // 微观路网体系 (Apple Maps 风格：柔和石板灰细边 + 纯净暖白路心，强化立体对比度)
+    // All surfaced roads share one casing and one core layer.  Native
+    // line-sort-key preserves hierarchy while removing four complete tile
+    // bucket/layout passes at every fractional zoom.
+    const roadClasses = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'];
+    const roadSortKey = ['match', ['get', 'class'], 'motorway', 30, ['trunk', 'primary'], 20, ['secondary', 'tertiary'], 10, 5];
     map.addLayer({
-      id: 'osm-minor-roads-casing',
+      id: 'osm-roads-casing',
       type: 'line',
       source: 'osm-vector-source',
       'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
+      filter: ['match', ['get', 'class'], roadClasses, true, false],
+      layout: { 'line-sort-key': roadSortKey, 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#c6c3bb',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.2, 11, 2.2, 14, 4.0],
-        'line-opacity': 0.88
+        'line-color': ['match', ['get', 'class'], 'motorway', '#e2a36d', ['trunk', 'primary'], '#bebab0', '#c6c3bb'],
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          6, ['match', ['get', 'class'], 'motorway', 2.0, ['trunk', 'primary'], 1.8, 0.7],
+          10, ['match', ['get', 'class'], 'motorway', 4.0, ['trunk', 'primary'], 3.6, 1.7],
+          14, ['match', ['get', 'class'], 'motorway', 7.0, ['trunk', 'primary'], 6.0, 4.0]],
+        'line-opacity': ['match', ['get', 'class'], 'motorway', 0.85, ['trunk', 'primary'], 0.92, 0.88]
       }
     });
 
     map.addLayer({
-      id: 'osm-minor-roads-core',
+      id: 'osm-roads-core',
       type: 'line',
       source: 'osm-vector-source',
       'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['secondary', 'tertiary', 'minor', 'service', 'residential', 'unclassified'], true, false],
+      filter: ['match', ['get', 'class'], roadClasses, true, false],
+      layout: { 'line-sort-key': roadSortKey, 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#fcfbf8',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 11, 1.5, 14, 3.0],
-        'line-opacity': 0.95
-      }
-    });
-
-    // 城市主要干道、国道与省道 (Apple Maps 风格：纯净暖白路心，清晰立体轮廓)
-    map.addLayer({
-      id: 'osm-primary-roads-casing',
-      type: 'line',
-      source: 'osm-vector-source',
-      'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
-      paint: {
-        'line-color': '#bebab0',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 10, 3.6, 14, 6.0],
-        'line-opacity': 0.92
-      }
-    });
-
-    map.addLayer({
-      id: 'osm-primary-roads-core',
-      type: 'line',
-      source: 'osm-vector-source',
-      'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['trunk', 'primary'], true, false],
-      paint: {
-        'line-color': '#fffdf8',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.0, 10, 2.4, 14, 4.5],
-        'line-opacity': 1.0
-      }
-    });
-
-    // 高速公路与城市快速高架路 (Apple Maps 经典柔和暖杏桃琥珀色，OLED 屏幕温和舒适，绝不刺眼)
-    map.addLayer({
-      id: 'osm-highway-casing',
-      type: 'line',
-      source: 'osm-vector-source',
-      'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['motorway'], true, false],
-      paint: {
-        'line-color': '#e2a36d',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.0, 10, 4.0, 14, 7.0],
-        'line-opacity': 0.85
-      }
-    });
-
-    map.addLayer({
-      id: 'osm-highway-core',
-      type: 'line',
-      source: 'osm-vector-source',
-      'source-layer': 'transportation',
-      filter: ['match', ['get', 'class'], ['motorway'], true, false],
-      paint: {
-        'line-color': '#f8cf8d',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.2, 10, 2.6, 14, 5.0],
-        'line-opacity': 1.0
+        'line-color': ['match', ['get', 'class'], 'motorway', '#f8cf8d', ['trunk', 'primary'], '#fffdf8', '#fcfbf8'],
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          6, ['match', ['get', 'class'], 'motorway', 1.2, ['trunk', 'primary'], 1.0, 0.35],
+          10, ['match', ['get', 'class'], 'motorway', 2.6, ['trunk', 'primary'], 2.4, 1.15],
+          14, ['match', ['get', 'class'], 'motorway', 5.0, ['trunk', 'primary'], 4.5, 3.0]],
+        'line-opacity': ['match', ['get', 'class'], ['motorway', 'trunk', 'primary'], 1.0, 0.95]
       }
     });
 
@@ -2022,6 +1983,10 @@ async function initApplication() {
       minzoom: 5.5,
       layout: {
         'symbol-placement': 'line',
+        'icon-image': 'outmap-road-shield',
+        'icon-text-fit': 'both',
+        'icon-text-fit-padding': [2, 5, 2, 5],
+        'icon-rotation-alignment': 'viewport',
         'text-field': ['get', 'ref'],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 5.5, 9.5, 9, 10.5, 12, 11.5],
@@ -2031,8 +1996,8 @@ async function initApplication() {
       },
       paint: {
         'text-color': '#b91c1c',
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 3.5
+        'text-halo-color': 'rgba(255,255,255,0)',
+        'text-halo-width': 0
       }
     });
 
@@ -2139,16 +2104,15 @@ async function initApplication() {
       filter: ['has', 'name'],
       minzoom: 6.5,
       layout: {
-        'text-field': [
-          'case',
-          ['has', 'ele'],
-          ['concat', '▲ ', ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']], ', ', ['get', 'ele'], 'm'],
-          ['concat', '▲ ', ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']]]
-        ],
+        'icon-image': 'outmap-mountain',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 6.5, 0.62, 12, 0.82, 15, 0.95],
+        'icon-anchor': 'bottom',
+        'icon-offset': [0, -2],
+        'text-field': ['case', ['has', 'ele'], ['concat', ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']], ', ', ['get', 'ele'], 'm'], ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']]],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 6.5, 9.0, 9, 10.0, 12, 11.5, 15, 13.5],
         'text-anchor': 'bottom',
-        'text-offset': [0, -0.2],
+        'text-offset': [0, -1.25],
         'text-padding': 2
       },
       paint: {
@@ -2167,11 +2131,14 @@ async function initApplication() {
       filter: ['match', ['get', 'class'], ['attraction', 'viewpoint', 'theme_park', 'monument', 'campsite', 'picnic_site', 'alpine_hut', 'shelter', 'castle'], true, false],
       minzoom: 8,
       layout: {
-        'text-field': ['concat', '★ ', ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']]],
+        'icon-image': 'outmap-poi-scenic',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.62, 14, 0.88],
+        'icon-anchor': 'bottom',
+        'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9.5, 11, 11, 14, 13],
         'text-anchor': 'bottom',
-        'text-offset': [0, -0.3],
+        'text-offset': [0, -1.25],
         'text-padding': 2,
         'symbol-sort-key': 8
       },
@@ -2182,38 +2149,9 @@ async function initApplication() {
       }
     });
 
-    // 全量 POI 实体物理位置小微圆点 (分类赋色，不遮挡地图，严格排除景点与无用道闸)
-    map.addLayer({
-      id: 'osm-all-pois-dots',
-      type: 'circle',
-      source: 'osm-vector-source',
-      'source-layer': 'poi',
-      filter: [
-        'all',
-        ['any', ['has', 'name'], ['has', 'name:zh'], ['has', 'name_zh']],
-        ['!', ['match', ['get', 'class'], ['attraction', 'viewpoint', 'theme_park', 'monument', 'campsite', 'picnic_site', 'alpine_hut', 'shelter', 'castle', 'gate', 'lift_gate', 'bollard', 'waste_basket'], true, false]]
-      ],
-      minzoom: 11,
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.0, 13, 2.8, 15, 3.5],
-        'circle-color': [
-          'match',
-          ['get', 'class'],
-          ['school', 'university', 'college', 'kindergarten', 'library'], '#7c3aed',
-          ['hospital', 'clinic', 'pharmacy', 'doctors', 'dentist'], '#0284c7',
-          ['shop', 'grocery', 'supermarket', 'mall', 'bank', 'atm', 'marketplace', 'clothing_store', 'bakery', 'alcohol_shop'], '#059669',
-          ['bus', 'bus_stop', 'railway', 'railway_station', 'parking', 'fuel', 'ferry_terminal'], '#2563eb',
-          ['restaurant', 'fast_food', 'cafe', 'bar', 'beer', 'ice_cream', 'lodging', 'hotel'], '#d97706',
-          ['town_hall', 'office', 'police', 'post', 'fire_station'], '#475569',
-          ['park', 'garden', 'pitch', 'stadium', 'theatre', 'museum', 'cinema', 'art_gallery', 'place_of_worship'], '#0f766e',
-          '#64748b'
-        ],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1.5
-      }
-    });
-
-    // 全量 POI 唯一单一注记层 (彻底杜绝多层重叠与双重文字，多类别精准着色，严格排除景点以防与scenic层重复)
+    // POI icon and label share one native symbol bucket.  The 2x sprites stay
+    // crisp at Windows 100/150/200% scaling and participate in one collision
+    // pass instead of a separate circle plus text pass.
     map.addLayer({
       id: 'osm-all-pois',
       type: 'symbol',
@@ -2226,11 +2164,23 @@ async function initApplication() {
       ],
       minzoom: 11,
       layout: {
+        'icon-image': ['match', ['get', 'class'],
+          ['school', 'university', 'college', 'kindergarten', 'library'], 'outmap-poi-school',
+          ['hospital', 'clinic', 'pharmacy', 'doctors', 'dentist'], 'outmap-poi-medical',
+          ['shop', 'grocery', 'supermarket', 'mall', 'bank', 'atm', 'marketplace', 'clothing_store', 'bakery', 'alcohol_shop'], 'outmap-poi-shop',
+          ['bus', 'bus_stop', 'railway', 'railway_station', 'parking', 'fuel', 'ferry_terminal'], 'outmap-poi-transit',
+          ['restaurant', 'fast_food', 'cafe', 'bar', 'beer', 'ice_cream'], 'outmap-poi-food',
+          ['lodging', 'hotel', 'motel', 'hostel'], 'outmap-poi-lodging',
+          ['town_hall', 'office', 'police', 'post', 'fire_station'], 'outmap-poi-civic',
+          ['park', 'garden', 'pitch', 'stadium', 'theatre', 'museum', 'cinema', 'art_gallery', 'place_of_worship'], 'outmap-poi-nature',
+          'outmap-poi-default'],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.68, 13, 0.78, 15, 0.9],
+        'icon-anchor': 'center',
         'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9.5, 13, 11, 15, 12.5],
         'text-anchor': 'top',
-        'text-offset': [0, 0.6],
+        'text-offset': [0, 1.25],
         'text-padding': 2,
         'symbol-sort-key': ['coalesce', ['get', 'rank'], 20]
       },
@@ -2269,28 +2219,6 @@ async function initApplication() {
       },
       paint: {
         'text-color': '#15803d',
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 2.0
-      }
-    });
-
-    // 15. 湖泊水库与水系地名
-    map.addLayer({
-      id: 'osm-water-names-poi',
-      type: 'symbol',
-      source: 'osm-vector-source',
-      'source-layer': 'water_name',
-      filter: ['has', 'name'],
-      minzoom: 8,
-      layout: {
-        'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 12, 12, 15, 13],
-        'text-anchor': 'center',
-        'text-padding': 2
-      },
-      paint: {
-        'text-color': '#0284c7',
         'text-halo-color': '#ffffff',
         'text-halo-width': 2.0
       }
@@ -2354,19 +2282,6 @@ async function initApplication() {
     });
 
     renderAllMapLabels(map);
-
-    // 点状地点、POI 与行政注记随地形抬升。沿道路排布的文字由 MapLibre
-    // 原生线标注管线处理，避免飞行动画中为大量道路文字重复计算地形高度。
-    try {
-      const styleLayers = map.getStyle()?.layers;
-      if (styleLayers) {
-        styleLayers.forEach(lyr => {
-          if (lyr.type === 'symbol' && lyr.layout?.['symbol-placement'] !== 'line') {
-            try { map.setLayoutProperty(lyr.id, 'symbol-z-elevate', true); } catch (e) {}
-          }
-        });
-      }
-    } catch (e) {}
 
     // MapLibre 的 trackResize 和 source lifecycle 会自行完成首屏尺寸与地形渲染；
     // 不再额外 resize/补帧，避免加载完成后多一次昂贵的 WebGL 全量重排。
@@ -2629,75 +2544,6 @@ if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
 }
 
-// MapLibre 会在地图渲染与 DEM 到达时原生重投影 DOM Marker。
-// 这里只同步角色样式；禁止在 idle 中 setLngLat/_update/triggerRepaint，
-// 否则会形成 idle -> repaint -> idle 的永久 WebGL 重绘循环。
-function refreshAllRouteMarkersElevation(map) {
-  try {
-    const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
-    if (!m) return;
-    if (typeof syncRouteMarkersVisualState === 'function') {
-      // 地形沉降只需重投递路线点；收藏点数据没有变化，不再额外序列化和
-      // 比较整份收藏 GeoJSON。
-      syncRouteMarkersVisualState(m, true, false);
-    }
-  } catch (err) {}
-}
-window.refreshAllRouteMarkersElevation = refreshAllRouteMarkersElevation;
-
-let routeMarkerElevationRefreshTimer = 0;
-let routeMarkerElevationRefreshFallback = 0;
-let routeMarkerElevationIdleHandler = null;
-let routeMarkerElevationRefreshMap = null;
-let routeMarkerElevationRefreshToken = 0;
-
-function clearScheduledRouteMarkerElevationRefresh() {
-  clearTimeout(routeMarkerElevationRefreshTimer);
-  clearTimeout(routeMarkerElevationRefreshFallback);
-  routeMarkerElevationRefreshTimer = 0;
-  routeMarkerElevationRefreshFallback = 0;
-  if (routeMarkerElevationIdleHandler && routeMarkerElevationRefreshMap) {
-    routeMarkerElevationRefreshMap.off('idle', routeMarkerElevationIdleHandler);
-  }
-  routeMarkerElevationIdleHandler = null;
-  routeMarkerElevationRefreshMap = null;
-}
-
-// DEM 瓦片完成和相机抵达可能在很短时间内连续触发。把它们合并为一次
-// MapLibre source 更新，并在仍有相机微调时等待原生 idle，避免旧飞掠定时器
-// 落到新地点后继续重建 worker 数据。
-function scheduleRouteMarkerElevationRefresh(map, requestedDelay = 120) {
-  const m = map || (typeof mapInstance !== 'undefined' ? mapInstance : null);
-  if (!m || !is3DView || typeof syncRouteMarkersVisualState !== 'function') return;
-  if (!routeStartCoord && !routeEndCoord && !routeViaPoints.some(via => Array.isArray(via?.coords))) return;
-  const token = ++routeMarkerElevationRefreshToken;
-  clearScheduledRouteMarkerElevationRefresh();
-
-  const run = () => {
-    if (token !== routeMarkerElevationRefreshToken) return;
-    clearScheduledRouteMarkerElevationRefresh();
-    refreshAllRouteMarkersElevation(m);
-  };
-
-  routeMarkerElevationRefreshTimer = setTimeout(() => {
-    routeMarkerElevationRefreshTimer = 0;
-    if (token !== routeMarkerElevationRefreshToken) return;
-    if (m.isMoving() || m.isZooming() || m.isRotating()) {
-      routeMarkerElevationRefreshMap = m;
-      routeMarkerElevationIdleHandler = () => {
-        routeMarkerElevationIdleHandler = null;
-        routeMarkerElevationRefreshMap = null;
-        routeMarkerElevationRefreshTimer = setTimeout(run, 60);
-      };
-      m.once('idle', routeMarkerElevationIdleHandler);
-      routeMarkerElevationRefreshFallback = setTimeout(run, 900);
-      return;
-    }
-    run();
-  }, Math.max(0, Number(requestedDelay) || 0));
-}
-window.scheduleRouteMarkerElevationRefresh = scheduleRouteMarkerElevationRefresh;
-
 let routeElevationRefreshTimer = 0;
 let routeElevationRefreshFallback = 0;
 let routeElevationRefreshIdleHandler = null;
@@ -2785,9 +2631,8 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
       ...flyOpts,
       onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
-        // 由 DEM/idle 事件合并为一次强刷；取消旧飞掠遗留任务，避免落地后三次
-        // GeoJSON worker 重建叠加造成卡顿，同时保留三维山表贴合修复。
-        scheduleRouteMarkerElevationRefresh(map, 500);
+        // Route point symbols are terrain-projected natively by MapLibre 6;
+        // only the optional elevation profile needs a delayed resample.
         scheduleRouteElevationProfileRefresh(map, 180);
         flyOpts.onArrival?.();
       }
@@ -6182,7 +6027,6 @@ let savedRoutes = []; // 本地持久化收藏路线列表
 let currentPlannedRouteCoords = []; // 当前规划的完整经纬度坐标
 let currentRouteMetrics = null; // 当前规划的核心指标 (距离、爬升等)
 let renderSavedRoutesListFn = null;
-let waypointMarkers = []; // 兼容旧扩展；收藏点现由 MapLibre 原生 GeoJSON 图层渲染。
 let customFolders = []; // 用户持久化自定义收藏夹分类
 let isPickingPoint = false;
 let tempPickedPoint = null;
@@ -6681,8 +6525,6 @@ function setupWaypointAndFavoritesSystem(map) {
   };
 
   const renderWaypointMarkersOnMap = (change = null) => {
-    waypointMarkers.forEach(m => m.remove());
-    waypointMarkers = [];
     if (!ensureFavoriteLayers()) {
       if (!favoriteLayerInitPending) {
         favoriteLayerInitPending = true;
@@ -9678,7 +9520,7 @@ function findFirstRoadLabelLayerId(map) {
       if (layers.some(layer => layer.id === preferredId)) return preferredId;
     }
     for (const layer of layers) {
-      if (layer.id.startsWith('outdoor-route-') || layer.id.startsWith('imported-track-')) continue;
+      if (layer.id.startsWith('outdoor-route-')) continue;
       if (layer.type === 'symbol' && layer.layout?.['symbol-placement'] === 'line') {
         return layer.id;
       }
@@ -9687,10 +9529,57 @@ function findFirstRoadLabelLayerId(map) {
   return undefined;
 }
 
-function renderRouteGeometry(map, pathCoords) {
-  if (map.getSource('imported-track-source')) {
-    map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
+let routeRevealAnimationFrame = 0;
+let routeRevealAnimationToken = 0;
+let lastRouteRevealSignature = '';
+
+function stopRouteRevealAnimation(map, restoreStatic = true) {
+  if (routeRevealAnimationFrame) cancelAnimationFrame(routeRevealAnimationFrame);
+  routeRevealAnimationFrame = 0;
+  ++routeRevealAnimationToken;
+  if (!restoreStatic || !map) return;
+  try {
+    if (map.getLayer('outdoor-route-casing')) map.setPaintProperty('outdoor-route-casing', 'line-gradient', '#0e4a23');
+    if (map.getLayer('outdoor-route-line')) map.setPaintProperty('outdoor-route-line', 'line-gradient', '#248a3d');
+  } catch (_) {}
+}
+
+function animateRouteReveal(map) {
+  if (!map?.getLayer('outdoor-route-line') || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    stopRouteRevealAnimation(map, true);
+    return;
   }
+  stopRouteRevealAnimation(map, false);
+  const token = ++routeRevealAnimationToken;
+  const started = performance.now();
+  const duration = window.innerWidth <= 768 ? 340 : 420;
+  const draw = now => {
+    if (token !== routeRevealAnimationToken || !map.getLayer('outdoor-route-line')) return;
+    const raw = Math.min(1, Math.max(0, (now - started) / duration));
+    const progress = Math.max(0.001, 1 - Math.pow(1 - raw, 3));
+    try {
+      map.setPaintProperty('outdoor-route-casing', 'line-gradient', ['step', ['line-progress'], '#0e4a23', progress, 'rgba(14,74,35,0)']);
+      map.setPaintProperty('outdoor-route-line', 'line-gradient', ['step', ['line-progress'], '#248a3d', progress, 'rgba(36,138,61,0)']);
+    } catch (_) {
+      stopRouteRevealAnimation(map, true);
+      return;
+    }
+    if (raw < 1) routeRevealAnimationFrame = requestAnimationFrame(draw);
+    else stopRouteRevealAnimation(map, true);
+  };
+  routeRevealAnimationFrame = requestAnimationFrame(draw);
+}
+
+function getRouteRevealSignature(pathCoords) {
+  if (!Array.isArray(pathCoords) || pathCoords.length < 2) return '';
+  const sampleIndexes = [0, Math.floor(pathCoords.length / 4), Math.floor(pathCoords.length / 2), Math.floor(pathCoords.length * 3 / 4), pathCoords.length - 1];
+  return `${pathCoords.length}:` + sampleIndexes.map(index => {
+    const point = pathCoords[index] || [];
+    return `${Number(point[0]).toFixed(5)},${Number(point[1]).toFixed(5)}`;
+  }).join(';');
+}
+
+function renderRouteGeometry(map, pathCoords) {
   const routeGeojson = {
     type: 'Feature',
     geometry: {
@@ -9706,16 +9595,11 @@ function renderRouteGeometry(map, pathCoords) {
     ['outdoor-route-casing', 'outdoor-route-line'].forEach(id => {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routePointLayersVisible ? 'visible' : 'none');
     });
-    if (beforeLabelId) {
-      try {
-        if (map.getLayer('outdoor-route-casing')) map.moveLayer('outdoor-route-casing', beforeLabelId);
-        if (map.getLayer('outdoor-route-line')) map.moveLayer('outdoor-route-line', beforeLabelId);
-      } catch (e) {}
-    }
   } else {
     map.addSource('outdoor-route-source', {
       type: 'geojson',
       data: routeGeojson,
+      lineMetrics: true,
       tolerance: 0.5,
       buffer: 128
     });
@@ -9736,6 +9620,7 @@ function renderRouteGeometry(map, pathCoords) {
       },
       paint: {
         'line-color': '#0e4a23',
+        'line-gradient': '#0e4a23',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 7.2, 10, 10.8, 14, 14.4, 17, 17.0],
         'line-opacity': 1.0
       }
@@ -9753,24 +9638,22 @@ function renderRouteGeometry(map, pathCoords) {
       },
       paint: {
         'line-color': '#248a3d',
+        'line-gradient': '#248a3d',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.8, 10, 7.6, 14, 10.8, 17, 13.0],
         'line-opacity': 1.0
       }
     }, beforeLabelId);
   }
-}
-
-function setRoutePendingVisual(map, isPending) {
-  try {
-    if (map.getLayer('outdoor-route-casing')) {
-      map.setPaintProperty('outdoor-route-casing', 'line-opacity', 1.0);
-      map.setPaintProperty('outdoor-route-casing', 'line-dasharray', null);
-    }
-    if (map.getLayer('outdoor-route-line')) {
-      map.setPaintProperty('outdoor-route-line', 'line-opacity', 1.0);
-      map.setPaintProperty('outdoor-route-line', 'line-dasharray', null);
-    }
-  } catch (e) {}
+  // Replanning can legitimately return the exact same geometry (profile panel
+  // refresh, cache hit, or a duplicate cloud update). Re-running the reveal in
+  // that case only causes a visible flash and needless style uploads.
+  const revealSignature = getRouteRevealSignature(pathCoords);
+  if (revealSignature && revealSignature !== lastRouteRevealSignature) {
+    lastRouteRevealSignature = revealSignature;
+    animateRouteReveal(map);
+  } else {
+    stopRouteRevealAnimation(map, true);
+  }
 }
 
 // 科学真实高程采样与中国三大阶梯地理基准模型 (彻底剔除脱离实际的 3100m 正弦波假数据)
@@ -10020,16 +9903,11 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
   if (ordered.length < 2) {
     currentRouteAbortController?.abort();
     currentRouteAbortController = null;
+    stopRouteRevealAnimation(map, true);
+    lastRouteRevealSignature = '';
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
-    if (map.getSource('imported-track-source')) {
-      map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
-    }
-    importedTrackMarkers.forEach(m => {
-      try { m.remove(); } catch (e) {}
-    });
-    importedTrackMarkers = [];
     if (statsBox) statsBox.style.display = 'none';
     if (chartSection) chartSection.style.display = 'none';
     const btnDetails = document.getElementById('btn-route-details-toggle');
@@ -10112,7 +9990,6 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     const totalDistKm = cachedLegs.reduce((sum, leg) => sum + (leg.distKm || 0), 0);
     const totalDurationSec = cachedLegs.reduce((sum, leg) => sum + (leg.durationSec || 0), 0);
     renderRouteGeometry(map, finalCoords);
-    setRoutePendingVisual(map, false);
     updateProfileAndMetrics(map, finalCoords, totalDistKm, totalDurationSec, true, shouldFitBounds);
     if (distEl) {
       distEl.innerText = distEl.innerText.replace(' (路网匹配中...)', '').replace(' (导引)', '');
@@ -10122,7 +9999,6 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
 
   // 瞬间上图并展现即时导引指标
   renderRouteGeometry(map, limitGeometryPoints(initialPathCoords));
-  setRoutePendingVisual(map, true);
   // Pending feedback stays lightweight: do not synchronously sample up to 280
   // terrain points twice for every edit. Final road geometry owns the profile.
   let pendingDistanceKm = 0;
@@ -10405,7 +10281,6 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
       if (mergedCoords.length > 0) {
         const finalCoords = limitGeometryPoints(mergedCoords);
         renderRouteGeometry(map, finalCoords);
-        setRoutePendingVisual(map, false);
         updateProfileAndMetrics(map, finalCoords, mergedDistKm, mergedDurationSec, isEntireRouteRoad, shouldFitBounds);
       }
     } catch (e) {
@@ -10857,16 +10732,11 @@ function setupOutdoorRouteSystem(map) {
     currentRouteAbortController?.abort();
     currentRouteAbortController = null;
     ++currentRouteRequestId;
+    stopRouteRevealAnimation(map, true);
+    lastRouteRevealSignature = '';
     if (map.getSource('outdoor-route-source')) {
       map.getSource('outdoor-route-source').setData({ type: 'FeatureCollection', features: [] });
     }
-    if (map.getSource('imported-track-source')) {
-      map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
-    }
-    importedTrackMarkers.forEach(m => {
-      try { m.remove(); } catch (e) {}
-    });
-    importedTrackMarkers = [];
     if (routeStartMarker) routeStartMarker.remove();
     if (routeEndMarker) routeEndMarker.remove();
     if (profileCursorMarker) profileCursorMarker.remove();
@@ -11708,22 +11578,14 @@ function parseTrackFile(content, fileName) {
   return null;
 }
 
-let importedTrackMarkers = [];
-
 function displayImportedTrack(map, trackData) {
   const { name, coords, start, end, viaPoints } = trackData;
   const pathCoords = coords.map(c => [c[0], c[1]]);
 
   // 1. 在地图上绘制 Apple Maps 原生纯实心翠绿路线丝带 (严格置于道路标牌与路名之下，与系统导航 100% 统一)
-  if (map.getSource('imported-track-source')) {
-    map.getSource('imported-track-source').setData({ type: 'FeatureCollection', features: [] });
-  }
   renderRouteGeometry(map, pathCoords);
 
   // 2. 清除并完全对接系统路线图钉体系 (包含起终点与全量途径点)
-  importedTrackMarkers.forEach(m => m.remove());
-  importedTrackMarkers = [];
-
   if (routeStartMarker) { routeStartMarker.remove(); routeStartMarker = null; }
   if (routeEndMarker) { routeEndMarker.remove(); routeEndMarker = null; }
   routeViaPoints.forEach(v => {
@@ -12042,12 +11904,6 @@ function setupLayersPopover(map) {
     FAVORITE_LAYER_IDS.forEach(id => {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
     });
-    if (Array.isArray(waypointMarkers)) {
-      waypointMarkers.forEach(m => {
-        const el = m.getElement?.();
-        if (el) el.style.display = visible ? '' : 'none';
-      });
-    }
   });
 
   // 2. 已收藏的蓝色路线独立显示；默认关闭，避免与当前规划路线重叠。
@@ -12070,7 +11926,7 @@ function setupLayersPopover(map) {
     const visible = togglePlannedRoute.checked;
     routePointLayersVisible = visible;
     const visibility = visible ? 'visible' : 'none';
-    ['outdoor-route-casing', 'outdoor-route-line', 'imported-track-casing', 'imported-track-line', ...ROUTE_POINT_LAYER_IDS].forEach(id => {
+    ['outdoor-route-casing', 'outdoor-route-line', ...ROUTE_POINT_LAYER_IDS].forEach(id => {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility);
     });
     // 隐藏/显示起终点与途径点图钉
@@ -12079,9 +11935,6 @@ function setupLayersPopover(map) {
     if (routeEndMarker?.getElement()) routeEndMarker.getElement().style.display = displayStyle;
     routeViaPoints.forEach(v => {
       if (v.marker?.getElement()) v.marker.getElement().style.display = displayStyle;
-    });
-    importedTrackMarkers.forEach(m => {
-      if (m.getElement()) m.getElement().style.display = displayStyle;
     });
     window.renderWaypointMarkersOnMap?.();
   });

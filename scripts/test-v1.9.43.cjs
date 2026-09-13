@@ -16,7 +16,8 @@ const staticChecks = [
   [/cloudSyncDebounceTimer = null;[\s\S]*?const runSync = async \(\) => \{\s*cloudSyncDebounceTimer = null;/.test(sourceText),
     'cloud sync timer must be cleared before and when running'],
   [/folderTabOrderUpdatedAt: syncedUi\.folderTabOrderUpdatedAt/.test(sourceText), 'folder-order timestamp must be synced'],
-  [/builtinTabNamesUpdatedAt: syncedUi\.builtinTabNamesUpdatedAt/.test(sourceText), 'built-in tab names timestamp must be synced']
+  [/builtinTabNamesUpdatedAt: syncedUi\.builtinTabNamesUpdatedAt/.test(sourceText), 'built-in tab names timestamp must be synced'],
+  [!sourceText.includes('scheduleRouteMarkerElevationRefresh'), 'terrain updates must not re-submit the route-point GeoJSON source']
 ];
 for (const [ok, message] of staticChecks) if (!ok) throw new Error(message);
 
@@ -62,21 +63,8 @@ app.whenReady().then(async () => {
       const legacyUi = mergeSyncedUiMetadata({ folderTabOrder: ['legacy-cloud'] });
       check(legacyUi.folderTabOrder[0] === 'legacy-cloud', 'legacy cloud metadata did not converge on first upgraded sync');
 
-      routeViaPoints = [{ id: 'terrain_refresh', coords: [118, 35], name: '途经点' }];
-      const originalSyncMarkers = window.syncRouteMarkersVisualState;
-      let refreshCount = 0;
-      let favoritesTouched = false;
-      window.syncRouteMarkersVisualState = (targetMap, force, syncFavorites) => {
-        refreshCount += 1;
-        favoritesTouched ||= syncFavorites !== false;
-      };
-      scheduleRouteMarkerElevationRefresh(map, 8);
-      scheduleRouteMarkerElevationRefresh(map, 8);
-      scheduleRouteMarkerElevationRefresh(map, 8);
-      await sleep(80);
-      window.syncRouteMarkersVisualState = originalSyncMarkers;
-      check(refreshCount === 1, 'terrain refresh signals were not coalesced: ' + refreshCount);
-      check(!favoritesTouched, 'terrain-only refresh serialized the favorites source');
+      check(typeof window.scheduleRouteMarkerElevationRefresh === 'undefined',
+        'removed terrain route-point refresh leaked back into runtime');
 
       savedRoutes = [{ id: 'long_press_route', name: '长按路线', mode: 'drive', pathCoords: [[118, 35], [118.1, 35.1]], metrics: {} }];
       let routeLoadCount = 0;
@@ -96,7 +84,7 @@ app.whenReady().then(async () => {
       document.querySelectorAll('.fav-route-context-menu').forEach(node => node.remove());
 
       return { nearbyFavoritesPreserved: true, metadataLwwPassed: true,
-        terrainRefreshCoalesced: true, routeLongPressClickSuppressed: true };
+        terrainRoutePointRefreshRemoved: true, routeLongPressClickSuppressed: true };
     })()`);
     console.log('v1.9.43 performance and interaction regressions passed:', result);
     clearTimeout(watchdog);

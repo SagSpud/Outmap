@@ -72,11 +72,12 @@ const OFFLINE_SAT_DIR = path.join(OFFLINE_BASE_DIR, 'sat');
 const OFFLINE_VEC_DIR = path.join(OFFLINE_BASE_DIR, 'vector');
 const OFFLINE_FONT_DIR = path.join(OFFLINE_BASE_DIR, 'fonts');
 const OFFLINE_ROUTE_DIR = path.join(OFFLINE_BASE_DIR, 'routes');
+const OFFLINE_CONTOUR_DIR = path.join(OFFLINE_BASE_DIR, 'contour');
 
 let localServerPort = 28795;
 let ofmTileTemplate = 'https://tiles.openfreemap.org/planet/20260830_080001_pt/{z}/{x}/{y}.pbf';
 
-[OFFLINE_DEM_DIR, OFFLINE_VEC_DIR, OFFLINE_FONT_DIR, OFFLINE_ROUTE_DIR].forEach(dir => {
+[OFFLINE_DEM_DIR, OFFLINE_VEC_DIR, OFFLINE_FONT_DIR, OFFLINE_ROUTE_DIR, OFFLINE_CONTOUR_DIR].forEach(dir => {
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (e) {
@@ -375,7 +376,8 @@ function startLocalTileServer() {
 
     const server = http.createServer(async (req, res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       res.setHeader('Connection', 'keep-alive');
 
       if (req.method === 'OPTIONS') {
@@ -388,6 +390,65 @@ function startLocalTileServer() {
         const url = new URL(req.url, `http://127.0.0.1:${localServerPort}`);
         const parts = url.pathname.replace(/^\/+/, '').split('/');
         const type = parts[0];
+
+        // Desktop-only persistent contour cache.  DEM files remain untouched;
+        // the renderer generates a contour tile once and later sessions reuse
+        // this compact PBF directly from disk.
+        if (type === 'contour' && parts.length >= 5) {
+          const schema = String(parts[1] || '').replace(/[^a-z0-9_-]/gi, '');
+          const z = Number(parts[2]);
+          const x = Number(parts[3]);
+          const yFile = String(parts[4] || '');
+          const y = Number(yFile.split('.')[0]);
+          if (!schema || !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y)) {
+            res.writeHead(400); res.end('Invalid contour tile'); return;
+          }
+          const contourPath = path.join(OFFLINE_CONTOUR_DIR, schema, String(z), String(x), `${y}.pbf`);
+          const contourKey = `contour/${schema}/${z}/${x}/${y}.pbf`;
+          if (req.method === 'GET') {
+            const memory = getCachedTile(contourKey);
+            if (memory) {
+              res.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': memory.length, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Tile-Source': 'memory-cache' });
+              res.end(memory); return;
+            }
+            try {
+              const data = await fs.promises.readFile(contourPath);
+              if (data.length > 0) {
+                setCachedTile(contourKey, data);
+                res.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': data.length, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Tile-Source': 'local-contour' });
+                res.end(data); return;
+              }
+            } catch (error) {
+              if (error.code !== 'ENOENT') throw error;
+            }
+            res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return;
+          }
+          if (req.method === 'PUT') {
+            const chunks = [];
+            let bytes = 0;
+            for await (const chunk of req) {
+              bytes += chunk.length;
+              if (bytes > 8 * 1024 * 1024) {
+                res.writeHead(413); res.end('Contour tile too large'); return;
+              }
+              chunks.push(chunk);
+            }
+            const data = Buffer.concat(chunks);
+            if (!data.length) { res.writeHead(400); res.end('Empty contour tile'); return; }
+            await fs.promises.mkdir(path.dirname(contourPath), { recursive: true });
+            const tempPath = `${contourPath}.${process.pid}.${Date.now()}.tmp`;
+            try {
+              await fs.promises.writeFile(tempPath, data);
+              await fs.promises.rename(tempPath, contourPath);
+            } catch (error) {
+              fs.promises.rm(tempPath, { force: true }).catch(() => {});
+              throw error;
+            }
+            setCachedTile(contourKey, data);
+            res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); return;
+          }
+          res.writeHead(405); res.end(); return;
+        }
 
         // 处理字体 Glyphs 请求: /fonts/{fontstack}/{range}.pbf
         if (type === 'fonts' && parts.length >= 3) {
