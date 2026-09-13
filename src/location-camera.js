@@ -50,8 +50,10 @@
     let internalMove = false;
     let arrivalDelivered = false;
     let refinementCount = 0;
+    let easingProgress = 0;
     let flightLoadStateActive = false;
     let expectedMoveEnd = 0;
+    let lateCorrectionTimer = 0;
 
     const listen = (type, handler) => {
       map.on(type, handler);
@@ -70,6 +72,10 @@
         canvas.removeEventListener(type, dispose, true);
       }
       timers.forEach(clearTimeout);
+      // MapLibre 6 exposes this hook as a public API. Outmap owns the map and
+      // does not install another camera transform callback, so always clear
+      // our bounded landing guard when this flight is finished/cancelled.
+      try { map.setTransformCameraUpdate?.(null); } catch (_) {}
       setFlightLoadState(false);
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
@@ -88,6 +94,11 @@
     const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
     const desiredAnchor = anchor(map, options.centered);
 
+    const smoothStep = t => {
+      easingProgress = t;
+      return t * t * (3 - 2 * t);
+    };
+
     const cameraOptions = refineDuration => {
       const rect = map.getContainer().getBoundingClientRect();
       const viewportCenter = new maplibregl.Point(rect.width / 2, rect.height / 2);
@@ -99,7 +110,8 @@
         offset: desiredAnchor.sub(viewportCenter),
         duration: refineDuration,
         curve: 1,
-        easing: t => t * t * (3 - 2 * t),
+        easing: smoothStep,
+        freezeElevation: false,
         essential: false
       };
     };
@@ -109,19 +121,82 @@
       return Math.hypot(point.x - desiredAnchor.x, point.y - desiredAnchor.y);
     };
 
-    const startNativeMove = (method, moveDuration) => {
+    const startNativeMove = (method, moveDuration, overrides = null) => {
       expectedMoveEnd = performance.now() + Math.max(0, moveDuration);
+      easingProgress = moveDuration === 0 ? 1 : 0;
       internalMove = true;
-      map[method](cameraOptions(moveDuration));
+      map[method]({ ...cameraOptions(moveDuration), ...(overrides || {}) });
       internalMove = false;
     };
 
+    // MapLibre protects its camera from entering newly arrived terrain before
+    // user camera callbacks run. During a long flight the destination DEM can
+    // arrive on the final frame; without this final-state guard the collision
+    // protection leaves the camera at an intermediate zoom/pitch. This public
+    // hook restores only the requested endpoint, with the best elevation that
+    // is currently available. The screen anchor itself is solved below using
+    // project/unproject, so there is no dependency on private transforms.
+    map.setTransformCameraUpdate?.(transform => {
+      if (disposed || easingProgress < 0.999) return {};
+      let elevation = Number(options.elevation);
+      try {
+        const sampled = map.queryTerrainElevation?.(coords);
+        if (Number.isFinite(sampled)) elevation = sampled;
+      } catch (_) {}
+      return {
+        zoom,
+        pitch,
+        bearing,
+        ...(Number.isFinite(elevation) ? { elevation } : {})
+      };
+    });
+
+    const cameraMatches = () => (
+      Math.abs(map.getZoom() - zoom) < 0.015
+      && Math.abs(map.getPitch() - pitch) < 0.08
+    );
+
     const refineIfNeeded = () => {
-      if (disposed || map.isMoving() || refinementCount >= 2 || landingError() < 3) return false;
+      if (disposed || map.isMoving() || refinementCount >= 4) return false;
+      const actual = map.project(coords);
+      const error = actual.sub(desiredAnchor);
+      if (error.mag() < 2.5 && cameraMatches()) return false;
+
+      const rect = map.getContainer().getBoundingClientRect();
+      const viewportCenter = new maplibregl.Point(rect.width / 2, rect.height / 2);
+      let correctedCenter;
+      try {
+        correctedCenter = map.unproject(viewportCenter.add(error));
+      } catch (_) {
+        correctedCenter = maplibregl.LngLat.convert(coords);
+      }
+      if (!correctedCenter || !Number.isFinite(correctedCenter.lng) || !Number.isFinite(correctedCenter.lat)) {
+        correctedCenter = maplibregl.LngLat.convert(coords);
+      }
       refinementCount++;
-      startNativeMove('easeTo', reduced ? 0 : 140);
+      startNativeMove('easeTo', reduced ? 0 : 130, {
+        center: correctedCenter,
+        offset: [0, 0]
+      });
       return true;
     };
+
+    const scheduleLateCorrection = (delay = 80) => {
+      if (disposed || !arrivalDelivered || lateCorrectionTimer) return;
+      lateCorrectionTimer = setTimeout(() => {
+        lateCorrectionTimer = 0;
+        refineIfNeeded();
+      }, delay);
+      timers.push(lateCorrectionTimer);
+    };
+
+    // A destination DEM can arrive after the first visual landing (especially
+    // on a cold web cache). Recheck only on that source and on idle, within the
+    // bounded lifetime below; this does not create a render loop.
+    listen('sourcedata', event => {
+      if (event?.sourceId === 'terrain-dem') scheduleLateCorrection();
+    });
+    listen('idle', () => scheduleLateCorrection(0));
 
     listen('moveend', () => {
       if (disposed) return;
@@ -137,12 +212,9 @@
         arrivalDelivered = true;
         try { options.onArrival?.(); } catch (_) {}
         setFlightLoadState(false);
-        // One bounded late-DEM correction opportunity. No persistent idle
-        // listener and no GeoJSON/source resubmission are involved.
-        timers.push(setTimeout(() => {
-          if (!disposed && !refineIfNeeded()) dispose();
-        }, 900));
-        timers.push(setTimeout(dispose, 2200));
+        scheduleLateCorrection(250);
+        timers.push(setTimeout(() => scheduleLateCorrection(0), 1100));
+        timers.push(setTimeout(dispose, 5000));
       }
     });
 

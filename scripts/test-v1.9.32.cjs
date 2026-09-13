@@ -58,15 +58,16 @@ app.whenReady().then(async () => {
       check(routeViaPoints.find(v => v.id === editId).coords[1] === 35.5, 'search after reorder targeted wrong point');
 
       map.addSource('audit-diff', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
-      const source = map.getSource('audit-diff'); let sets = 0, diffs = 0;
+      const source = map.getSource('audit-diff'); let sets = 0, diffs = 0, lastWrite = Promise.resolve();
       const set = source.setData.bind(source), update = source.updateData.bind(source);
-      source.setData = d => { sets++; return set(d); };
-      source.updateData = d => { diffs++; return update(d); };
+      source.setData = d => { sets++; return (lastWrite = set(d)); };
+      source.updateData = d => { diffs++; return (lastWrite = update(d)); };
       const feature = (id, name, x) => ({ type: 'Feature', id, properties: { id, name, icon: name }, geometry: { type: 'Point', coordinates: [x,35] } });
       const fc = features => ({ type: 'FeatureCollection', features });
       submitGeoJSONChanges(source, fc([feature('a','old',118),feature('b','remove',119)]));
       for (let i = 0; i < 20; i++) submitGeoJSONChanges(source, fc([feature('a','old',118),feature('b','remove',119)]));
       submitGeoJSONChanges(source, fc([feature('a','new',120),feature('c','add',121)]));
+      await lastWrite;
       const data = await source.getData();
       check(sets === 1 && diffs === 1, 'unchanged data caused worker updates');
       const a = data.features.find(f => f.id === 'a');

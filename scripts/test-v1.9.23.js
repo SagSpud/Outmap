@@ -8,14 +8,17 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
 const app = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
+const bootstrap = fs.readFileSync(path.join(root, 'src', 'map-bootstrap.js'), 'utf8');
 
 // 1. Version consistency
 assert(/^1\.9\.\d+$/.test(pkg.version) && Number(pkg.version.split('.')[2]) >= 23);
 assert.strictEqual(lock.version, pkg.version);
 assert.strictEqual(lock.packages[''].version, pkg.version);
 assert(app.includes(`const APP_VERSION = '${pkg.version}';`));
-for (const file of ['style.css', 'app.js', 'location-camera.js', 'favorite-interactions.js']) {
-  assert(html.includes(`${file}?v=${pkg.version}`), `${file} must use the current cache version`);
+assert(html.includes(`style.css?v=${pkg.version}`), 'style.css must use the current cache version');
+assert(html.includes(`map-bootstrap.js?v=${pkg.version}`), 'module bootstrap must use the current cache version');
+for (const file of ['app.js', 'location-camera.js', 'favorite-interactions.js']) {
+  assert(bootstrap.includes(`${file}?v=${pkg.version}`), `${file} must use the current cache version`);
 }
 assert(html.includes(`id="brand-ver-badge-txt">v${pkg.version}</span>`));
 

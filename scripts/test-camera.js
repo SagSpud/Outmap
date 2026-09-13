@@ -46,13 +46,14 @@ app.whenReady().then(async () => {
     let correctiveJumps=0;
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
-    function sample(name, c, centered=false) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),elevation:m.queryTerrainElevation(c),center:m.getCenter(),padding:m.getPadding()}); }
+    function sample(name, c, centered=false, expectedZoom=null, expectedPitch=null) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),expectedZoom,expectedPitch,elevation:m.queryTerrainElevation(c),center:m.getCenter(),padding:m.getPadding()}); }
     for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
-      OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 500); sample(name,c,centered);
+      OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 500); sample(name,c,centered,z,pitch);
     }
     let oldArrival=0,newArrival=0;
     OutmapLocationCamera.fly(m,[118.36,35.1],{duration:500,onArrival:()=>oldArrival++}); await sleep(30);
-    OutmapLocationCamera.fly(m,[91.117,29.646],{zoom:14.8,duration:200,onArrival:()=>newArrival++}); await sleep(500); sample('rapid',[91.117,29.646]);
+    const rapidPitch=m.getPitch();
+    OutmapLocationCamera.fly(m,[91.117,29.646],{zoom:14.8,duration:200,onArrival:()=>newArrival++}); await sleep(500); sample('rapid',[91.117,29.646],false,14.8,rapidPitch);
     let interruptedArrival=0;
     OutmapLocationCamera.fly(m,[117,36],{duration:500,onArrival:()=>interruptedArrival++}); await sleep(40);
     m.getCanvas().dispatchEvent(new Event('wheel')); m.jumpTo({center:[110,30],zoom:10}); await sleep(650);
@@ -61,21 +62,26 @@ app.whenReady().then(async () => {
     m.jumpTo({center:[111,31],zoom:9}); await sleep(250);
     const replacementCenter=m.getCenter();
     let instantArrival=0;
-    OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35]);
+    OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35],false,12,0);
     // Simulate a late, higher resolution DEM response after arrival.
-    OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100}); await sleep(1500); sample('late DEM',[87,43]);
+    OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100}); await sleep(1500); sample('late DEM',[87,43],false,15,50);
     if (innerWidth <= 768) {
       const panel = document.createElement('div'); panel.id='route-panel'; panel.style.cssText='position:fixed;left:0;right:0;bottom:0;height:300px;background:white'; document.body.appendChild(panel);
-      OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:50,duration:120}); await sleep(500); sample('mobile drawer',[118,35]);
+      OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:50,duration:120}); await sleep(500); sample('mobile drawer',[118,35],false,14,50);
       if (m.project([118,35]).y >= panel.getBoundingClientRect().top) throw Error('Target hidden under drawer');
       panel.style.display='none';
-      OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:0,duration:0}); await sleep(200); sample('hidden drawer',[118,35]);
+      OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:0,duration:0}); await sleep(200); sample('hidden drawer',[118,35],false,14,0);
     }
     m.remove();
     return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps};
   })()`);
   console.log(JSON.stringify(result, null, 2));
-  for (const row of result.rows) { assert(row.error < 3, `${row.name}: ${row.error}px`); assert(Object.values(row.padding).every(x => x === 0)); }
+  for (const row of result.rows) {
+    assert(row.error < 3, `${row.name}: ${row.error}px`);
+    assert(Object.values(row.padding).every(x => x === 0));
+    if (row.expectedZoom != null) assert(Math.abs(row.zoom - row.expectedZoom) < 0.02, `${row.name}: zoom ${row.zoom}`);
+    if (row.expectedPitch != null) assert(Math.abs(row.pitch - row.expectedPitch) < 0.1, `${row.name}: pitch ${row.pitch}`);
+  }
   assert.strictEqual(result.rows.find(r => r.name === '2D').pitch, 0);
   assert.strictEqual(result.oldArrival, 0);
   assert.strictEqual(result.newArrival, 1);
