@@ -7,11 +7,12 @@ const { VectorTile } = require('@mapbox/vector-tile');
 const { PbfReader } = require('pbf');
 
 const root = path.resolve(__dirname, '..');
+const expectedVersion = require(path.join(root, 'package.json')).version;
 const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 const bootstrap = fs.readFileSync(path.join(root, 'src', 'map-bootstrap.js'), 'utf8');
 const appSource = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 
-assert(/type="module" src="map-bootstrap\.js\?v=1\.9\.52"/.test(html),
+assert(html.includes(`type="module" src="map-bootstrap.js?v=${expectedVersion}"`),
   'production page must boot MapLibre 6 through the module bootstrap');
 assert(!html.includes('vendor/maplibre-gl.js'), 'production page still loads the retired MapLibre 5 UMD bundle');
 assert(/setWorkerUrl\(new URL\('\.\/vendor\/maplibre-gl-worker\.mjs'/.test(bootstrap),

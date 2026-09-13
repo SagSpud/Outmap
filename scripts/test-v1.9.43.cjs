@@ -4,6 +4,7 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
+const expectedVersion = require(path.join(root, 'package.json')).version;
 const sourceText = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
 const htmlText = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
 new vm.Script(sourceText, { filename: 'src/app.js' });
@@ -38,7 +39,7 @@ app.whenReady().then(async () => {
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       const map = window.mapInstance;
       check(map?.__outmapStyleReady, 'Map style did not initialize');
-      check(Number(window.OUTMAP_APP_VERSION.split('.')[2]) >= 43, 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
+      check(window.OUTMAP_APP_VERSION === ${JSON.stringify(expectedVersion)}, 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
 
       const localPoint = { id: 'near_a', name: '东门', lng: 118, lat: 35, updatedAt: 10 };
       const cloudPoint = { id: 'near_b', name: '停车点', lng: 118.00001, lat: 35.00001, updatedAt: 20 };

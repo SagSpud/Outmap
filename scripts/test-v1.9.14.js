@@ -6,8 +6,9 @@ const { enumerateMissingTileRanges, enumerateTiles } = require('../src/offline-w
 (async () => {
   const pkg = require('../package.json');
   // This regression suite covers the 1.9.14 downloader architecture and is
-  // intentionally reusable for subsequent patch releases.
-  assert(/^1\.9\.\d+$/.test(pkg.version) && Number(pkg.version.split('.')[2]) >= 14);
+  // intentionally reusable across later minor and major releases.
+  const [major, minor, patch] = pkg.version.split('.').map(Number);
+  assert(major > 1 || (major === 1 && (minor > 9 || (minor === 9 && patch >= 14))));
 
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');

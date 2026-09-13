@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const { DownloadLane } = require('./src/download-lane.cjs');
 let originalFs = fs;
 try {
   originalFs = require('original-fs');
@@ -130,7 +131,13 @@ const memoryTileCache = new Map();
 // and push the renderer into paging during long 3D sessions.
 const MAX_MEMORY_TILES = 20000;
 const MAX_MEMORY_TILE_BYTES = 512 * 1024 * 1024;
+const MINIMIZED_MEMORY_TILE_BYTES = 256 * 1024 * 1024;
+const PRESSURE_MEMORY_TILE_BYTES = 128 * 1024 * 1024;
+const LONG_MINIMIZED_CACHE_TRIM_MS = 5 * 60 * 1000;
+const MEMORY_PRESSURE_CHECK_INTERVAL_MS = 30 * 1000;
 let memoryTileCacheBytes = 0;
+let minimizedCacheTrimTimer = null;
+let lastMemoryPressureCheckAt = 0;
 
 function getCachedTile(key) {
   if (!memoryTileCache.has(key)) return null;
@@ -154,6 +161,70 @@ function setCachedTile(key, buf) {
   }
   memoryTileCache.set(key, buf);
   memoryTileCacheBytes += buf.length;
+  trimMemoryTileCacheOnPressure();
+}
+
+function trimMemoryTileCache(targetBytes) {
+  const boundedTarget = Math.max(0, Math.min(MAX_MEMORY_TILE_BYTES, Number(targetBytes) || 0));
+  const beforeBytes = memoryTileCacheBytes;
+  const beforeTiles = memoryTileCache.size;
+  while (memoryTileCacheBytes > boundedTarget && memoryTileCache.size > 0) {
+    const oldestKey = memoryTileCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    memoryTileCacheBytes -= memoryTileCache.get(oldestKey).length;
+    memoryTileCache.delete(oldestKey);
+  }
+  return {
+    removedBytes: Math.max(0, beforeBytes - memoryTileCacheBytes),
+    removedTiles: Math.max(0, beforeTiles - memoryTileCache.size)
+  };
+}
+
+function getSystemMemoryPressure() {
+  try {
+    if (typeof process.getSystemMemoryInfo !== 'function') return false;
+    const info = process.getSystemMemoryInfo();
+    const total = Math.max(0, Number(info?.total) || 0);
+    const free = Math.max(0, Number(info?.free) || 0);
+    return total > 0 && (free < 2 * 1024 * 1024 || free / total < 0.08);
+  } catch (e) {
+    return false;
+  }
+}
+
+// No polling and no extra process: this inexpensive check runs at most once
+// every 30 seconds, and only while new local tiles are entering the cache.
+function trimMemoryTileCacheOnPressure() {
+  const now = Date.now();
+  if (now - lastMemoryPressureCheckAt < MEMORY_PRESSURE_CHECK_INTERVAL_MS) return;
+  lastMemoryPressureCheckAt = now;
+  if (getSystemMemoryPressure()) trimMemoryTileCache(PRESSURE_MEMORY_TILE_BYTES);
+}
+
+function cancelMinimizedCacheTrim() {
+  if (!minimizedCacheTrimTimer) return;
+  clearTimeout(minimizedCacheTrimTimer);
+  minimizedCacheTrimTimer = null;
+}
+
+function scheduleMinimizedCacheTrim() {
+  cancelMinimizedCacheTrim();
+  minimizedCacheTrimTimer = setTimeout(() => {
+    minimizedCacheTrimTimer = null;
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isMinimized()) return;
+    const targetBytes = getSystemMemoryPressure()
+      ? PRESSURE_MEMORY_TILE_BYTES
+      : MINIMIZED_MEMORY_TILE_BYTES;
+    const trimmed = trimMemoryTileCache(targetBytes);
+    if (trimmed.removedTiles > 0) {
+      console.log('[Tile Cache Trim]', {
+        reason: targetBytes === PRESSURE_MEMORY_TILE_BYTES ? 'memory-pressure' : 'long-minimized',
+        removedTiles: trimmed.removedTiles,
+        remainingMB: Math.round(memoryTileCacheBytes / 1024 / 1024)
+      });
+    }
+  }, LONG_MINIMIZED_CACHE_TRIM_MS);
+  minimizedCacheTrimTimer.unref?.();
 }
 
 async function resolveOfmTemplate() {
@@ -1066,16 +1137,19 @@ function createWindow() {
     // 2. 最小化或隐藏到后台时：Chromium 自动限频休眠，释放 CPU/GPU 资源节能降温
     mainWindow.on('minimize', () => {
       setMapInteractionActive(false, true);
+      scheduleMinimizedCacheTrim();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'minimized' });
       }
     });
     mainWindow.on('restore', () => {
+      cancelMinimizedCacheTrim();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'restored' });
       }
     });
     mainWindow.on('focus', () => {
+      cancelMinimizedCacheTrim();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'focused' });
       }
@@ -1336,6 +1410,7 @@ app.whenReady().then(async () => {
     let newlySavedCount = 0;
     let newlyAddedCount = 0;
     let finalInventoryUpdated = false;
+    let downloadLanes = null;
     try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
@@ -1479,45 +1554,12 @@ app.whenReady().then(async () => {
 
     const speedSamples = [{ time: startTime, bytes: 0 }];
 
-    class DownloadLane {
-      constructor(limit) {
-        this.limit = limit;
-        this.active = 0;
-        this.waiters = [];
-        this.cooldownUntil = 0;
-      }
-      async acquire() {
-        if (signal?.aborted) return () => {};
-        // A CDN 429/5xx response briefly cools this origin down. Waiting here
-        // prevents all workers from retrying in lock-step and getting rejected
-        // again while still allowing the other layer to make progress.
-        const waitMs = this.cooldownUntil - Date.now();
-        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, Math.min(waitMs, 3000)));
-        if (signal?.aborted) return () => {};
-        if (this.active < this.limit) {
-          this.active++;
-          return Promise.resolve(() => this.release());
-        }
-        return new Promise(resolve => this.waiters.push(resolve));
-      }
-      coolDown(ms) {
-        this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + Math.max(0, ms));
-      }
-      release() {
-        const next = this.waiters.shift();
-        if (next) {
-          const grant = () => next(() => this.release());
-          const waitMs = this.cooldownUntil - Date.now();
-          if (waitMs > 0) setTimeout(grant, Math.min(waitMs, 5000));
-          else grant();
-        }
-        else this.active = Math.max(0, this.active - 1);
-      }
-    }
-
     // Keep DEM and vector origins from stampeding independently. This preserves
     // the measured 36 total workers while capping each CDN at 18 connections.
-    const downloadLanes = { dem: new DownloadLane(18), vector: new DownloadLane(18) };
+    downloadLanes = {
+      dem: new DownloadLane(18, signal),
+      vector: new DownloadLane(18, signal)
+    };
     const failureReasons = new Map();
     function recordFailure(error, type) {
       const status = error?.status
@@ -2004,6 +2046,9 @@ app.whenReady().then(async () => {
       }
       offlineDownloadRunning = false;
       activeDownloadAbort = null;
+      if (downloadLanes) {
+        for (const lane of Object.values(downloadLanes)) lane.dispose();
+      }
       if (!finalInventoryUpdated && (newlySavedCount > 0 || newlyAddedCount > 0)) {
         refreshOfflineInventory().catch(() => {});
       }

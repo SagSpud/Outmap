@@ -4,6 +4,7 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
+const expectedVersion = require(path.join(root, 'package.json')).version;
 const sourceText = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
 new vm.Script(sourceText, { filename: 'src/app.js' });
 if (!/opacityWhenCovered:\s*['"]1['"]/.test(sourceText)) {
@@ -26,7 +27,7 @@ app.whenReady().then(async () => {
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       const map = window.mapInstance;
       check(map?.__outmapStyleReady, 'Map style did not initialize');
-      check(window.OUTMAP_APP_VERSION === '1.9.52', 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
+      check(window.OUTMAP_APP_VERSION === ${JSON.stringify(expectedVersion)}, 'Version mismatch: ' + window.OUTMAP_APP_VERSION);
       window.showLandingMarker([101.3451, 30.06], 'G318熊猫大道', '四川省');
       await sleep(100);
       const marker = window.currentLandingMarker;
@@ -41,12 +42,12 @@ app.whenReady().then(async () => {
       return { terrainOpacity: marker._opacityWhenCovered, subpixel: marker._subpixelPositioning,
         anchorRatio: Number((anchor.y / rect.height).toFixed(3)) };
     })()`);
-    console.log('v1.9.52 3D search landing-card regression passed:', result);
+    console.log(expectedVersion + ' 3D search landing-card regression passed:', result);
     clearTimeout(watchdog);
     win.destroy();
     app.exit(0);
   } catch (error) {
-    console.error('v1.9.52 test failed:', error);
+    console.error(expectedVersion + ' test failed:', error);
     clearTimeout(watchdog);
     if (win) win.destroy();
     app.exit(1);

@@ -11,7 +11,8 @@ const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 const bootstrap = fs.readFileSync(path.join(root, 'src', 'map-bootstrap.js'), 'utf8');
 
 // 1. Version consistency
-assert(/^1\.9\.\d+$/.test(pkg.version) && Number(pkg.version.split('.')[2]) >= 23);
+const [major, minor, patch] = pkg.version.split('.').map(Number);
+assert(major > 1 || (major === 1 && (minor > 9 || (minor === 9 && patch >= 23))));
 assert.strictEqual(lock.version, pkg.version);
 assert.strictEqual(lock.packages[''].version, pkg.version);
 assert(app.includes(`const APP_VERSION = '${pkg.version}';`));

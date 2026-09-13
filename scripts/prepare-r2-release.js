@@ -10,17 +10,16 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs']) {
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs', 'src/download-lane.cjs']) {
     new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 地图引擎升级至 MapLibre GL JS 6.9.0，并补齐桌面 file:// 模块 Worker 兼容；原 OSM、Terrarium DEM、卫星和字体离线数据可直接复用；',
-    '2. 合并重复道路、水域与 POI 排版图层，山峰、景点、POI、道路编号改用原生 2× 高分屏图标；',
-    '3. 搜索飞掠改用公开原生相机 API，在 2D、50°、70°及 100%、150%、200% 缩放下保持居中偏下并避免二次拉回；',
-    '4. 新增独立等高线持久缓存，首次生成后直接从磁盘复用，不迁移、不扫描、不修改已有 DEM/OSM 目录；',
-    '5. 路线使用有限时原生 line-gradient 展开动画，清除重复样式提交、DEM 到达后的路线点整源刷新及旧 Marker/source 残留。'
+    '1. 下载并发通道改为原生可中断队列，取消下载会立即唤醒等待任务并清除 CDN 冷却计时，不再延迟数秒；',
+    '2. 前台浏览继续保留 512MB 热瓦片缓存，确保跨区域与 3D 浏览流畅；仅在持续最小化 5 分钟后温和裁剪至 256MB；',
+    '3. 系统内存紧张时按新增切片事件低频检测并裁剪至 128MB，不增加常驻轮询或额外进程；',
+    '4. 保持真实高分屏 DPR、MapLibre 6.9、3D 地形、动画、透明与毛玻璃效果不变，原有离线地图可直接复用。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
