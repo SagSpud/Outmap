@@ -62,14 +62,15 @@ app.whenReady().then(async () => {
       const favRouteMoreBtn = document.querySelector('.fav-route-card .fav-route-more-btn');
       check(favRouteMoreBtn, 'fav-route-more-btn not rendered');
 
-      // 5. 桌面左键只飞掠；触屏点击应在飞掠抵达后打开管理菜单
+      // 5. 桌面左键与触屏轻触都只飞掠；管理菜单只属于右键/长按
       let menuCalled = false;
+      let flightCount = 0;
       const originalShowMenu = window.showChangeWaypointTypeMenu;
       const originalFly = window.flyToLocationPrecisely;
       window.showChangeWaypointTypeMenu = (wp, x, y) => {
         menuCalled = true;
       };
-      window.flyToLocationPrecisely = (targetMap, coords, options = {}) => options.onArrival?.();
+      window.flyToLocationPrecisely = () => { flightCount += 1; };
       savedWaypoints = [{ id: 'wp_test_click', name: '全平台点击测试', type: 'view', lng: 118.0, lat: 35.0, ele: 100 }];
       renderWaypointMarkersOnMap();
 
@@ -90,6 +91,7 @@ app.whenReady().then(async () => {
       });
       await sleep(40);
       check(!menuCalled, 'Desktop left-click must fly only and keep the map unobstructed');
+      check(flightCount === 1, 'Desktop left-click must start exactly one favorite flight');
 
       map.fire('click', {
         point: { x: 200, y: 200 },
@@ -97,10 +99,11 @@ app.whenReady().then(async () => {
         originalEvent: { pointerType: 'touch' }
       });
       await sleep(40);
+      check(!menuCalled, 'Touch favorite tap must fly only and keep the map unobstructed');
+      check(flightCount === 2, 'Touch favorite tap must start exactly one favorite flight');
       map.queryRenderedFeatures = origQRF;
       window.showChangeWaypointTypeMenu = originalShowMenu;
       window.flyToLocationPrecisely = originalFly;
-      check(menuCalled, 'Touch favorite click must open menu after arrival');
 
       return {
         versionChecked: true,
@@ -108,7 +111,7 @@ app.whenReady().then(async () => {
         viaTagElevationPassed: true,
         routeCardMoreBtnPassed: true,
         desktopClickKeepsMapClear: true,
-        touchMenuAfterArrivalPassed: true
+        touchTapKeepsMapClear: true
       };
     })()`);
 

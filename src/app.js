@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.0.2';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1986,13 +1986,18 @@ async function initApplication() {
         'icon-image': 'outmap-road-shield',
         'icon-text-fit': 'both',
         'icon-text-fit-padding': [2, 5, 2, 5],
+        // 路线只决定路牌沿线的候选锚点，不决定路牌朝向。底牌与编号必须
+        // 使用同一套 viewport 对齐，否则 3D 下会出现横向底牌包着倾斜文字。
         'icon-rotation-alignment': 'viewport',
+        'icon-pitch-alignment': 'viewport',
         'text-field': ['get', 'ref'],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 5.5, 9.5, 9, 10.5, 12, 11.5],
         'symbol-spacing': 180,
         'text-max-angle': 60,
-        'text-keep-upright': true
+        'text-keep-upright': true,
+        'text-rotation-alignment': 'viewport',
+        'text-pitch-alignment': 'viewport'
       },
       paint: {
         'text-color': '#b91c1c',
@@ -6396,25 +6401,15 @@ function setupWaypointAndFavoritesSystem(map) {
       const flightDuration = distDeg < 0.2
         ? 450
         : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
-      const originalEvent = e.originalEvent;
-      const touchOrigin = originalEvent?.sourceCapabilities?.firesTouchEvents === true
-        || originalEvent?.pointerType === 'touch'
-        || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
         zoom: 13.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
         centered: false,
-        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined,
-        onArrival: () => {
-          if (!touchOrigin || String(selectedFavoriteFeatureId) !== String(feature.id)) return;
-          const projected = map.project([wp.lng, wp.lat]);
-          const canvasRect = map.getCanvas().getBoundingClientRect();
-          window.showChangeWaypointTypeMenu?.(wp, canvasRect.left + projected.x, canvasRect.top + projected.y);
-        }
+        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
       });
-      // 桌面左键保持纯粹飞掠，右键打开管理菜单；触屏设备在飞掠稳定落地后
-      // 以图标的新屏幕位置打开菜单，避免菜单在运动中悬在旧坐标并遮挡地图。
+      // 所有平台的普通单击/轻触都只负责定位。管理菜单严格由桌面右键或
+      // 手机明确长按打开，飞掠完成不再改变用户的原始操作意图。
     });
     map.on('contextmenu', 'outmap-favorite-icons', e => {
       const feature = e.features?.[0];
