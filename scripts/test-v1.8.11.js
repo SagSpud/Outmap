@@ -43,8 +43,8 @@ assert(appJs.includes("['feature-state', 'dragging']"),
   'route drag styling must use feature-state');
 assert(appJs.includes('pixelRatio: Math.min(window.devicePixelRatio || 1, 2)'),
   'constrained browser/mobile rendering must cap device pixel ratio');
-assert(appJs.includes('cancelPendingTileRequestsWhileZooming: true'),
-  'obsolete tile requests must be cancelled during zoom');
+assert(appJs.includes('cancelPendingTileRequestsWhileZooming: false'),
+  'parent/child tile requests must remain alive during fractional zoom hand-off');
 assert(appJs.includes('refreshExpiredTiles: false'),
   'static/offline tiles must not be needlessly refreshed');
 assert(!/window\.addEventListener\(['"]resize['"][\s\S]{0,180}map\.resize\(/.test(appJs),

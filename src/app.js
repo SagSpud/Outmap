@@ -1579,7 +1579,12 @@ async function initApplication() {
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
-    cancelPendingTileRequestsWhileZooming: true,
+    // Keep parent/child requests alive until their replacement tile is ready.
+    // Cancelling here creates a race around fractional zooms (most visible near
+    // the DEM L11/L12 hand-off in complex terrain): the old tile is discarded
+    // before the new DEM, hillshade, contours and vector tile can take over.
+    // MapLibre's native default is false and preserves visual continuity.
+    cancelPendingTileRequestsWhileZooming: false,
     refreshExpiredTiles: false,
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
