@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parentPort, workerData, isMainThread } = require('worker_threads');
+const { UnavailableTileIndex } = require('./unavailable-tile-index.cjs');
 const OFFLINE_INVENTORY_VERSION = 4;
 
 function bounds(bbox, z) {
@@ -18,7 +19,7 @@ function inChina(z, x, y, boxes) {
   return boxes.some(b => !(lon2 < b[0] - 1.2 || lon1 > b[1] + 1.2 || lat2 < b[2] - 1.2 || lat1 > b[3] + 1.2));
 }
 
-function scan({ baseDir, provinces, boxes }) {
+function scan({ baseDir, provinces, boxes, unavailableFile, unavailableSources }) {
   const stats = {
     demCount: 0,
     vectorCount: 0,
@@ -138,6 +139,26 @@ function scan({ baseDir, provinces, boxes }) {
     stats[layerCfg.statKey + 'Bytes'] += layerTotalBytes;
   }
 
+  // Confirmed 404/410 gaps are legitimate coverage terminals. Keep them in a
+  // compact index outside the tile folders so scans remain compatible with
+  // existing OSM/DEM data and never create millions of marker files.
+  if (unavailableFile && unavailableSources) {
+    const unavailableIndex = new UnavailableTileIndex(unavailableFile, unavailableSources);
+    unavailableIndex.forEachRange((layer, z, x, startY, endY) => {
+      if (!['dem', 'vector'].includes(layer) || (layer === 'dem' && z > 12)) return;
+      const candidates = (ranges[z] || []).filter(range => x >= range.b[0] && x <= range.b[1]);
+      if (candidates.length === 0) return;
+      for (let y = startY; y <= endY; y++) {
+        if (!inChina(z, x, y, boxes)) continue;
+        for (const range of candidates) {
+          if (y < range.b[2] || y > range.b[3]) continue;
+          const level = result[range.key]?.layers?.[layer]?.levels?.[z];
+          if (level) level.unavailable = Math.min(level.expected, Number(level.unavailable || 0) + 1);
+        }
+      }
+    });
+  }
+
   // 2. 统计离线字体库 fonts (若存在)
   const fontDir = path.join(baseDir, 'fonts');
   const fontDirs = entries(fontDir);
@@ -160,7 +181,11 @@ function scan({ baseDir, provinces, boxes }) {
       state.maxZ = 0;
       state.partialZ = 0;
       for (const [z, level] of Object.entries(state.levels)) {
-        const isComplete = level.expected > 0 && level.present >= level.expected;
+        level.unavailable = Math.max(0, Math.min(
+          Math.max(0, level.expected - level.present),
+          Number(level.unavailable) || 0
+        ));
+        const isComplete = level.expected > 0 && level.present + level.unavailable >= level.expected;
         level.complete = isComplete;
         if (level.complete) state.maxZ = Math.max(state.maxZ, +z);
         if (level.present > 0) state.partialZ = Math.max(state.partialZ, +z);
@@ -270,7 +295,7 @@ function* enumerateTileColumns({ provinces, minZ, maxZ, downloadDem, downloadVec
 // Produce compressed missing y runs. A fully absent nationwide column becomes
 // one tiny range object rather than thousands of task objects, so directory
 // discovery can run independently from slower network downloads.
-async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onProgress } = {}) {
+async function* enumerateMissingTileRanges(plan, { readColumnFiles, isUnavailable = () => false, signal, onProgress } = {}) {
   if (typeof readColumnFiles !== 'function') {
     throw new TypeError('readColumnFiles is required');
   }
@@ -295,7 +320,7 @@ async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onPr
         if (signal?.aborted) break;
         const validTile = inChina(column.z, column.x, y, plan.boxes);
         if (column.z <= 12 && segment.includeDem) {
-          const missing = validTile && !demFiles.has(`${y}.webp`);
+          const missing = validTile && !demFiles.has(`${y}.webp`) && !isUnavailable('dem', column.z, column.x, y);
           if (validTile) progress.scannedCandidates++;
           if (missing) {
             progress.foundMissing++;
@@ -306,7 +331,7 @@ async function* enumerateMissingTileRanges(plan, { readColumnFiles, signal, onPr
           }
         }
         if (segment.includeVector) {
-          const missing = validTile && !vectorFiles.has(`${y}.pbf`);
+          const missing = validTile && !vectorFiles.has(`${y}.pbf`) && !isUnavailable('vector', column.z, column.x, y);
           if (validTile) progress.scannedCandidates++;
           if (missing) {
             progress.foundMissing++;

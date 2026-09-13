@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.0.1';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4320,7 +4320,8 @@ function setupPyramidModal(map) {
           if (level?.complete) continue;
           const expected = Number.isFinite(Number(level?.expected)) ? Number(level.expected) : geometricExpected;
           const present = Number.isFinite(Number(level?.present)) ? Number(level.present) : 0;
-          totalIncrementalTiles += Math.max(0, expected - present);
+          const unavailable = Number.isFinite(Number(level?.unavailable)) ? Number(level.unavailable) : 0;
+          totalIncrementalTiles += Math.max(0, expected - present - unavailable);
         }
       }
     });
@@ -4619,7 +4620,7 @@ function setupPyramidModal(map) {
           mainText = `已定位 ${formatTileCount(found)} 块缺片`;
           const subParts = [];
           subParts.push(`已补齐 ${formatTileCount(saved)} 块`);
-          if (unavailable > 0) subParts.push(`无数据 ${formatTileCount(unavailable)} 块`);
+          if (unavailable > 0) subParts.push(`源站空白 ${formatTileCount(unavailable)} 块`);
           if (failed > 0) subParts.push(`失败 ${formatTileCount(failed)} 块${failurePart}`);
           subText = subParts.join(' · ');
         } else {
@@ -4646,7 +4647,7 @@ function setupPyramidModal(map) {
         const subParts = [];
         if (saved > 0 || unavailable > 0 || failed > 0) {
           subParts.push(`已补齐 ${formatTileCount(saved)} 块`);
-          if (unavailable > 0) subParts.push(`无数据 ${formatTileCount(unavailable)} 块`);
+          if (unavailable > 0) subParts.push(`源站空白 ${formatTileCount(unavailable)} 块`);
           if (failed > 0) subParts.push(`失败 ${formatTileCount(failed)} 块${failurePart}`);
         }
         subText = subParts.join(' · ');
@@ -4705,14 +4706,14 @@ function setupPyramidModal(map) {
 
       if (data.done) {
         document.body.classList.remove('is-downloading');
-        const completedCleanly = !data.aborted && !(data.failedCount > 0) && !(data.unavailableCount > 0);
+        const completedCleanly = !data.aborted && !(data.failedCount > 0);
         setDownloadDotState(completedCleanly ? 'completed' : 'idle');
         if (progressTask) {
           progressTask.innerText = data.aborted
             ? '下载已中止，已完成的切片继续保留'
             : (data.failedCount > 0
               ? `下载结束，${formatTileCount(data.failedCount)} 块失败，可继续补齐`
-              : (data.unavailableCount > 0 ? `下载结束，源站未提供 ${formatTileCount(data.unavailableCount)} 块，已下载内容保留` : (data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪')));
+              : (data.unavailableCount > 0 ? `下载完成，源站空白 ${formatTileCount(data.unavailableCount)} 块已记录` : (data.isIncrementalUpdate ? '🎉 增量更新已完成' : '🎉 全部切片已下载就绪')));
         }
         progressSpeed.innerText = '';
 

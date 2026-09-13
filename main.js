@@ -5,6 +5,7 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const { DownloadLane } = require('./src/download-lane.cjs');
+const { UnavailableTileIndex } = require('./src/unavailable-tile-index.cjs');
 let originalFs = fs;
 try {
   originalFs = require('original-fs');
@@ -90,6 +91,14 @@ let ofmTileTemplate = 'https://tiles.openfreemap.org/planet/20260830_080001_pt/{
 
 // 本地离线切片持久化元数据清单 (程序重启后永久保留各省份已下载最高层级与图层类型)
 const OFFLINE_MANIFEST_FILE = path.join(OFFLINE_BASE_DIR, 'manifest.json');
+const OFFLINE_UNAVAILABLE_FILE = path.join(OFFLINE_BASE_DIR, 'unavailable-tiles.json');
+
+function getOfflineSourceIds() {
+  return {
+    dem: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
+    vector: ofmTileTemplate
+  };
+}
 
 function loadOfflineManifest() {
   if (fs.existsSync(OFFLINE_MANIFEST_FILE)) {
@@ -967,7 +976,13 @@ function refreshOfflineInventory() {
   const { Worker } = require('worker_threads');
   inventoryScan = new Promise((resolve, reject) => {
     const worker = new Worker(path.join(__dirname, 'src', 'offline-worker.cjs'), {
-      workerData: { baseDir: OFFLINE_BASE_DIR, provinces: CHINA_PROVINCE_BBOX_ENTRIES, boxes: CHINA_TILES_BOXES }
+      workerData: {
+        baseDir: OFFLINE_BASE_DIR,
+        provinces: CHINA_PROVINCE_BBOX_ENTRIES,
+        boxes: CHINA_TILES_BOXES,
+        unavailableFile: OFFLINE_UNAVAILABLE_FILE,
+        unavailableSources: getOfflineSourceIds()
+      }
     });
     worker.on('message', msg => {
       if (msg && msg.type === 'progress') {
@@ -1014,9 +1029,11 @@ function recomputeOfflineProvinceSummary(province) {
     for (const [z, level] of Object.entries(state.levels)) {
       const expected = Math.max(0, Number(level?.expected) || 0);
       const present = Math.max(0, Math.min(expected || Infinity, Number(level?.present) || 0));
+      const unavailable = Math.max(0, Math.min(Math.max(0, expected - present), Number(level?.unavailable) || 0));
       level.expected = expected;
       level.present = present;
-      level.complete = expected > 0 && present >= expected;
+      level.unavailable = unavailable;
+      level.complete = expected > 0 && present + unavailable >= expected;
       if (level.complete) state.maxZ = Math.max(state.maxZ, Number(z));
       if (present > 0) state.partialZ = Math.max(state.partialZ, Number(z));
     }
@@ -1039,7 +1056,7 @@ function recomputeOfflineProvinceSummary(province) {
 // Normal downloads already know every file they added. Updating the manifest
 // from that delta avoids a second nationwide directory walk after every task.
 // A manual rescan remains available for tiles copied in from another program.
-function applyOfflineDownloadManifest({ targetKeys, successfulByTarget, completedCleanly, newLayerStats }) {
+function applyOfflineDownloadManifest({ targetKeys, successfulByTarget, unavailableByTarget, completedCleanly, newLayerStats }) {
   const manifest = loadOfflineManifest();
   const changedProvinces = {};
   for (const targetKey of targetKeys || []) {
@@ -1057,10 +1074,14 @@ function applyOfflineDownloadManifest({ targetKeys, successfulByTarget, complete
     const level = (province.layers[layer].levels[z] ||= { expected: 0, present: 0, complete: false });
     const expected = Math.max(0, Number(level.expected) || 0);
     const added = Math.max(0, Number(successfulByTarget?.get(targetKey)) || 0);
-    level.present = completedCleanly && expected > 0
-      ? expected
-      : Math.min(expected || Infinity, Math.max(0, Number(level.present) || 0) + added);
-    level.complete = expected > 0 && level.present >= expected;
+    level.present = Math.min(expected || Infinity, Math.max(0, Number(level.present) || 0) + added);
+    const newlyUnavailable = Math.max(0, Number(unavailableByTarget?.get(targetKey)) || 0);
+    level.unavailable = Math.min(
+      Math.max(0, expected - level.present),
+      Math.max(0, Number(level.unavailable) || 0) + newlyUnavailable
+    );
+    if (completedCleanly && expected > 0) level.unavailable = Math.max(0, expected - level.present);
+    level.complete = expected > 0 && level.present + level.unavailable >= expected;
     changedProvinces[provinceKey] = province;
   }
 
@@ -1411,6 +1432,7 @@ app.whenReady().then(async () => {
     let newlyAddedCount = 0;
     let finalInventoryUpdated = false;
     let downloadLanes = null;
+    let unavailableTileIndex = null;
     try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
@@ -1422,6 +1444,7 @@ app.whenReady().then(async () => {
     if (loadOfflineManifest().inventoryVersion !== OFFLINE_INVENTORY_VERSION) await refreshOfflineInventory();
     const initialManifest = loadOfflineManifest();
     const baselineStats = { ...(memoryTileStats || initialManifest.stats || {}) };
+    unavailableTileIndex = new UnavailableTileIndex(OFFLINE_UNAVAILABLE_FILE, getOfflineSourceIds());
 
     // 规整目标省份列表 (支持多选批量下载)
     const provTasks = [];
@@ -1530,6 +1553,7 @@ app.whenReady().then(async () => {
     let unchangedCount = 0;
     let updatedCount = 0;
     const successfulByTarget = new Map();
+    const unavailableByTarget = new Map();
     const newLayerStats = {
       dem: { count: 0, bytes: 0 },
       vector: { count: 0, bytes: 0 }
@@ -1728,6 +1752,7 @@ app.whenReady().then(async () => {
                 const root = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
                 return checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
               },
+              isUnavailable: (type, z, x, y) => unavailableTileIndex.has(type, z, x, y),
               onProgress: progress => {
                 scannedColumns = progress.scannedColumns;
                 plannedCandidates = progress.scannedCandidates;
@@ -1814,6 +1839,7 @@ app.whenReady().then(async () => {
         const existsLocally = normalResume
           ? false
           : await checkTileExistsFast(dirPath, fileName, Boolean(isVerify || isIncrementalUpdate));
+        if (existsLocally) unavailableTileIndex.remove(type, z, x, y);
 
         if (isIncrementalUpdate) {
           if (!existsLocally) {
@@ -1824,6 +1850,7 @@ app.whenReady().then(async () => {
                 : ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
               const buf = await fetchMissingTile(onlineUrl, type);
               await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
+              unavailableTileIndex.remove(type, z, x, y);
               totalBytes += buf.length;
               savedCount++;
               newlyAddedCount++;
@@ -1832,7 +1859,12 @@ app.whenReady().then(async () => {
               const targetKey = `${task.provKey}:${type}:${z}`;
               successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
             } catch (e) {
-              if (e?.permanentMissing) unavailableCount++;
+              if (e?.permanentMissing) {
+                unavailableCount++;
+                unavailableTileIndex.add(type, z, x, y);
+                const targetKey = `${task.provKey}:${type}:${z}`;
+                unavailableByTarget.set(targetKey, (unavailableByTarget.get(targetKey) || 0) + 1);
+              }
               else {
                 if (!signal.aborted) recordFailure(e, type);
                 failedCount++;
@@ -1892,6 +1924,7 @@ app.whenReady().then(async () => {
             }
             const buf = await fetchMissingTile(onlineUrl, type);
             await writeDownloadedTile(task, dirPath, localPath, fileName, buf);
+            unavailableTileIndex.remove(type, z, x, y);
             totalBytes += buf.length;
             savedCount++;
             newlySavedCount++;
@@ -1900,7 +1933,12 @@ app.whenReady().then(async () => {
             const targetKey = `${task.provKey}:${type}:${z}`;
             successfulByTarget.set(targetKey, (successfulByTarget.get(targetKey) || 0) + 1);
           } catch (e) {
-            if (e?.permanentMissing) unavailableCount++;
+            if (e?.permanentMissing) {
+              unavailableCount++;
+              unavailableTileIndex.add(type, z, x, y);
+              const targetKey = `${task.provKey}:${type}:${z}`;
+              unavailableByTarget.set(targetKey, (unavailableByTarget.get(targetKey) || 0) + 1);
+            }
             else {
               if (!signal.aborted) recordFailure(e, type);
               failedCount++;
@@ -2011,10 +2049,22 @@ app.whenReady().then(async () => {
     // The normal iterator contains missing files only; its final discovered
     // count is the exact denominator and never includes ready local tiles.
     if (!isVerify && !isIncrementalUpdate) total = completed;
-    const completedCleanly = !signal.aborted && failedCount === 0 && unavailableCount === 0;
+    // A confirmed 404/410 is a terminal source gap, not a retryable failure.
+    // Persisted gaps count toward coverage and no longer keep a level blue.
+    let unavailableIndexSaved = true;
+    if (unavailableTileIndex.dirty) {
+      try {
+        await unavailableTileIndex.save();
+      } catch (error) {
+        unavailableIndexSaved = false;
+        console.warn('[Unavailable Tile Index Save]', error.message);
+      }
+    }
+    const completedCleanly = !signal.aborted && failedCount === 0 && unavailableIndexSaved;
     const finalStats = applyOfflineDownloadManifest({
       targetKeys: manifestTargetKeys,
       successfulByTarget,
+      unavailableByTarget,
       completedCleanly,
       newLayerStats
     });
@@ -2048,6 +2098,9 @@ app.whenReady().then(async () => {
       activeDownloadAbort = null;
       if (downloadLanes) {
         for (const lane of Object.values(downloadLanes)) lane.dispose();
+      }
+      if (unavailableTileIndex?.dirty) {
+        await unavailableTileIndex.save().catch(error => console.warn('[Unavailable Tile Index Save]', error.message));
       }
       if (!finalInventoryUpdated && (newlySavedCount > 0 || newlyAddedCount > 0)) {
         refreshOfflineInventory().catch(() => {});

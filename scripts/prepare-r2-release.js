@@ -10,16 +10,16 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs', 'src/download-lane.cjs']) {
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs', 'src/download-lane.cjs', 'src/unavailable-tile-index.cjs']) {
     new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 下载并发通道改为原生可中断队列，取消下载会立即唤醒等待任务并清除 CDN 冷却计时，不再延迟数秒；',
-    '2. 前台浏览继续保留 512MB 热瓦片缓存，确保跨区域与 3D 浏览流畅；仅在持续最小化 5 分钟后温和裁剪至 256MB；',
-    '3. 系统内存紧张时按新增切片事件低频检测并裁剪至 128MB，不增加常驻轮询或额外进程；',
-    '4. 保持真实高分屏 DPR、MapLibre 6.9、3D 地形、动画、透明与毛玻璃效果不变，原有离线地图可直接复用。'
+    '1. 将源站明确返回 404/410 的空白切片写入独立压缩索引，后续普通补齐直接跳过，不再重复请求；',
+    '2. 源站空白作为有效覆盖终态参与离线完成统计，省份和层级可正常显示绿色，同时不伪造本地瓦片文件；',
+    '3. 更换上游数据集时自动忽略旧空白索引并重新尝试，手动校验与增量更新仍可主动复查；',
+    '4. 不引入格式不兼容的第三方地图源；保留现有画质、3D、高分屏、下载并发和全部离线地图。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
