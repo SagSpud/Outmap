@@ -1609,6 +1609,125 @@ async function initApplication() {
   });
   demSource.setupMaplibre(maplibregl);
 
+  // Keep only references to a small set of already-decoded DEM tiles. This is
+  // intentionally much smaller than DemSource's own cache: it is used only to
+  // give MapLibre's native camera transform a synchronous destination-center
+  // elevation during a cold, long-distance flight.
+  const preparedTerrainTiles = new Map();
+  const preparedTerrainLimit = constrainedWeb ? 24 : 72;
+  const rememberPreparedTerrainTile = (key, tile) => {
+    if (!tile || !Number.isFinite(tile.width) || !Number.isFinite(tile.height) || !tile.data) return;
+    preparedTerrainTiles.delete(key);
+    preparedTerrainTiles.set(key, tile);
+    while (preparedTerrainTiles.size > preparedTerrainLimit) {
+      preparedTerrainTiles.delete(preparedTerrainTiles.keys().next().value);
+    }
+  };
+
+  window.OutmapResolvePreparedTerrainElevation = (coordinates, requestedZoom) => {
+    if (!coordinates) return null;
+    const lng = Number(Array.isArray(coordinates) ? coordinates[0] : coordinates.lng);
+    const rawLat = Number(Array.isArray(coordinates) ? coordinates[1] : coordinates.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(rawLat)) return null;
+    const lat = Math.max(-85.0511, Math.min(85.0511, rawLat));
+    const maximumZ = Math.max(0, Math.min(12, Math.floor(Number.isFinite(Number(requestedZoom)) ? Number(requestedZoom) : 12)));
+    let sample = null;
+
+    // A flight normally resolves at the exact prepared zoom. Searching parent
+    // tiles as a fallback also makes the resolver robust when a low-zoom
+    // camera frame crosses into the warmed destination neighborhood.
+    for (let z = maximumZ; z >= 0 && sample === null; z--) {
+      const n = 2 ** z;
+      const worldX = ((((lng + 180) / 360) * n) % n + n) % n;
+      const latRad = lat * Math.PI / 180;
+      const worldY = Math.max(0, Math.min(n - Number.EPSILON,
+        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n));
+      const tileX = Math.floor(worldX);
+      const tileY = Math.floor(worldY);
+      const key = `${z}/${tileX}/${tileY}`;
+      const tile = preparedTerrainTiles.get(key);
+      if (!tile) continue;
+
+      // DEM samples are pixel-centred. Bilinear interpolation avoids a visible
+      // camera-height step while crossing a DEM pixel or tile boundary.
+      const width = Math.max(1, Math.floor(tile.width));
+      const height = Math.max(1, Math.floor(tile.height));
+      const px = (worldX - tileX) * width - 0.5;
+      const py = (worldY - tileY) * height - 0.5;
+      const x0 = Math.max(0, Math.min(width - 1, Math.floor(px)));
+      const y0 = Math.max(0, Math.min(height - 1, Math.floor(py)));
+      const x1 = Math.min(width - 1, x0 + 1);
+      const y1 = Math.min(height - 1, y0 + 1);
+      const tx = Math.max(0, Math.min(1, px - Math.floor(px)));
+      const ty = Math.max(0, Math.min(1, py - Math.floor(py)));
+      const read = (x, y) => Number(tile.data[y * width + x]);
+      const a = read(x0, y0);
+      const b = read(x1, y0);
+      const c = read(x0, y1);
+      const d = read(x1, y1);
+      const values = [a, b, c, d];
+      if (!values.every(value => Number.isFinite(value) && value >= -12000 && value <= 9000)) continue;
+      const top = a + (b - a) * tx;
+      const bottom = c + (d - c) * tx;
+      sample = top + (bottom - top) * ty;
+
+      // Refresh LRU order without cloning the large Float32Array.
+      preparedTerrainTiles.delete(key);
+      preparedTerrainTiles.set(key, tile);
+    }
+
+    if (!Number.isFinite(sample)) return null;
+    let exaggeration = 1;
+    try {
+      const value = Number(mapInstance?.getTerrain?.()?.exaggeration);
+      if (Number.isFinite(value)) exaggeration = Math.max(0, value);
+    } catch (_) {}
+    return sample * exaggeration;
+  };
+
+  // Warm the destination DEM through the same shared manager used by terrain
+  // and contours. A far flight can otherwise finish before its first mountain
+  // tile arrives, leaving MapLibre with the previous location's center height.
+  // The 3x3 neighborhood also covers the geographic center displaced by the
+  // lower-screen landing offset. Requests are deduplicated by DemSource and by
+  // the desktop tile server, so already cached/offline tiles are effectively
+  // free and no second renderer or background process is created.
+  window.OutmapPrepareTerrainAt = async (coordinates, options = {}) => {
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+    const lng = Number(coordinates[0]);
+    const lat = Math.max(-85.0511, Math.min(85.0511, Number(coordinates[1])));
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    const requestedZoom = Number(options.zoom);
+    const z = Math.max(0, Math.min(12, Math.floor(Number.isFinite(requestedZoom) ? requestedZoom : 12)));
+    const n = 2 ** z;
+    const centerX = Math.floor(((lng + 180) / 360) * n);
+    const latRad = lat * Math.PI / 180;
+    const centerY = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
+    const controller = new AbortController();
+    const signal = options.signal;
+    const abort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener?.('abort', abort, { once: true });
+    const requests = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      const y = Math.max(0, Math.min(n - 1, centerY + dy));
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = (centerX + dx + n) % n;
+        const key = `${z}/${x}/${y}`;
+        requests.push(demSource.getDemTile(z, x, y, controller).then(tile => {
+          rememberPreparedTerrainTile(key, tile);
+          return tile;
+        }));
+      }
+    }
+    try {
+      const results = await Promise.allSettled(requests);
+      if (!results.some(result => result.status === 'fulfilled')) throw new Error('Destination terrain is unavailable');
+    } finally {
+      signal?.removeEventListener?.('abort', abort);
+    }
+  };
+
   // 2. 初始化 MapLibre 地图实例。桌面保留充足缓存，但避免全国飞掠后长期持有数千纹理。
   mapInstance = new maplibregl.Map({
     container: 'map',
@@ -2673,6 +2792,8 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (window.OutmapLocationCamera?.fly) {
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
+      prepareTerrain: flyOpts.prepareTerrain || window.OutmapPrepareTerrainAt,
+      resolveTerrainElevation: flyOpts.resolveTerrainElevation || window.OutmapResolvePreparedTerrainElevation,
       onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
         // Route point symbols are terrain-projected natively by MapLibre 6;
@@ -3355,7 +3476,6 @@ function setupOfficeHeaderInteractions(map) {
       pitch: targetPitch,
       centered: isProv,
       duration: flightDuration,
-      elevation: Number.isFinite(Number(item.ele)) ? Number(item.ele) : undefined,
       onArrival: () => {
         ensureLandingMarker();
         if (currentLandingMarker) {
@@ -4833,7 +4953,19 @@ function setupAppUpdate() {
   let autoFlipTimer = null;
 
   const setUpdateUiState = (state) => {
-    if (brandFlipCard) brandFlipCard.dataset.updateState = state;
+    if (!brandFlipCard) return;
+    brandFlipCard.dataset.updateState = state;
+    const labels = {
+      idle: '检查更新',
+      checking: '正在检查更新',
+      available: '发现新版本',
+      downloading: '正在下载更新',
+      ready: '更新已下载，点击覆盖安装',
+      error: '更新失败'
+    };
+    const label = labels[state] || '检查更新';
+    brandFlipCard.setAttribute('aria-label', label);
+    brandFlipCard.setAttribute('title', label);
   };
 
   const applyUpdateResult = (updateInfo, verClean) => {
@@ -6098,12 +6230,6 @@ function getRealElevation(map, lngLat) {
   }
 }
 
-function getFlightElevationHint(map, coords) {
-  const embedded = Array.isArray(coords) ? Number(coords[2]) : NaN;
-  if (Number.isFinite(embedded) && embedded >= -500 && embedded <= 9000) return embedded;
-  return getRealElevation(map, coords);
-}
-
 function setupStatusBar(map) {
   const sCoords = document.getElementById('status-coords');
   const sElevation = document.getElementById('status-elevation');
@@ -6557,8 +6683,7 @@ function setupWaypointAndFavoritesSystem(map) {
         zoom: 13.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
-        centered: false,
-        elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
+        centered: false
       });
       // 所有平台的普通单击/轻触都只负责定位。管理菜单严格由桌面右键或
       // 手机明确长按打开，飞掠完成不再改变用户的原始操作意图。
@@ -7175,8 +7300,7 @@ function setupWaypointAndFavoritesSystem(map) {
             zoom: 13.0,
             pitch: curPitch,
             duration: flightDuration,
-            centered: false,
-            elevation: (Number.isFinite(Number(wp.ele)) && Number(wp.ele) > 0) ? Number(wp.ele) : undefined
+            centered: false
           });
         };
         // 手机抽屉会遮挡大半地图；先完成原生式收起，再按稳定的完整
@@ -8452,8 +8576,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         zoom: targetZoom,
         pitch: targetPitch,
         duration: 650,
-        centered: false,
-        elevation: Number.isFinite(Number(item.ele)) ? Number(item.ele) : undefined
+        centered: false
       });
     }
   };
@@ -8962,13 +9085,11 @@ function bindRoutePointLayerEvents(map) {
       if (suppressNextClick) { suppressNextClick = false; return; }
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
-      const ele = getFlightElevationHint(map, point.coords);
       flyToLocationPrecisely(map, point.coords, {
         zoom: 13.0,
         pitch: map.getPitch() ?? 50,
         duration: 600,
-        centered: false,
-        elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
+        centered: false
       });
     });
     map.on('mousedown', layerId, handleRoutePointMouseDown);
@@ -9441,13 +9562,11 @@ function renderViaList(mapInstance) {
     if (isNew) {
       tagEl.addEventListener('click', () => {
         if (row._map && row._via.coords) {
-          const ele = getFlightElevationHint(row._map, row._via.coords);
           flyToLocationPrecisely(row._map, row._via.coords, {
             zoom: 13.0,
             pitch: row._map.getPitch() ?? 50,
             duration: 600,
-            centered: false,
-            elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
+            centered: false
           });
         }
       });
@@ -10572,13 +10691,11 @@ function setupOutdoorRouteSystem(map) {
     staticStartTag.style.cursor = 'pointer';
     staticStartTag.addEventListener('click', () => {
       if (routeStartCoord && map) {
-        const ele = getFlightElevationHint(map, routeStartCoord);
         flyToLocationPrecisely(map, routeStartCoord, {
           zoom: routeStartZoom || 13.0,
           pitch: map.getPitch() ?? 50,
           duration: 600,
-          centered: false,
-          elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
+          centered: false
         });
       }
     });
@@ -10589,24 +10706,20 @@ function setupOutdoorRouteSystem(map) {
     staticEndTag.style.cursor = 'pointer';
     staticEndTag.addEventListener('click', () => {
       if (routeEndCoord && map) {
-        const ele = getFlightElevationHint(map, routeEndCoord);
         flyToLocationPrecisely(map, routeEndCoord, {
           zoom: routeEndZoom || 13.0,
           pitch: map.getPitch() ?? 50,
           duration: 600,
-          centered: false,
-          elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
+          centered: false
         });
       } else if (routeViaPoints.length > 0 && map) {
         const lastVia = routeViaPoints[routeViaPoints.length - 1];
         if (lastVia.coords) {
-          const ele = getFlightElevationHint(map, lastVia.coords);
           flyToLocationPrecisely(map, lastVia.coords, {
             zoom: lastVia.zoom || 13.0,
             pitch: map.getPitch() ?? 50,
             duration: 600,
-            centered: false,
-            elevation: (Number.isFinite(ele) && ele > 0) ? ele : undefined
+            centered: false
           });
         }
       }

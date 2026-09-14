@@ -296,6 +296,15 @@ button:active,
   cursor: pointer;
   position: relative;
   min-width: 58px;
+  transition: min-width 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.brand-flip-card[data-update-state="ready"] {
+  min-width: 76px;
+}
+
+.brand-flip-card[data-update-state="error"] {
+  min-width: 70px;
 }
 
 .brand-flip-inner {
@@ -350,6 +359,7 @@ button:active,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .brand-flip-back.latest {
@@ -2155,12 +2165,44 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 }
 
 .progress-text-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 6px 10px;
   font-size: 11px;
   color: #475569;
   font-weight: 600;
   font-family: var(--font-mono);
+}
+
+#update-progress-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+#update-progress-speed,
+#update-progress-pct {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .progress-text-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  #update-progress-status {
+    grid-column: 1 / -1;
+  }
+
+  #update-progress-pct {
+    justify-self: end;
+  }
+
+  .brand-flip-card[data-update-state="ready"] {
+    min-width: 74px;
+  }
 }
 
 .modal-footer {
@@ -6673,4 +6715,3 @@ body.is-downloading #pyramid-modal .modal-card {
     padding-right: 16px;
   }
 }
-

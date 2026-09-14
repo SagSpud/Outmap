@@ -23,11 +23,29 @@
     state.direction = 0;
     state.expiresAt = 0;
     state.touchDistance = 0;
+    state.zoomEndSnapshot = null;
   }
 
   function applyZoomDirectionGuard(map, transform) {
     const state = zoomGuards.get(map);
     if (!state || !state.direction || performance.now() > state.expiresAt) return {};
+    if (state.zoomEndSnapshot) {
+      const snapshot = state.zoomEndSnapshot;
+      state.zoomEndSnapshot = null;
+      // MapLibre ends a terrain zoom in two synchronous stages: it first emits
+      // `zoomend`, then unfreezes center elevation and recalculates zoom/center.
+      // Preserve the already-rendered final frame for that one recalculation.
+      // The sampled elevation belongs to the actual map center (not the point
+      // under the cursor), so terrain clamping stays correct without a visible
+      // post-gesture pan or rollback.
+      return {
+        center: snapshot.center,
+        zoom: snapshot.zoom,
+        pitch: snapshot.pitch,
+        bearing: snapshot.bearing,
+        elevation: snapshot.elevation
+      };
+    }
     const currentZoom = map.getZoom();
     const reversesDirection = state.direction > 0
       ? transform.zoom < currentZoom - 0.002
@@ -47,6 +65,7 @@
       direction: 0,
       expiresAt: 0,
       touchDistance: 0,
+      zoomEndSnapshot: null,
       clearTimer: 0,
       transform: transform => applyZoomDirectionGuard(map, transform)
     };
@@ -54,6 +73,7 @@
       if (!direction) return;
       clearTimeout(state.clearTimer);
       state.clearTimer = 0;
+      state.zoomEndSnapshot = null;
       state.direction = direction;
       state.expiresAt = performance.now() + 1200;
     };
@@ -77,8 +97,23 @@
     };
     const onZoomEnd = () => {
       // MapLibre fires zoomend immediately before its terrain gesture
-      // finalizer recalculates zoom/center. Keep the direction for the rest of
-      // this event stack so that finalizer cannot reverse the user's gesture.
+      // finalizer recalculates zoom/center. Snapshot the frame the user has
+      // already seen and approve it once in the transform callback below.
+      if (state.direction && performance.now() <= state.expiresAt) {
+        const center = map.getCenter();
+        let elevation = Number(map.getCenterElevation?.());
+        try {
+          const sampled = map.queryTerrainElevation?.(center);
+          if (Number.isFinite(sampled)) elevation = sampled;
+        } catch (_) {}
+        state.zoomEndSnapshot = {
+          center,
+          zoom: map.getZoom(),
+          pitch: map.getPitch(),
+          bearing: map.getBearing(),
+          elevation: Number.isFinite(elevation) ? elevation : 0
+        };
+      }
       clearTimeout(state.clearTimer);
       state.clearTimer = setTimeout(() => {
         state.clearTimer = 0;
@@ -170,11 +205,15 @@
     let internalMove = false;
     let ownedMoveActive = false;
     let primaryMoveEnded = false;
-    let easingProgress = 0;
     let arrivalDelivered = false;
     let flightLoadStateActive = false;
     let expectedMoveEnd = 0;
     let readinessTimer = 0;
+    let flightProgress = 0;
+    let settleGuardUntil = 0;
+    const prepareController = typeof global.AbortController === 'function'
+      ? new global.AbortController()
+      : { signal: undefined, abort() {} };
 
     const listen = (type, handler) => {
       map.on(type, handler);
@@ -193,6 +232,7 @@
         interactionSurface.removeEventListener(type, dispose, true);
       }
       timers.forEach(clearTimeout);
+      prepareController.abort();
       // Keep the persistent user-zoom direction guard installed after the
       // bounded flight state is finished or cancelled.
       try { restoreZoomGuard(map); } catch (_) {}
@@ -213,24 +253,9 @@
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
     const desiredAnchor = anchor(map, options.centered);
-    let terrain;
-    try { terrain = map.getTerrain?.(); } catch (_) {}
-    const exaggeration = Number.isFinite(Number(terrain?.exaggeration))
-      ? Math.max(0, Number(terrain.exaggeration))
-      : 1;
-    const suppliedElevation = Number(options.elevation);
-    let targetElevation = terrain?.source
-      && Number.isFinite(suppliedElevation)
-      && suppliedElevation >= -500
-      && suppliedElevation <= 9000
-      ? suppliedElevation * exaggeration
-      : null;
-    let elevationStart = Number(map.getCenterElevation?.());
-    if (!Number.isFinite(elevationStart)) elevationStart = 0;
-    let elevationStartProgress = 0;
 
     const smoothStep = t => {
-      easingProgress = Math.max(0, Math.min(1, t));
+      flightProgress = Math.max(0, Math.min(1, t));
       return t * t * (3 - 2 * t);
     };
 
@@ -258,7 +283,6 @@
 
     const startNativeMove = (method, moveDuration, overrides = null) => {
       expectedMoveEnd = performance.now() + Math.max(0, moveDuration);
-      easingProgress = moveDuration === 0 ? 1 : 0;
       ownedMoveActive = true;
       internalMove = true;
       map[method]({ ...cameraOptions(moveDuration), ...(overrides || {}) });
@@ -270,55 +294,95 @@
       try { terrain = map.getTerrain?.(); } catch (_) {}
       if (!terrain?.source) return { hasTerrain: false, ready: true, elevation: null };
       let elevation = null;
+      let preparedElevation = null;
+      let sourceElevation = null;
+      const geographicCenter = map.getCenter();
       try {
-        const sampled = map.queryTerrainElevation?.(coords);
-        if (Number.isFinite(sampled)) elevation = sampled;
+        const prepared = options.resolveTerrainElevation?.(geographicCenter, map.getZoom());
+        if (Number.isFinite(prepared)) preparedElevation = elevation = prepared;
+      } catch (_) {}
+      try {
+        const sampled = map.queryTerrainElevation?.(geographicCenter);
+        if (Number.isFinite(sampled)) sourceElevation = sampled;
+        if (Number.isFinite(sampled) && (Math.abs(sampled) > 0.5 || !Number.isFinite(elevation))) elevation = sampled;
       } catch (_) {}
       // MapLibre also reports 0 before it has a covering DEM. Do not treat that
       // ambiguous value as readiness: sea-level targets need no height
       // correction, while a late mountain tile must keep its repaint listener.
       return {
         hasTerrain: true,
-        ready: Number.isFinite(elevation) && Math.abs(elevation) > 0.5,
+        ready: Number.isFinite(sourceElevation)
+          && (Math.abs(sourceElevation) > 0.5 || Math.abs(preparedElevation || 0) <= 0.5),
         elevation
       };
     };
 
-    // A stored/imported point already has a real elevation. Feed that height
-    // through MapLibre's public camera transform during the one native flight,
-    // instead of waiting for destination DEM tiles and moving the camera a
-    // second time after moveend. If no hint exists, adopt a destination sample
-    // as soon as MapLibre has it and blend the remaining height continuously.
-    map.setTransformCameraUpdate?.(transform => {
-      const zoomGuard = applyZoomDirectionGuard(map, transform);
-      if (disposed || !ownedMoveActive || !terrain?.source) return zoomGuard;
-      if (!Number.isFinite(targetElevation)) {
-        let sampled = null;
-        try { sampled = map.queryTerrainElevation?.(coords); } catch (_) {}
-        if (Number.isFinite(sampled) && Math.abs(sampled) > 0.5) {
-          targetElevation = sampled;
-          elevationStart = Number.isFinite(Number(transform.elevation))
-            ? Number(transform.elevation)
-            : Number(map.getCenterElevation?.()) || 0;
-          elevationStartProgress = easingProgress;
-        }
+    // Compose the persistent gesture guard with one native camera transform.
+    // The resolver samples the transform's actual geographic center, never the
+    // destination feature rendered at the lower-screen offset. This lets a
+    // cold destination use its already-decoded DEM before MapLibre's render
+    // source index catches up, without a second camera move or renderer.
+    const flightTransform = transform => {
+      const guarded = applyZoomDirectionGuard(map, transform);
+      if (disposed || (!ownedMoveActive && !primaryMoveEnded) || typeof options.resolveTerrainElevation !== 'function') return guarded;
+      let terrain;
+      try { terrain = map.getTerrain?.(); } catch (_) {}
+      if (!terrain?.source) return guarded;
+      let elevation = null;
+      try {
+        elevation = options.resolveTerrainElevation(transform.center, transform.zoom);
+      } catch (_) {}
+      if (!Number.isFinite(elevation)) return guarded;
+
+      const result = { ...guarded, elevation };
+      // Collision-safe pitch/zoom changes can alter the screen offset selected
+      // by flyTo. During the final part of the *same* native flight, use the
+      // transform's own projection helper to converge the destination onto the
+      // requested anchor. This is not a second correction animation: it is the
+      // camera frame MapLibre is already rendering, and it keeps MapLibre's
+      // collision-selected zoom/pitch intact.
+      if (flightProgress > 0.72
+        && typeof transform.setLocationAtPoint === 'function'
+        && typeof transform.locationToScreenPoint === 'function') {
+        try {
+          const target = new maplibregl.LngLat(coords[0], coords[1]);
+          const currentPoint = transform.locationToScreenPoint(target);
+          const local = Math.max(0, Math.min(1, (flightProgress - 0.72) / 0.28));
+          const blend = local * local * (3 - 2 * local);
+          const point = new maplibregl.Point(
+            currentPoint.x + (desiredAnchor.x - currentPoint.x) * blend,
+            currentPoint.y + (desiredAnchor.y - currentPoint.y) * blend
+          );
+          const targetElevation = options.resolveTerrainElevation(target, transform.zoom);
+          transform.setElevation?.(elevation);
+          transform.setLocationAtPoint(target, point,
+            Number.isFinite(targetElevation) ? targetElevation : elevation);
+          // The offset changes the geographic center slightly. One bounded
+          // resample keeps Camera.elevation attached to that corrected center.
+          const correctedElevation = options.resolveTerrainElevation(transform.center, transform.zoom);
+          if (Number.isFinite(correctedElevation)) {
+            transform.setElevation?.(correctedElevation);
+            transform.setLocationAtPoint(target, point,
+              Number.isFinite(targetElevation) ? targetElevation : correctedElevation);
+            result.elevation = correctedElevation;
+          }
+          result.center = transform.center;
+        } catch (_) {}
       }
-      if (!Number.isFinite(targetElevation)) return zoomGuard;
-      const remaining = Math.max(0.0001, 1 - elevationStartProgress);
-      const localProgress = Math.max(0, Math.min(1, (easingProgress - elevationStartProgress) / remaining));
-      const eased = localProgress * localProgress * (3 - 2 * localProgress);
-      const elevation = elevationStart + (targetElevation - elevationStart) * eased;
-      if (easingProgress >= 0.999) {
-        return { ...zoomGuard, elevation: targetElevation, zoom, pitch, bearing };
-      }
-      return { ...zoomGuard, elevation };
-    });
+      return result;
+    };
+    map.setTransformCameraUpdate?.(flightTransform);
 
     const repaintDestinationTerrain = () => {
       if (disposed || !primaryMoveEnded) return false;
       const terrainState = destinationTerrainState();
       try { map.triggerRepaint?.(); } catch (_) {}
       if (!terrainState.hasTerrain || terrainState.ready) {
+        const remaining = settleGuardUntil - performance.now();
+        if (remaining > 0) {
+          scheduleReadinessCheck(Math.ceil(remaining));
+          return false;
+        }
         dispose();
         return true;
       }
@@ -352,6 +416,12 @@
         return;
       }
       primaryMoveEnded = true;
+      // Keep the same transform callback briefly after moveend. Raster DEM
+      // source adoption may update MapLibre's center elevation a few frames
+      // later; holding the already-resolved anchor during that bounded window
+      // prevents the small post-arrival pull seen on cold tiles. Any user or
+      // external camera action disposes this guard immediately.
+      settleGuardUntil = performance.now() + 3500;
       // A flight has exactly one visible camera animation. MapLibre remains
       // authoritative for terrain collision and elevation throughout that
       // move; once moveend fires, Outmap never calls another camera method.
@@ -371,8 +441,32 @@
     const current = map.getCenter();
     const distance = Math.hypot((current.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), current.lat - coords[1]);
     const nearby = distance < 0.25;
-    if (distance > 2.5 || Math.abs(map.getZoom() - zoom) > 3.5) setFlightLoadState(true);
-    startNativeMove(nearby ? 'easeTo' : 'flyTo', duration);
+    const needsLoadingState = distance > 2.5 || Math.abs(map.getZoom() - zoom) > 3.5;
+    if (needsLoadingState) setFlightLoadState(true);
+
+    let moveStarted = false;
+    const beginMove = () => {
+      if (disposed || moveStarted) return;
+      moveStarted = true;
+      startNativeMove(nearby ? 'easeTo' : 'flyTo', duration);
+    };
+    if (typeof options.prepareTerrain === 'function') {
+      // Bound cold-network preparation so an unavailable DEM can never block
+      // navigation. Local/offline and memory-cached tiles normally resolve in
+      // a few milliseconds; a cold long-distance flight gets a little more
+      // time because avoiding an under-terrain landing is more important than
+      // beginning the animation immediately.
+      const prepareTimeout = Math.max(150, Math.min(6000,
+        Number(options.prepareTimeout) || (nearby ? 500 : 1600)));
+      timers.push(setTimeout(beginMove, prepareTimeout));
+      Promise.resolve(options.prepareTerrain(coords, {
+        zoom,
+        pitch,
+        signal: prepareController.signal
+      })).catch(() => {}).then(beginMove);
+    } else {
+      beginMove();
+    }
   }
 
   global.OutmapLocationCamera = Object.freeze({ fly, cancel, anchor, install });
