@@ -17,8 +17,8 @@ async function main() {
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
     '1. 修复远距离飞往高山地点时偶发只剩地图底色、必须缩放或拖动才能恢复的问题；',
-    '2. 目的地 DEM 晚到时仅平滑同步地表高程，由 MapLibre 原生防穿透逻辑决定安全视距，不再强制覆盖相机；',
-    '3. 移除多次迟到校正造成的落地回拉，搜索、收藏、省份和路线起点/终点/途经点统一使用一次飞掠状态机；',
+    '2. 每次定位只执行一条 MapLibre 原生相机动画，DEM 晚到后仅触发地图重绘，不再移动或重锚定相机；',
+    '3. 移除落地后的迟到校正和循环重绘，解决到达目标后再次缩放、位移或被拉回的问题；',
     '4. 已覆盖 2D、50°、70°、L4.45 至 L15、真实在线高山 DEM、连续飞掠和用户中断，不改动现有离线地图。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
