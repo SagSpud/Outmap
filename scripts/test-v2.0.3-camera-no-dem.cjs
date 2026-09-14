@@ -157,8 +157,10 @@ function createDelayedTerrainMap() {
     elevation: 3652
   });
   const hintedTransform = hintedMap.transformCallback({ elevation: 106 });
-  assert.strictEqual(Object.keys(hintedTransform).length, 0,
-    'A destination feature elevation must never be assigned to the offset map center');
+  assert.strictEqual(hintedTransform.elevation, 5478,
+    'Real point elevation must be scaled with terrain exaggeration inside the primary flight');
+  assert.strictEqual(hintedTransform.zoom, 13, 'Known terrain height must preserve the requested landing zoom');
+  assert.strictEqual(hintedTransform.pitch, 50, 'Known terrain height must preserve the requested landing pitch');
   hintedMap.emit('moveend');
   assert.strictEqual(hintedMap.easeCalls, 0, 'A known elevation must not create a post-arrival camera move');
 

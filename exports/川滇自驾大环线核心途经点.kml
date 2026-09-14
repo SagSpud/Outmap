@@ -1,0 +1,505 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>川滇自驾大环线核心途经点 (6月5日-13日)</name>
+    <description>成都-泸定-新都桥-巴塘-芒康盐井-飞来寺-香格里拉-虎跳峡-丽江-沙溪-大理-昆明</description>
+    <Style id="routeLine">
+      <LineStyle>
+        <color>ff0088ff</color>
+        <width>4</width>
+      </LineStyle>
+    </Style>
+    <Folder>
+      <name>30个核心控制点位</name>
+    <Placemark>
+      <name>成都天府国际机场</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#1 (2026-06-05)</p>
+          <p><strong>行政区：</strong>四川省 成都市 简阳市</p>
+          <p><strong>海拔：</strong>442 米</p>
+          <p><strong>地点介绍：</strong>川滇自驾大环线起点/集合抵达点</p>
+          <p><strong>详细地址：</strong>四川省成都市简阳市芦葭镇空港大道</p>
+          <p><strong>坐标(WGS84)：</strong>104.444700°E, 30.323500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>104.444700,30.323500,442</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>泸定桥</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#2 (2026-06-05)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 泸定县</p>
+          <p><strong>海拔：</strong>1332 米</p>
+          <p><strong>地点介绍：</strong>大渡河著名历史名胜铁索桥</p>
+          <p><strong>详细地址：</strong>四川省甘孜州泸定县泸桥镇大渡河上</p>
+          <p><strong>坐标(WGS84)：</strong>102.234800°E, 29.914200°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>102.234800,29.914200,1332</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>泸定县</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#3 (2026-06-05)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 泸定县</p>
+          <p><strong>海拔：</strong>1345 米</p>
+          <p><strong>地点介绍：</strong>06.05 住宿地，大渡河谷</p>
+          <p><strong>详细地址：</strong>四川省甘孜州泸定县城中心</p>
+          <p><strong>坐标(WGS84)：</strong>102.235500°E, 29.913000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>102.235500,29.913000,1345</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>红海子</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#4 (2026-06-06)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 康定市</p>
+          <p><strong>海拔：</strong>4200 米</p>
+          <p><strong>地点介绍：</strong>S434绝美高原海子，眺望笔架山雪峰</p>
+          <p><strong>详细地址：</strong>四川省甘孜州康定市S434省道旁</p>
+          <p><strong>坐标(WGS84)：</strong>101.868200°E, 30.155800°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>101.868200,30.155800,4200</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>斯丁措</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#5 (2026-06-06)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 康定市</p>
+          <p><strong>海拔：</strong>4260 米</p>
+          <p><strong>地点介绍：</strong>高原秘境湖泊，直面贡嘎雪山与雅拉雪山</p>
+          <p><strong>详细地址：</strong>四川省甘孜州康定市折多山顶康定机场附近</p>
+          <p><strong>坐标(WGS84)：</strong>101.748500°E, 30.141500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>101.748500,30.141500,4260</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>折多山观雪台</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#6 (2026-06-06)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 康定市</p>
+          <p><strong>海拔：</strong>4298 米</p>
+          <p><strong>地点介绍：</strong>康巴第一关，海拔4298米观雪台</p>
+          <p><strong>详细地址：</strong>四川省甘孜州康定市G318国道折多山垭口</p>
+          <p><strong>坐标(WGS84)：</strong>101.828600°E, 30.038200°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>101.828600,30.038200,4298</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>新都桥</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#7 (2026-06-06)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 康定市</p>
+          <p><strong>海拔：</strong>3460 米</p>
+          <p><strong>地点介绍：</strong>光影交错的摄影家天堂，06.06住宿地</p>
+          <p><strong>详细地址：</strong>四川省甘孜州康定市新都桥镇</p>
+          <p><strong>坐标(WGS84)：</strong>101.523000°E, 30.052000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>101.523000,30.052000,3460</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>巴塘县</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#8 (2026-06-07)</p>
+          <p><strong>行政区：</strong>四川省 甘孜藏族自治州 巴塘县</p>
+          <p><strong>海拔：</strong>2580 米</p>
+          <p><strong>地点介绍：</strong>川藏南线出川前最后一站高原绿洲，06.07住宿地</p>
+          <p><strong>详细地址：</strong>四川省甘孜州巴塘县夏邛镇</p>
+          <p><strong>坐标(WGS84)：</strong>99.108500°E, 30.004000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.108500,30.004000,2580</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>金沙江大桥(G318川藏界)</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#9 (2026-06-08)</p>
+          <p><strong>行政区：</strong>四川/西藏交界 甘孜州巴塘县 / 昌都市芒康县 竹巴龙乡</p>
+          <p><strong>海拔：</strong>2480 米</p>
+          <p><strong>地点介绍：</strong>川藏分界大桥，跨越金沙江正式入藏</p>
+          <p><strong>详细地址：</strong>G318国道川藏界金沙江大桥（四川巴塘竹巴龙-西藏芒康朱巴龙）</p>
+          <p><strong>坐标(WGS84)：</strong>98.981800°E, 29.845800°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>98.981800,29.845800,2480</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>芒康盐井旅游景区</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#10 (2026-06-08)</p>
+          <p><strong>行政区：</strong>西藏自治区 昌都市 芒康县</p>
+          <p><strong>海拔：</strong>2350 米</p>
+          <p><strong>地点介绍：</strong>世界上唯一完整保存的人工原始晒盐古盐田</p>
+          <p><strong>详细地址：</strong>西藏昌都市芒康县盐井纳西民族乡</p>
+          <p><strong>坐标(WGS84)：</strong>98.601500°E, 29.043500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>98.601500,29.043500,2350</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>加达村(西藏芒康县盐井乡)</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#11 (2026-06-08)</p>
+          <p><strong>行政区：</strong>西藏自治区 昌都市 芒康县</p>
+          <p><strong>海拔：</strong>2320 米</p>
+          <p><strong>地点介绍：</strong>澜沧江峡谷西岸纯红盐古盐田村落，自驾打卡核心</p>
+          <p><strong>详细地址：</strong>西藏自治区昌都市芒康县盐井纳西民族乡加达村</p>
+          <p><strong>坐标(WGS84)：</strong>98.591000°E, 29.041200°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>98.591000,29.041200,2320</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>飞来寺风景区观景台</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#12 (2026-06-08)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 德钦县</p>
+          <p><strong>海拔：</strong>3420 米</p>
+          <p><strong>地点介绍：</strong>直面梅里雪山十三峰与卡瓦格博峰日照金山经典圣地</p>
+          <p><strong>详细地址：</strong>云南省迪庆州德钦县升平镇G214旁</p>
+          <p><strong>坐标(WGS84)：</strong>98.878800°E, 28.441000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>98.878800,28.441000,3420</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>飞来寺</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#13 (2026-06-08)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 德钦县</p>
+          <p><strong>海拔：</strong>3400 米</p>
+          <p><strong>地点介绍：</strong>建于明代的藏传佛教古刹，06.08住宿打卡地</p>
+          <p><strong>详细地址：</strong>云南省迪庆州德钦县升平镇飞来寺村</p>
+          <p><strong>坐标(WGS84)：</strong>98.879500°E, 28.439500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>98.879500,28.439500,3400</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>白马雪山垭口</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#14 (2026-06-09)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 德钦县</p>
+          <p><strong>海拔：</strong>4292 米</p>
+          <p><strong>地点介绍：</strong>海拔4292米，滇藏公路最高点壮阔雪山垭口</p>
+          <p><strong>详细地址：</strong>云南省迪庆州德钦县G214老线白马雪山垭口</p>
+          <p><strong>坐标(WGS84)：</strong>99.033500°E, 28.324500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.033500,28.324500,4292</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>奔子栏</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#15 (2026-06-09)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 德钦县</p>
+          <p><strong>海拔：</strong>2050 米</p>
+          <p><strong>地点介绍：</strong>金沙江河谷要塞，茶马古道咽喉重镇</p>
+          <p><strong>详细地址：</strong>云南省迪庆州德钦县奔子栏镇</p>
+          <p><strong>坐标(WGS84)：</strong>99.309200°E, 28.243500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.309200,28.243500,2050</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>纳帕海</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#16 (2026-06-09)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 香格里拉市</p>
+          <p><strong>海拔：</strong>3270 米</p>
+          <p><strong>地点介绍：</strong>香格里拉高原湿地水上公路与草原牧场</p>
+          <p><strong>详细地址：</strong>云南省迪庆州香格里拉市建塘镇纳帕海</p>
+          <p><strong>坐标(WGS84)：</strong>99.645000°E, 27.876000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.645000,27.876000,3270</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>香格里拉独克宗古城</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#17 (2026-06-09)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 香格里拉市</p>
+          <p><strong>海拔：</strong>3280 米</p>
+          <p><strong>地点介绍：</strong>茶马古道重镇，06.09住宿及夜景核心</p>
+          <p><strong>详细地址：</strong>云南省迪庆州香格里拉市金龙街</p>
+          <p><strong>坐标(WGS84)：</strong>99.704200°E, 27.813800°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.704200,27.813800,3280</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>松赞林景区</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#18 (2026-06-10)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 香格里拉市</p>
+          <p><strong>海拔：</strong>3380 米</p>
+          <p><strong>地点介绍：</strong>云南最大藏传佛教寺院，享有“归化寺/小布达拉宫”美誉</p>
+          <p><strong>详细地址：</strong>云南省迪庆州香格里拉市建塘镇尼旺路</p>
+          <p><strong>坐标(WGS84)：</strong>99.704500°E, 27.863500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.704500,27.863500,3380</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>虎跳峡镇</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#19 (2026-06-10)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 香格里拉市</p>
+          <p><strong>海拔：</strong>1850 米</p>
+          <p><strong>地点介绍：</strong>进入虎跳峡峡谷前哨镇，06.10住宿地</p>
+          <p><strong>详细地址：</strong>云南省迪庆州香格里拉市虎跳峡镇人民政府驻地</p>
+          <p><strong>坐标(WGS84)：</strong>100.076800°E, 27.185200°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.076800,27.185200,1850</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>香格里拉虎跳峡景区</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#20 (2026-06-11)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 香格里拉市</p>
+          <p><strong>海拔：</strong>1800 米</p>
+          <p><strong>地点介绍：</strong>世界上最深、最壮观的大峡谷之一，惊涛拍岸</p>
+          <p><strong>详细地址：</strong>云南省迪庆州香格里拉市虎跳峡镇东侧金沙江大峡谷</p>
+          <p><strong>坐标(WGS84)：</strong>100.125000°E, 27.182000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.125000,27.182000,1800</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>哈巴雪山观景台</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#21 (2026-06-11)</p>
+          <p><strong>行政区：</strong>云南省 迪庆藏族自治州 香格里拉市</p>
+          <p><strong>海拔：</strong>2750 米</p>
+          <p><strong>地点介绍：</strong>遥望哈巴雪山峰群与高山草甸的最佳全景观赏点</p>
+          <p><strong>详细地址：</strong>云南省迪庆州香格里拉市东环线/虎香公路</p>
+          <p><strong>坐标(WGS84)：</strong>100.173000°E, 27.289000°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.173000,27.289000,2750</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>白沙古镇</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#22 (2026-06-11)</p>
+          <p><strong>行政区：</strong>云南省 丽江市 玉龙纳西族自治县</p>
+          <p><strong>海拔：</strong>2450 米</p>
+          <p><strong>地点介绍：</strong>纳西族最早的聚居地，最原生态慢节奏古镇，06.11住宿地</p>
+          <p><strong>详细地址：</strong>云南省丽江市玉龙县白沙镇</p>
+          <p><strong>坐标(WGS84)：</strong>100.218500°E, 26.956500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.218500,26.956500,2450</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>玉湖村</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#23 (2026-06-12)</p>
+          <p><strong>行政区：</strong>云南省 丽江市 玉龙纳西族自治县</p>
+          <p><strong>海拔：</strong>2700 米</p>
+          <p><strong>地点介绍：</strong>玉龙雪山南麓石头村落，约瑟夫·洛克故居所在地</p>
+          <p><strong>详细地址：</strong>云南省丽江市玉龙县白沙镇玉湖村</p>
+          <p><strong>坐标(WGS84)：</strong>100.221500°E, 27.028500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.221500,27.028500,2700</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>沙溪古镇</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#24 (2026-06-12)</p>
+          <p><strong>行政区：</strong>云南省 大理白族自治州 剑川县</p>
+          <p><strong>海拔：</strong>2100 米</p>
+          <p><strong>地点介绍：</strong>茶马古道上唯一幸存的古集市，黑惠江与玉津桥绝美风光</p>
+          <p><strong>详细地址：</strong>云南省大理州剑川县沙溪镇寺登街</p>
+          <p><strong>坐标(WGS84)：</strong>99.851200°E, 26.319500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>99.851200,26.319500,2100</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>洱海生态廊道</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#25 (2026-06-12)</p>
+          <p><strong>行政区：</strong>云南省 大理白族自治州 大理市</p>
+          <p><strong>海拔：</strong>1972 米</p>
+          <p><strong>地点介绍：</strong>苍山洱海骑行与漫步核心走廊</p>
+          <p><strong>详细地址：</strong>云南省大理州大理市洱海西岸</p>
+          <p><strong>坐标(WGS84)：</strong>100.187500°E, 25.726500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.187500,25.726500,1972</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>大理古城</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#26 (2026-06-12)</p>
+          <p><strong>行政区：</strong>云南省 大理白族自治州 大理市</p>
+          <p><strong>海拔：</strong>1980 米</p>
+          <p><strong>地点介绍：</strong>风花雪月大理核心古城，06.12住宿地</p>
+          <p><strong>详细地址：</strong>云南省大理州大理市大理镇一塔路</p>
+          <p><strong>坐标(WGS84)：</strong>100.165000°E, 25.696500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.165000,25.696500,1980</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>大理北门菜市场</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#27 (2026-06-13)</p>
+          <p><strong>行政区：</strong>云南省 大理白族自治州 大理市</p>
+          <p><strong>海拔：</strong>1985 米</p>
+          <p><strong>地点介绍：</strong>烟火气最浓的大理本地农贸早市与特色小吃聚集地</p>
+          <p><strong>详细地址：</strong>云南省大理州大理市大理古城北门街</p>
+          <p><strong>坐标(WGS84)：</strong>100.165800°E, 25.706200°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>100.165800,25.706200,1985</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>云南省博物馆</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#28 (2026-06-13)</p>
+          <p><strong>行政区：</strong>云南省 昆明市 官渡区</p>
+          <p><strong>海拔：</strong>1890 米</p>
+          <p><strong>地点介绍：</strong>云南历史文化殿堂，古滇国青铜重器与南诏大理国瑰宝</p>
+          <p><strong>详细地址：</strong>云南省昆明市官渡区广福路6393号</p>
+          <p><strong>坐标(WGS84)：</strong>102.753800°E, 24.952500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>102.753800,24.952500,1890</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>昆明万象城</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#29 (2026-06-13)</p>
+          <p><strong>行政区：</strong>云南省 昆明市 官渡区</p>
+          <p><strong>海拔：</strong>1890 米</p>
+          <p><strong>地点介绍：</strong>返程前市区补给购物与餐饮中心</p>
+          <p><strong>详细地址：</strong>云南省昆明市官渡区环城南路与东郊路交叉口</p>
+          <p><strong>坐标(WGS84)：</strong>102.730500°E, 25.034500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>102.730500,25.034500,1890</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>昆明长水国际机场T1航站楼</name>
+      <description><![CDATA[
+        <div style="font-family: sans-serif; font-size: 13px;">
+          <p><strong>序号：</strong>#30 (2026-06-13)</p>
+          <p><strong>行政区：</strong>云南省 昆明市 官渡区</p>
+          <p><strong>海拔：</strong>2102 米</p>
+          <p><strong>地点介绍：</strong>川滇大环线自驾圆满收官/返程航班出发点</p>
+          <p><strong>详细地址：</strong>云南省昆明市官渡区长水国际机场T1航站楼</p>
+          <p><strong>坐标(WGS84)：</strong>102.935000°E, 25.105500°N</p>
+        </div>
+      ]]></description>
+      <Point>
+        <coordinates>102.935000,25.105500,2102</coordinates>
+      </Point>
+    </Placemark>
+    </Folder>
+    <Placemark>
+      <name>川滇大环线总览轨迹线</name>
+      <styleUrl>#routeLine</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <altitudeMode>clampToGround</altitudeMode>
+        <coordinates>104.444700,30.323500,442 102.234800,29.914200,1332 102.235500,29.913000,1345 101.868200,30.155800,4200 101.748500,30.141500,4260 101.828600,30.038200,4298 101.523000,30.052000,3460 99.108500,30.004000,2580 98.981800,29.845800,2480 98.601500,29.043500,2350 98.591000,29.041200,2320 98.878800,28.441000,3420 98.879500,28.439500,3400 99.033500,28.324500,4292 99.309200,28.243500,2050 99.645000,27.876000,3270 99.704200,27.813800,3280 99.704500,27.863500,3380 100.076800,27.185200,1850 100.125000,27.182000,1800 100.173000,27.289000,2750 100.218500,26.956500,2450 100.221500,27.028500,2700 99.851200,26.319500,2100 100.187500,25.726500,1972 100.165000,25.696500,1980 100.165800,25.706200,1985 102.753800,24.952500,1890 102.730500,25.034500,1890 102.935000,25.105500,2102</coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>

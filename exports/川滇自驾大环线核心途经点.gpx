@@ -1,0 +1,530 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Outmap 3D GIS (https://map.053999.xyz)"
+  xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>川滇自驾大环线核心途经点 (成都-川西-滇西北-昆明)</name>
+    <desc>全程精选30个核心控制途经点，覆盖06.05-06.13完整自驾行程。</desc>
+    <time>2026-06-05T00:00:00Z</time>
+  </metadata>
+  <wpt lat="30.323500" lon="104.444700">
+    <ele>442</ele>
+    <time>2026-06-05T08:00:00Z</time>
+    <name>成都天府国际机场</name>
+    <desc>[2026-06-05] 四川省成都市简阳市 - 川滇自驾大环线起点/集合抵达点</desc>
+    <sym>Flag, Blue</sym>
+    <type>Start</type>
+  </wpt>
+  <wpt lat="29.914200" lon="102.234800">
+    <ele>1332</ele>
+    <time>2026-06-05T08:00:00Z</time>
+    <name>泸定桥</name>
+    <desc>[2026-06-05] 四川省甘孜藏族自治州泸定县 - 大渡河著名历史名胜铁索桥</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="29.913000" lon="102.235500">
+    <ele>1345</ele>
+    <time>2026-06-05T08:00:00Z</time>
+    <name>泸定县</name>
+    <desc>[2026-06-05] 四川省甘孜藏族自治州泸定县 - 06.05 住宿地，大渡河谷</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="30.155800" lon="101.868200">
+    <ele>4200</ele>
+    <time>2026-06-06T08:00:00Z</time>
+    <name>红海子</name>
+    <desc>[2026-06-06] 四川省甘孜藏族自治州康定市 - S434绝美高原海子，眺望笔架山雪峰</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="30.141500" lon="101.748500">
+    <ele>4260</ele>
+    <time>2026-06-06T08:00:00Z</time>
+    <name>斯丁措</name>
+    <desc>[2026-06-06] 四川省甘孜藏族自治州康定市 - 高原秘境湖泊，直面贡嘎雪山与雅拉雪山</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="30.038200" lon="101.828600">
+    <ele>4298</ele>
+    <time>2026-06-06T08:00:00Z</time>
+    <name>折多山观雪台</name>
+    <desc>[2026-06-06] 四川省甘孜藏族自治州康定市 - 康巴第一关，海拔4298米观雪台</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="30.052000" lon="101.523000">
+    <ele>3460</ele>
+    <time>2026-06-06T08:00:00Z</time>
+    <name>新都桥</name>
+    <desc>[2026-06-06] 四川省甘孜藏族自治州康定市 - 光影交错的摄影家天堂，06.06住宿地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="30.004000" lon="99.108500">
+    <ele>2580</ele>
+    <time>2026-06-07T08:00:00Z</time>
+    <name>巴塘县</name>
+    <desc>[2026-06-07] 四川省甘孜藏族自治州巴塘县 - 川藏南线出川前最后一站高原绿洲，06.07住宿地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="29.845800" lon="98.981800">
+    <ele>2480</ele>
+    <time>2026-06-08T08:00:00Z</time>
+    <name>金沙江大桥(G318川藏界)</name>
+    <desc>[2026-06-08] 四川/西藏交界甘孜州巴塘县 / 昌都市芒康县竹巴龙乡 - 川藏分界大桥，跨越金沙江正式入藏</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="29.043500" lon="98.601500">
+    <ele>2350</ele>
+    <time>2026-06-08T08:00:00Z</time>
+    <name>芒康盐井旅游景区</name>
+    <desc>[2026-06-08] 西藏自治区昌都市芒康县 - 世界上唯一完整保存的人工原始晒盐古盐田</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="29.041200" lon="98.591000">
+    <ele>2320</ele>
+    <time>2026-06-08T08:00:00Z</time>
+    <name>加达村(西藏芒康县盐井乡)</name>
+    <desc>[2026-06-08] 西藏自治区昌都市芒康县 - 澜沧江峡谷西岸纯红盐古盐田村落，自驾打卡核心</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="28.441000" lon="98.878800">
+    <ele>3420</ele>
+    <time>2026-06-08T08:00:00Z</time>
+    <name>飞来寺风景区观景台</name>
+    <desc>[2026-06-08] 云南省迪庆藏族自治州德钦县 - 直面梅里雪山十三峰与卡瓦格博峰日照金山经典圣地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="28.439500" lon="98.879500">
+    <ele>3400</ele>
+    <time>2026-06-08T08:00:00Z</time>
+    <name>飞来寺</name>
+    <desc>[2026-06-08] 云南省迪庆藏族自治州德钦县 - 建于明代的藏传佛教古刹，06.08住宿打卡地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="28.324500" lon="99.033500">
+    <ele>4292</ele>
+    <time>2026-06-09T08:00:00Z</time>
+    <name>白马雪山垭口</name>
+    <desc>[2026-06-09] 云南省迪庆藏族自治州德钦县 - 海拔4292米，滇藏公路最高点壮阔雪山垭口</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="28.243500" lon="99.309200">
+    <ele>2050</ele>
+    <time>2026-06-09T08:00:00Z</time>
+    <name>奔子栏</name>
+    <desc>[2026-06-09] 云南省迪庆藏族自治州德钦县 - 金沙江河谷要塞，茶马古道咽喉重镇</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.876000" lon="99.645000">
+    <ele>3270</ele>
+    <time>2026-06-09T08:00:00Z</time>
+    <name>纳帕海</name>
+    <desc>[2026-06-09] 云南省迪庆藏族自治州香格里拉市 - 香格里拉高原湿地水上公路与草原牧场</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.813800" lon="99.704200">
+    <ele>3280</ele>
+    <time>2026-06-09T08:00:00Z</time>
+    <name>香格里拉独克宗古城</name>
+    <desc>[2026-06-09] 云南省迪庆藏族自治州香格里拉市 - 茶马古道重镇，06.09住宿及夜景核心</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.863500" lon="99.704500">
+    <ele>3380</ele>
+    <time>2026-06-10T08:00:00Z</time>
+    <name>松赞林景区</name>
+    <desc>[2026-06-10] 云南省迪庆藏族自治州香格里拉市 - 云南最大藏传佛教寺院，享有“归化寺/小布达拉宫”美誉</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.185200" lon="100.076800">
+    <ele>1850</ele>
+    <time>2026-06-10T08:00:00Z</time>
+    <name>虎跳峡镇</name>
+    <desc>[2026-06-10] 云南省迪庆藏族自治州香格里拉市 - 进入虎跳峡峡谷前哨镇，06.10住宿地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.182000" lon="100.125000">
+    <ele>1800</ele>
+    <time>2026-06-11T08:00:00Z</time>
+    <name>香格里拉虎跳峡景区</name>
+    <desc>[2026-06-11] 云南省迪庆藏族自治州香格里拉市 - 世界上最深、最壮观的大峡谷之一，惊涛拍岸</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.289000" lon="100.173000">
+    <ele>2750</ele>
+    <time>2026-06-11T08:00:00Z</time>
+    <name>哈巴雪山观景台</name>
+    <desc>[2026-06-11] 云南省迪庆藏族自治州香格里拉市 - 遥望哈巴雪山峰群与高山草甸的最佳全景观赏点</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="26.956500" lon="100.218500">
+    <ele>2450</ele>
+    <time>2026-06-11T08:00:00Z</time>
+    <name>白沙古镇</name>
+    <desc>[2026-06-11] 云南省丽江市玉龙纳西族自治县 - 纳西族最早的聚居地，最原生态慢节奏古镇，06.11住宿地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="27.028500" lon="100.221500">
+    <ele>2700</ele>
+    <time>2026-06-12T08:00:00Z</time>
+    <name>玉湖村</name>
+    <desc>[2026-06-12] 云南省丽江市玉龙纳西族自治县 - 玉龙雪山南麓石头村落，约瑟夫·洛克故居所在地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="26.319500" lon="99.851200">
+    <ele>2100</ele>
+    <time>2026-06-12T08:00:00Z</time>
+    <name>沙溪古镇</name>
+    <desc>[2026-06-12] 云南省大理白族自治州剑川县 - 茶马古道上唯一幸存的古集市，黑惠江与玉津桥绝美风光</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="25.726500" lon="100.187500">
+    <ele>1972</ele>
+    <time>2026-06-12T08:00:00Z</time>
+    <name>洱海生态廊道</name>
+    <desc>[2026-06-12] 云南省大理白族自治州大理市 - 苍山洱海骑行与漫步核心走廊</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="25.696500" lon="100.165000">
+    <ele>1980</ele>
+    <time>2026-06-12T08:00:00Z</time>
+    <name>大理古城</name>
+    <desc>[2026-06-12] 云南省大理白族自治州大理市 - 风花雪月大理核心古城，06.12住宿地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="25.706200" lon="100.165800">
+    <ele>1985</ele>
+    <time>2026-06-13T08:00:00Z</time>
+    <name>大理北门菜市场</name>
+    <desc>[2026-06-13] 云南省大理白族自治州大理市 - 烟火气最浓的大理本地农贸早市与特色小吃聚集地</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="24.952500" lon="102.753800">
+    <ele>1890</ele>
+    <time>2026-06-13T08:00:00Z</time>
+    <name>云南省博物馆</name>
+    <desc>[2026-06-13] 云南省昆明市官渡区 - 云南历史文化殿堂，古滇国青铜重器与南诏大理国瑰宝</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="25.034500" lon="102.730500">
+    <ele>1890</ele>
+    <time>2026-06-13T08:00:00Z</time>
+    <name>昆明万象城</name>
+    <desc>[2026-06-13] 云南省昆明市官渡区 - 返程前市区补给购物与餐饮中心</desc>
+    <sym>Flag, Blue</sym>
+    <type>Via</type>
+  </wpt>
+  <wpt lat="25.105500" lon="102.935000">
+    <ele>2102</ele>
+    <time>2026-06-13T08:00:00Z</time>
+    <name>昆明长水国际机场T1航站楼</name>
+    <desc>[2026-06-13] 云南省昆明市官渡区 - 川滇大环线自驾圆满收官/返程航班出发点</desc>
+    <sym>Flag, Blue</sym>
+    <type>End</type>
+  </wpt>
+  <rte>
+    <name>川滇大环线自驾路线</name>
+    <desc>成都 → 泸定 → 新都桥 → 巴塘 → 芒康盐井 → 飞来寺 → 奔子栏 → 香格里拉 → 虎跳峡 → 丽江 → 沙溪 → 大理 → 昆明</desc>
+    <rtept lat="30.323500" lon="104.444700">
+      <ele>442</ele>
+      <name>成都天府国际机场</name>
+    </rtept>
+    <rtept lat="29.914200" lon="102.234800">
+      <ele>1332</ele>
+      <name>泸定桥</name>
+    </rtept>
+    <rtept lat="29.913000" lon="102.235500">
+      <ele>1345</ele>
+      <name>泸定县</name>
+    </rtept>
+    <rtept lat="30.155800" lon="101.868200">
+      <ele>4200</ele>
+      <name>红海子</name>
+    </rtept>
+    <rtept lat="30.141500" lon="101.748500">
+      <ele>4260</ele>
+      <name>斯丁措</name>
+    </rtept>
+    <rtept lat="30.038200" lon="101.828600">
+      <ele>4298</ele>
+      <name>折多山观雪台</name>
+    </rtept>
+    <rtept lat="30.052000" lon="101.523000">
+      <ele>3460</ele>
+      <name>新都桥</name>
+    </rtept>
+    <rtept lat="30.004000" lon="99.108500">
+      <ele>2580</ele>
+      <name>巴塘县</name>
+    </rtept>
+    <rtept lat="29.845800" lon="98.981800">
+      <ele>2480</ele>
+      <name>金沙江大桥(G318川藏界)</name>
+    </rtept>
+    <rtept lat="29.043500" lon="98.601500">
+      <ele>2350</ele>
+      <name>芒康盐井旅游景区</name>
+    </rtept>
+    <rtept lat="29.041200" lon="98.591000">
+      <ele>2320</ele>
+      <name>加达村(西藏芒康县盐井乡)</name>
+    </rtept>
+    <rtept lat="28.441000" lon="98.878800">
+      <ele>3420</ele>
+      <name>飞来寺风景区观景台</name>
+    </rtept>
+    <rtept lat="28.439500" lon="98.879500">
+      <ele>3400</ele>
+      <name>飞来寺</name>
+    </rtept>
+    <rtept lat="28.324500" lon="99.033500">
+      <ele>4292</ele>
+      <name>白马雪山垭口</name>
+    </rtept>
+    <rtept lat="28.243500" lon="99.309200">
+      <ele>2050</ele>
+      <name>奔子栏</name>
+    </rtept>
+    <rtept lat="27.876000" lon="99.645000">
+      <ele>3270</ele>
+      <name>纳帕海</name>
+    </rtept>
+    <rtept lat="27.813800" lon="99.704200">
+      <ele>3280</ele>
+      <name>香格里拉独克宗古城</name>
+    </rtept>
+    <rtept lat="27.863500" lon="99.704500">
+      <ele>3380</ele>
+      <name>松赞林景区</name>
+    </rtept>
+    <rtept lat="27.185200" lon="100.076800">
+      <ele>1850</ele>
+      <name>虎跳峡镇</name>
+    </rtept>
+    <rtept lat="27.182000" lon="100.125000">
+      <ele>1800</ele>
+      <name>香格里拉虎跳峡景区</name>
+    </rtept>
+    <rtept lat="27.289000" lon="100.173000">
+      <ele>2750</ele>
+      <name>哈巴雪山观景台</name>
+    </rtept>
+    <rtept lat="26.956500" lon="100.218500">
+      <ele>2450</ele>
+      <name>白沙古镇</name>
+    </rtept>
+    <rtept lat="27.028500" lon="100.221500">
+      <ele>2700</ele>
+      <name>玉湖村</name>
+    </rtept>
+    <rtept lat="26.319500" lon="99.851200">
+      <ele>2100</ele>
+      <name>沙溪古镇</name>
+    </rtept>
+    <rtept lat="25.726500" lon="100.187500">
+      <ele>1972</ele>
+      <name>洱海生态廊道</name>
+    </rtept>
+    <rtept lat="25.696500" lon="100.165000">
+      <ele>1980</ele>
+      <name>大理古城</name>
+    </rtept>
+    <rtept lat="25.706200" lon="100.165800">
+      <ele>1985</ele>
+      <name>大理北门菜市场</name>
+    </rtept>
+    <rtept lat="24.952500" lon="102.753800">
+      <ele>1890</ele>
+      <name>云南省博物馆</name>
+    </rtept>
+    <rtept lat="25.034500" lon="102.730500">
+      <ele>1890</ele>
+      <name>昆明万象城</name>
+    </rtept>
+    <rtept lat="25.105500" lon="102.935000">
+      <ele>2102</ele>
+      <name>昆明长水国际机场T1航站楼</name>
+    </rtept>
+  </rte>
+  <trk>
+    <name>川滇自驾大环线轨迹连线</name>
+    <trkseg>
+      <trkpt lat="30.323500" lon="104.444700">
+        <ele>442</ele>
+        <time>2026-06-05T08:00:00Z</time>
+        <name>成都天府国际机场</name>
+      </trkpt>
+      <trkpt lat="29.914200" lon="102.234800">
+        <ele>1332</ele>
+        <time>2026-06-05T08:00:00Z</time>
+        <name>泸定桥</name>
+      </trkpt>
+      <trkpt lat="29.913000" lon="102.235500">
+        <ele>1345</ele>
+        <time>2026-06-05T08:00:00Z</time>
+        <name>泸定县</name>
+      </trkpt>
+      <trkpt lat="30.155800" lon="101.868200">
+        <ele>4200</ele>
+        <time>2026-06-06T08:00:00Z</time>
+        <name>红海子</name>
+      </trkpt>
+      <trkpt lat="30.141500" lon="101.748500">
+        <ele>4260</ele>
+        <time>2026-06-06T08:00:00Z</time>
+        <name>斯丁措</name>
+      </trkpt>
+      <trkpt lat="30.038200" lon="101.828600">
+        <ele>4298</ele>
+        <time>2026-06-06T08:00:00Z</time>
+        <name>折多山观雪台</name>
+      </trkpt>
+      <trkpt lat="30.052000" lon="101.523000">
+        <ele>3460</ele>
+        <time>2026-06-06T08:00:00Z</time>
+        <name>新都桥</name>
+      </trkpt>
+      <trkpt lat="30.004000" lon="99.108500">
+        <ele>2580</ele>
+        <time>2026-06-07T08:00:00Z</time>
+        <name>巴塘县</name>
+      </trkpt>
+      <trkpt lat="29.845800" lon="98.981800">
+        <ele>2480</ele>
+        <time>2026-06-08T08:00:00Z</time>
+        <name>金沙江大桥(G318川藏界)</name>
+      </trkpt>
+      <trkpt lat="29.043500" lon="98.601500">
+        <ele>2350</ele>
+        <time>2026-06-08T08:00:00Z</time>
+        <name>芒康盐井旅游景区</name>
+      </trkpt>
+      <trkpt lat="29.041200" lon="98.591000">
+        <ele>2320</ele>
+        <time>2026-06-08T08:00:00Z</time>
+        <name>加达村(西藏芒康县盐井乡)</name>
+      </trkpt>
+      <trkpt lat="28.441000" lon="98.878800">
+        <ele>3420</ele>
+        <time>2026-06-08T08:00:00Z</time>
+        <name>飞来寺风景区观景台</name>
+      </trkpt>
+      <trkpt lat="28.439500" lon="98.879500">
+        <ele>3400</ele>
+        <time>2026-06-08T08:00:00Z</time>
+        <name>飞来寺</name>
+      </trkpt>
+      <trkpt lat="28.324500" lon="99.033500">
+        <ele>4292</ele>
+        <time>2026-06-09T08:00:00Z</time>
+        <name>白马雪山垭口</name>
+      </trkpt>
+      <trkpt lat="28.243500" lon="99.309200">
+        <ele>2050</ele>
+        <time>2026-06-09T08:00:00Z</time>
+        <name>奔子栏</name>
+      </trkpt>
+      <trkpt lat="27.876000" lon="99.645000">
+        <ele>3270</ele>
+        <time>2026-06-09T08:00:00Z</time>
+        <name>纳帕海</name>
+      </trkpt>
+      <trkpt lat="27.813800" lon="99.704200">
+        <ele>3280</ele>
+        <time>2026-06-09T08:00:00Z</time>
+        <name>香格里拉独克宗古城</name>
+      </trkpt>
+      <trkpt lat="27.863500" lon="99.704500">
+        <ele>3380</ele>
+        <time>2026-06-10T08:00:00Z</time>
+        <name>松赞林景区</name>
+      </trkpt>
+      <trkpt lat="27.185200" lon="100.076800">
+        <ele>1850</ele>
+        <time>2026-06-10T08:00:00Z</time>
+        <name>虎跳峡镇</name>
+      </trkpt>
+      <trkpt lat="27.182000" lon="100.125000">
+        <ele>1800</ele>
+        <time>2026-06-11T08:00:00Z</time>
+        <name>香格里拉虎跳峡景区</name>
+      </trkpt>
+      <trkpt lat="27.289000" lon="100.173000">
+        <ele>2750</ele>
+        <time>2026-06-11T08:00:00Z</time>
+        <name>哈巴雪山观景台</name>
+      </trkpt>
+      <trkpt lat="26.956500" lon="100.218500">
+        <ele>2450</ele>
+        <time>2026-06-11T08:00:00Z</time>
+        <name>白沙古镇</name>
+      </trkpt>
+      <trkpt lat="27.028500" lon="100.221500">
+        <ele>2700</ele>
+        <time>2026-06-12T08:00:00Z</time>
+        <name>玉湖村</name>
+      </trkpt>
+      <trkpt lat="26.319500" lon="99.851200">
+        <ele>2100</ele>
+        <time>2026-06-12T08:00:00Z</time>
+        <name>沙溪古镇</name>
+      </trkpt>
+      <trkpt lat="25.726500" lon="100.187500">
+        <ele>1972</ele>
+        <time>2026-06-12T08:00:00Z</time>
+        <name>洱海生态廊道</name>
+      </trkpt>
+      <trkpt lat="25.696500" lon="100.165000">
+        <ele>1980</ele>
+        <time>2026-06-12T08:00:00Z</time>
+        <name>大理古城</name>
+      </trkpt>
+      <trkpt lat="25.706200" lon="100.165800">
+        <ele>1985</ele>
+        <time>2026-06-13T08:00:00Z</time>
+        <name>大理北门菜市场</name>
+      </trkpt>
+      <trkpt lat="24.952500" lon="102.753800">
+        <ele>1890</ele>
+        <time>2026-06-13T08:00:00Z</time>
+        <name>云南省博物馆</name>
+      </trkpt>
+      <trkpt lat="25.034500" lon="102.730500">
+        <ele>1890</ele>
+        <time>2026-06-13T08:00:00Z</time>
+        <name>昆明万象城</name>
+      </trkpt>
+      <trkpt lat="25.105500" lon="102.935000">
+        <ele>2102</ele>
+        <time>2026-06-13T08:00:00Z</time>
+        <name>昆明长水国际机场T1航站楼</name>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

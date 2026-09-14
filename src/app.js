@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.10';
+const APP_VERSION = '2.0.11';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2792,8 +2792,6 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (window.OutmapLocationCamera?.fly) {
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
-      prepareTerrain: flyOpts.prepareTerrain || window.OutmapPrepareTerrainAt,
-      resolveTerrainElevation: flyOpts.resolveTerrainElevation || window.OutmapResolvePreparedTerrainElevation,
       onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
         // Route point symbols are terrain-projected natively by MapLibre 6;

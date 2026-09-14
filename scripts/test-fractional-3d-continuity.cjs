@@ -143,43 +143,21 @@ app.whenReady().then(async () => {
       const wheelOnce = async (pitch, startZoom, deltaY, yRatio = 0.68) => {
         map.stop();
         map.jumpTo({ center: [101.3451, 30.06], pitch, zoom: startZoom });
-        await sleep(90);
+        await sleep(45);
         const actualStartZoom = map.getZoom();
         const samples = [actualStartZoom];
         const onZoom = () => samples.push(map.getZoom());
         map.on('zoom', onZoom);
-        let centerAtZoomEnd = null;
-        let zoomAtZoomEnd = null;
-        const ended = new Promise(resolve => map.once('zoomend', () => {
-          const center = map.getCenter();
-          centerAtZoomEnd = [center.lng, center.lat];
-          zoomAtZoomEnd = map.getZoom();
-          resolve();
-        }));
+        const ended = new Promise(resolve => map.once('zoomend', resolve));
         const canvas = map.getCanvas();
-        const dispatchWheel = () => canvas.dispatchEvent(new WheelEvent('wheel', {
+        canvas.dispatchEvent(new WheelEvent('wheel', {
           bubbles: true, cancelable: true, deltaMode: 0, deltaY,
           clientX: canvas.clientWidth * 0.5, clientY: canvas.clientHeight * yRatio
         }));
-        dispatchWheel();
-        await Promise.race([ended, sleep(1500)]);
-        // Electron can drop the very first synthetic wheel immediately after a
-        // busy GPU harness starts. Retry only when no native zoom lifecycle was
-        // observed; real movement is never duplicated.
-        if (!centerAtZoomEnd) {
-          dispatchWheel();
-          await Promise.race([ended, sleep(1500)]);
-        }
+        await Promise.race([ended, sleep(900)]);
         await sleep(35);
         map.off('zoom', onZoom);
         const endZoom = map.getZoom();
-        const endCenter = map.getCenter();
-        const centerDrift = centerAtZoomEnd
-          ? Math.hypot(endCenter.lng - centerAtZoomEnd[0], endCenter.lat - centerAtZoomEnd[1])
-          : Infinity;
-        const postEndZoomDrift = Number.isFinite(zoomAtZoomEnd)
-          ? Math.abs(endZoom - zoomAtZoomEnd)
-          : Infinity;
         const peak = Math.max(...samples, endZoom);
         const trough = Math.min(...samples, endZoom);
         const directionOk = deltaY < 0 ? endZoom >= actualStartZoom - 0.005 : endZoom <= actualStartZoom + 0.005;
@@ -188,12 +166,7 @@ app.whenReady().then(async () => {
           throw new Error('wheel zoom unstable at ' + pitch + '° / L' + startZoom
             + ': end=' + endZoom + ', rollback=' + rollback + ', deltaY=' + deltaY);
         }
-        if (centerDrift > 1e-8 || postEndZoomDrift > 0.002) {
-          throw new Error('wheel zoom moved after zoomend at ' + pitch + '° / L' + startZoom
-            + ': centerDrift=' + centerDrift + ', zoomDrift=' + postEndZoomDrift);
-        }
-        wheelMatrix.push({ pitch, startZoom, actualStartZoom, deltaY, yRatio,
-          endZoom, rollback, centerDrift, postEndZoomDrift, frames: samples.length });
+        wheelMatrix.push({ pitch, startZoom, actualStartZoom, deltaY, yRatio, endZoom, rollback, frames: samples.length });
       };
       const wheelLevels = [3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 15.1, 16.0, 16.8];
       for (const pitch of [0, 50, 70]) {

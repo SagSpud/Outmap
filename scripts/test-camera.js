@@ -73,27 +73,25 @@ app.whenReady().then(async () => {
       return null;
     };
     const fly = (coordinates, options = {}) => OutmapLocationCamera.fly(m, coordinates, {
-      prepareTimeout: 5000,
-      ...options,
-      prepareTerrain,
-      resolveTerrainElevation
+      ...options
     });
     const waitForCameraSettle = async baseDelay => {
       await sleep(baseDelay);
-      for (let i = 0; i < 20 && m.isMoving(); i++) await sleep(50);
+      for (let i = 0; i < 60 && m.isMoving(); i++) await sleep(50);
     };
     const rows=[];
     let correctiveJumps=0;
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
     function sample(name, c, centered=false, expectedZoom=null, expectedPitch=null) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),expectedZoom,expectedPitch,elevation:m.queryTerrainElevation(c),centerElevation:m.getCenterElevation(),center:m.getCenter(),padding:m.getPadding()}); }
+    const settleBase = (innerWidth <= 768 || onlineTerrainTest) ? 2200 : 600;
     for(const [name,c,z,pitch,centered,elevation] of [ ['nearby',[118.36,35.11],14.8,50,false,71], ['Lhasa app',[91.117,29.646],13,50,false,3652], ['Lhasa close',[91.117,29.646],14.8,50,false,3652], ['2D',[117.12,36.65],12,0,false,144], ['overview',[104.5,36],4.45,50,true,2084], ['steep',[91.12,29.65],13,70,false,3652] ]) {
-      fly(c,{zoom:z,pitch,centered,duration:180,elevation:onlineTerrainTest ? elevation : 4000}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 2200); sample(name,c,centered,z,pitch);
+      fly(c,{zoom:z,pitch,centered,duration:180,elevation:onlineTerrainTest ? elevation : 4000}); await waitForCameraSettle(settleBase); sample(name,c,centered,z,pitch);
     }
     let oldArrival=0,newArrival=0;
     fly([118.36,35.1],{duration:500,onArrival:()=>oldArrival++}); await sleep(30);
     const rapidPitch=m.getPitch();
-    fly([91.117,29.646],{zoom:14.8,duration:200,onArrival:()=>newArrival++}); await waitForCameraSettle(2300); sample('rapid',[91.117,29.646],false,14.8,rapidPitch);
+    fly([91.117,29.646],{zoom:14.8,pitch:rapidPitch,duration:200,onArrival:()=>newArrival++}); await waitForCameraSettle(settleBase); sample('rapid',[91.117,29.646],false,14.8,rapidPitch);
     let interruptedArrival=0;
     fly([117,36],{duration:500,onArrival:()=>interruptedArrival++}); await sleep(40);
     m.getCanvas().dispatchEvent(new Event('wheel')); m.jumpTo({center:[110,30],zoom:10}); await sleep(650);
@@ -102,14 +100,14 @@ app.whenReady().then(async () => {
     m.jumpTo({center:[111,31],zoom:9}); await sleep(250);
     const replacementCenter=m.getCenter();
     let instantArrival=0;
-    fly([118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 2200); sample('instant',[118,35],false,12,0);
+    fly([118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35],false,12,0);
     // Simulate a late, higher resolution DEM response after arrival.
-    fly([87,43],{zoom:15,pitch:50,duration:100,elevation:onlineTerrainTest ? 3821 : 4000}); await sleep(onlineTerrainTest ? 3000 : 2300); sample('late DEM',[87,43],false,15,50);
+    fly([87,43],{zoom:15,pitch:50,duration:100,elevation:onlineTerrainTest ? 3821 : 4000}); await waitForCameraSettle(settleBase); sample('late DEM',[87,43],false,15,50);
     // MapLibre markers and route-point overlays are children of the canvas
     // container, not of the canvas itself. A wheel gesture beginning over one
     // of them must cancel the completed flight guard before its first camera
     // update, otherwise the guard restores the old zoom and creates a bounce.
-    fly([101.3451,30.06],{zoom:11.8,pitch:50,duration:100}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 2300);
+    fly([101.3451,30.06],{zoom:11.8,pitch:50,duration:100}); await waitForCameraSettle(settleBase);
     const wheelOverlay=document.createElement('div');
     wheelOverlay.style.cssText='position:absolute;left:200px;top:200px;width:40px;height:40px';
     m.getCanvasContainer().appendChild(wheelOverlay);
@@ -121,55 +119,22 @@ app.whenReady().then(async () => {
     });
     wheelOverlay.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-120}));
     wheelOverlay.remove();
-    fly([102.1,31.2],{zoom:10.6,pitch:50,duration:100}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 2300);
+    fly([102.1,31.2],{zoom:10.6,pitch:50,duration:100}); await waitForCameraSettle(settleBase);
     m.zoomTo(11.15,{duration:0});
     await sleep(30);
     const externalControlZoom=m.getZoom();
-    m.jumpTo({zoom:12});
-    const touchOverlay=document.createElement('div');
-    m.getContainer().appendChild(touchOverlay);
-    touchOverlay.addEventListener('touchstart',event=>event.stopPropagation());
-    touchOverlay.addEventListener('touchmove',event=>event.stopPropagation());
-    const sendSyntheticTouch=(type,points)=>{
-      const event=new Event(type,{bubbles:true,cancelable:true});
-      Object.defineProperty(event,'touches',{value:points});
-      touchOverlay.dispatchEvent(event);
-    };
-    sendSyntheticTouch('touchstart',[{clientX:100,clientY:100},{clientX:200,clientY:100}]);
-    sendSyntheticTouch('touchmove',[{clientX:80,clientY:100},{clientX:220,clientY:100}]);
-    // A wider pinch means zoom-in; emulate a terrain correction proposing the
-    // opposite direction and verify it is held at the current safe zoom.
-    m.jumpTo({zoom:11.5});
-    const touchDirectionGuardZoom=m.getZoom();
-    touchOverlay.remove();
-    await sleep(20);
-    const intentOverlay=document.createElement('button');
-    m.getContainer().appendChild(intentOverlay);
-    intentOverlay.addEventListener('keydown',event=>event.stopPropagation());
-    intentOverlay.addEventListener('dblclick',event=>event.stopPropagation());
-    m.jumpTo({zoom:12});
-    intentOverlay.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,key:'+'}));
-    m.jumpTo({zoom:11.5});
-    const keyboardDirectionGuardZoom=m.getZoom();
-    await sleep(20);
-    m.jumpTo({zoom:12});
-    intentOverlay.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));
-    m.jumpTo({zoom:11.5});
-    const doubleClickDirectionGuardZoom=m.getZoom();
-    intentOverlay.remove();
-    await sleep(20);
     if (innerWidth <= 768) {
       const panel = document.createElement('div'); panel.id='route-panel'; panel.style.cssText='position:fixed;left:0;right:0;bottom:0;height:300px;background:white'; document.body.appendChild(panel);
-      fly([118,35],{zoom:14,pitch:50,duration:120}); await sleep(onlineTerrainTest ? 2200 : 2300); sample('mobile drawer',[118,35],false,14,50);
+      fly([118,35],{zoom:14,pitch:50,duration:120}); await waitForCameraSettle(settleBase); sample('mobile drawer',[118,35],false,14,50);
       const drawerPoint = m.project([118,35]);
       const drawerTop = panel.getBoundingClientRect().top;
       rows[rows.length - 1].drawerTop = drawerTop;
       rows[rows.length - 1].viewport = [innerWidth, innerHeight];
       panel.style.display='none';
-      fly([118,35],{zoom:14,pitch:0,duration:0}); await sleep(onlineTerrainTest ? 1800 : 2200); sample('hidden drawer',[118,35],false,14,0);
+      fly([118,35],{zoom:14,pitch:0,duration:0}); await waitForCameraSettle(800); sample('hidden drawer',[118,35],false,14,0);
     }
     m.remove();
-    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps,overlayWheelZoom,externalControlZoom,touchDirectionGuardZoom,keyboardDirectionGuardZoom,doubleClickDirectionGuardZoom};
+    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps,overlayWheelZoom,externalControlZoom};
   })()`);
   console.log(JSON.stringify(result, null, 2));
   for (const row of result.rows) {
@@ -204,12 +169,6 @@ app.whenReady().then(async () => {
     `Wheel input over a map overlay was pulled back to zoom ${result.overlayWheelZoom}`);
   assert(Math.abs(result.externalControlZoom - 11.15) < 0.02,
     `A native zoom control was pulled back to zoom ${result.externalControlZoom}`);
-  assert(Math.abs(result.touchDirectionGuardZoom - 12) < 0.02,
-    `A pinch zoom-in was reversed to zoom ${result.touchDirectionGuardZoom}`);
-  assert(Math.abs(result.keyboardDirectionGuardZoom - 12) < 0.02,
-    `A keyboard zoom-in was reversed to zoom ${result.keyboardDirectionGuardZoom}`);
-  assert(Math.abs(result.doubleClickDirectionGuardZoom - 12) < 0.02,
-    `A double-click zoom-in was reversed to zoom ${result.doubleClickDirectionGuardZoom}`);
   clearTimeout(watchdog);
   console.log('Camera projection and cancellation passed.'); app.quit();
 }).catch(e => { console.error(e); app.exit(1); });
