@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.3';
+const APP_VERSION = '2.0.4';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -75,6 +75,9 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
   }, 40);
 
   let isSettled = false;
+  let isComposing = false;
+  let submitPending = false;
+  let finalizeScheduled = false;
   const closePrompt = () => {
     if (!overlay.isConnected || overlay.classList.contains('prompt-closing')) return;
     overlay.classList.remove('prompt-active');
@@ -83,10 +86,10 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
     document.removeEventListener('keydown', onKeyDown);
   };
 
-  const submitPrompt = () => {
+  const finalizePrompt = () => {
+    finalizeScheduled = false;
+    submitPending = false;
     if (isSettled) return;
-    // 关键优化：失焦输入框以确保移动端拼音输入法完成合成缓冲刷新
-    if (input) input.blur();
     const val = input ? input.value.trim() : '';
     if (val) {
       isSettled = true;
@@ -97,8 +100,42 @@ function showFluentPrompt({ title = '输入', initialValue = '', placeholder = '
     }
   };
 
+  const scheduleFinalize = () => {
+    if (finalizeScheduled || isSettled) return;
+    finalizeScheduled = true;
+    queueMicrotask(finalizePrompt);
+  };
+
+  const submitPrompt = () => {
+    if (isSettled || submitPending) return;
+    submitPending = true;
+    // 中文/日文输入法的候选文本会在 compositionend 或 blur 后才写回
+    // input.value。先让输入法提交候选，再到微任务读取最终值。
+    if (input) input.blur();
+    if (!isComposing) {
+      scheduleFinalize();
+    } else {
+      // 极少数移动浏览器在失焦时不派发 compositionend，不能让确认永久卡住。
+      setTimeout(() => {
+        if (!submitPending || isSettled) return;
+        isComposing = false;
+        scheduleFinalize();
+      }, 60);
+    }
+  };
+
+  input?.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+  input?.addEventListener('compositionend', () => {
+    isComposing = false;
+    if (submitPending) scheduleFinalize();
+  });
+
   const onKeyDown = (e) => {
     if (e.key === 'Enter') {
+      // 输入法按 Enter 只是确认候选字，不应提前关闭重命名窗口。
+      if (e.isComposing || isComposing || e.keyCode === 229) return;
       e.preventDefault();
       submitPrompt();
     } else if (e.key === 'Escape') {
@@ -7124,7 +7161,7 @@ function setupWaypointAndFavoritesSystem(map) {
         menu.innerHTML = `
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
             <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
-            <span class="ctx-text">重命名路线</span>
+            <span class="ctx-text">重命名</span>
           </button>
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
             <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('export', { size: 15 }) || ''}</span>
@@ -7186,16 +7223,31 @@ function setupWaypointAndFavoritesSystem(map) {
             onConfirm: (newName) => {
               const trimmed = newName.trim();
               if (!trimmed || trimmed === route.name) return;
-              route.name = trimmed;
-              route.updatedAt = Date.now();
-              const targetRoute = savedRoutes.find(r => r.id === route.id);
-              if (targetRoute) {
-                targetRoute.name = trimmed;
-                targetRoute.updatedAt = route.updatedAt;
+              const routeIndex = savedRoutes.findIndex(candidate => (
+                candidate === route
+                || (route.id && candidate?.id && String(candidate.id) === String(route.id))
+              ));
+              if (routeIndex < 0) {
+                showToast('路线重命名失败：未找到路线');
+                return;
               }
+
+              const currentRoute = savedRoutes[routeIndex];
+              const updatedAt = Math.max(Date.now(), (Number(currentRoute.updatedAt) || 0) + 1);
+              const updatedRoute = { ...currentRoute, name: trimmed, updatedAt };
+              const nextRoutes = savedRoutes.slice();
+              nextRoutes[routeIndex] = updatedRoute;
               try {
-                localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
-              } catch (err) {}
+                // 先确保完整新数组成功写入，再替换运行时状态，避免刷新后恢复旧名。
+                localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
+              } catch (err) {
+                const reason = /quota|storage|exceed/i.test(String(err?.message || err || ''))
+                  ? '本地存储空间不足'
+                  : '无法写入本地数据';
+                showToast(`路线重命名失败：${reason}`);
+                return;
+              }
+              savedRoutes = nextRoutes;
               renderSavedRoutesList();
               renderSavedRoutesOnMap(map);
               if (typeof window.triggerRealtimeCloudSync === 'function') {
