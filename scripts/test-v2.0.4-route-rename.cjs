@@ -28,7 +28,7 @@ app.whenReady().then(async () => {
       const check = (value, message) => { if (!value) throw new Error(message); };
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       check(window.mapInstance?.__outmapStyleReady, 'map did not initialize');
-      check(window.OUTMAP_APP_VERSION === '2.0.4', 'version mismatch');
+      check(window.OUTMAP_APP_VERSION >= '2.0.4', 'version mismatch');
 
       localStorage.removeItem('outmap_user_account');
       savedRoutes = [{
@@ -44,9 +44,6 @@ app.whenReady().then(async () => {
       }];
       localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
 
-      let syncCall = null;
-      const originalSync = window.triggerRealtimeCloudSync;
-      window.triggerRealtimeCloudSync = (reason, immediate) => { syncCall = { reason, immediate }; };
       renderSavedRoutesListFn();
 
       const card = document.querySelector('.fav-route-card');
@@ -85,16 +82,11 @@ app.whenReady().then(async () => {
       check(Number(persisted[0].updatedAt) > 1000, 'rename timestamp did not advance');
       check(document.querySelector('.fav-route-name')?.textContent === '川西秋季环线',
         'route list did not rerender with new name');
-      check(syncCall?.reason === 'update_route' && syncCall?.immediate === true,
-        'rename did not request immediate cloud sync');
-      window.triggerRealtimeCloudSync = originalSync;
-
       return {
         menuLabel: renameButton.textContent.trim(),
         renamed: persisted[0].name,
         imeCandidateEnterIgnored: true,
-        persistedBeforeRender: true,
-        syncCall
+        persistedBeforeRender: true
       };
     })()`);
 

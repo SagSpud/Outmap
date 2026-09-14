@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.4';
+const APP_VERSION = '2.0.5';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -5066,6 +5066,7 @@ function setupAppUpdate() {
 let cloudSyncDebounceTimer = null;
 let cloudSyncUploading = false;
 let cloudSyncPending = false;
+let cloudSyncPendingWaiters = [];
 let cloudSyncQueue = Promise.resolve();
 let lastFocusCloudSyncAt = 0;
 const USER_ACCOUNT_STORAGE_KEY = 'outmap_user_account';
@@ -5241,7 +5242,7 @@ window.getLoggedInUser = getLoggedInUser;
 
 async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
   const user = getLoggedInUser();
-  if (!user) return; // 只要登录即全量实时漫游，未登录则不上传
+  if (!user) return { success: true, localOnly: true }; // 未登录时本地持久化即完成
 
   clearTimeout(cloudSyncDebounceTimer);
   cloudSyncDebounceTimer = null;
@@ -5249,9 +5250,12 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
     cloudSyncDebounceTimer = null;
     if (cloudSyncUploading) {
       cloudSyncPending = true;
-      return;
+      // 立即同步的调用方必须等到排队的下一轮真实完成，不能把“已排队”
+      // 当成“已写入 R2”。普通后台调用不消费返回值，也可安全复用。
+      return new Promise(resolve => cloudSyncPendingWaiters.push(resolve));
     }
     cloudSyncUploading = true;
+    let syncResult = { success: false, message: '云端同步未完成' };
     try {
       await enqueueCloudSync(async () => {
       const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
@@ -5348,6 +5352,7 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
           : await uploadCloudSyncPayload(payload);
         const userBadge = document.getElementById('sync-user-status-badge');
         if (res && res.success) {
+          syncResult = { success: true, unchanged: Boolean(res.unchanged) };
           console.log(`[CloudSync] 实时自动漫游同步${res.unchanged ? '无需上传' : '成功'} (${reason})`);
           const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
           user.lastSyncTime = nowStr;
@@ -5361,22 +5366,30 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
             userBadge.className = 'sync-user-sync-badge';
           }
         } else {
-          if (userBadge) {
-            userBadge.innerHTML = '<span class="sync-dot-err">●</span> 同步失败';
-            userBadge.className = 'sync-user-sync-badge err';
-          }
+          throw new Error(res?.message || 'R2 未确认写入成功');
         }
       }
       });
     } catch (e) {
-      console.warn('[CloudSync] 实时自动同步后台提示:', e.message);
+      const message = String(e?.message || e || '云端同步失败');
+      syncResult = { success: false, message };
+      console.warn('[CloudSync] 实时自动同步后台提示:', message);
+      const userBadge = document.getElementById('sync-user-status-badge');
+      if (userBadge) {
+        userBadge.innerHTML = '<span class="sync-dot-err">●</span> 同步失败';
+        userBadge.className = 'sync-user-sync-badge err';
+      }
     } finally {
       cloudSyncUploading = false;
       if (cloudSyncPending) {
         cloudSyncPending = false;
-        triggerRealtimeCloudSync('queued_change');
+        const waiters = cloudSyncPendingWaiters.splice(0);
+        Promise.resolve(triggerRealtimeCloudSync('queued_change', true)).then(result => {
+          waiters.forEach(resolve => resolve(result || { success: false, message: '排队同步未完成' }));
+        });
       }
     }
+    return syncResult;
   };
 
   if (immediate) {
@@ -6755,6 +6768,39 @@ function setupWaypointAndFavoritesSystem(map) {
   const favPtsCount = document.getElementById('fav-pts-count');
   const favRoutesCount = document.getElementById('fav-routes-count');
 
+  const syncAndVerifySavedRouteName = async (updatedRoute) => {
+    const user = getLoggedInUser();
+    if (!user) return { success: true, localOnly: true };
+    const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
+    let lastMessage = '服务器没有确认新名称';
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const syncResult = await window.triggerRealtimeCloudSync?.('update_route', true);
+        if (!syncResult?.success) {
+          lastMessage = syncResult?.message || '同步请求失败';
+        } else {
+          const pulled = await pullCloudSyncPayload(syncKey);
+          const remoteRoutes = Array.isArray(pulled?.data?.routes) ? pulled.data.routes : [];
+          const remoteRoute = updatedRoute.id
+            ? remoteRoutes.find(item => item?.id && String(item.id) === String(updatedRoute.id))
+            : remoteRoutes.find(item => String(item?.name || '').trim() === updatedRoute.name);
+          if (remoteRoute
+            && String(remoteRoute.name || '').trim() === updatedRoute.name
+            && (Number(remoteRoute.updatedAt) || 0) >= (Number(updatedRoute.updatedAt) || 0)) {
+            return { success: true, verified: true };
+          }
+          lastMessage = pulled?.success ? '服务器仍返回旧名称' : '无法回读服务器记录';
+        }
+      } catch (error) {
+        lastMessage = String(error?.message || error || '同步请求失败');
+      }
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
+    }
+
+    return { success: false, message: lastMessage };
+  };
+
   // 1. 收藏地点列表渲染
   
   // 右键管理收藏点（修改类型 / 删除）
@@ -7220,7 +7266,7 @@ function setupWaypointAndFavoritesSystem(map) {
             title: '重命名收藏路线',
             initialValue: route.name || '',
             placeholder: '请输入路线名称',
-            onConfirm: (newName) => {
+            onConfirm: async (newName) => {
               const trimmed = newName.trim();
               if (!trimmed || trimmed === route.name) return;
               const routeIndex = savedRoutes.findIndex(candidate => (
@@ -7250,8 +7296,12 @@ function setupWaypointAndFavoritesSystem(map) {
               savedRoutes = nextRoutes;
               renderSavedRoutesList();
               renderSavedRoutesOnMap(map);
-              if (typeof window.triggerRealtimeCloudSync === 'function') {
-                window.triggerRealtimeCloudSync('update_route', true);
+              const syncResult = await syncAndVerifySavedRouteName(updatedRoute);
+              if (!syncResult.success) {
+                const rawReason = String(syncResult.message || '未知原因').trim();
+                const reason = rawReason.length > 80 ? `${rawReason.slice(0, 77)}…` : rawReason;
+                showToast(`路线已在本地重命名，云端同步失败：${reason}`, 4500);
+                return;
               }
               showToast(`已重命名路线为“${trimmed}”`);
             }
