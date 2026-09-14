@@ -46,8 +46,8 @@ app.whenReady().then(async () => {
     let correctiveJumps=0;
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
-    function sample(name, c, centered=false, expectedZoom=null, expectedPitch=null) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),expectedZoom,expectedPitch,elevation:m.queryTerrainElevation(c),center:m.getCenter(),padding:m.getPadding()}); }
-    for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
+    function sample(name, c, centered=false, expectedZoom=null, expectedPitch=null) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),expectedZoom,expectedPitch,elevation:m.queryTerrainElevation(c),centerElevation:m.getCenterElevation(),center:m.getCenter(),padding:m.getPadding()}); }
+    for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa app',[91.117,29.646],13,50,false], ['Lhasa close',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
       OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 500); sample(name,c,centered,z,pitch);
     }
     let oldArrival=0,newArrival=0;
@@ -132,8 +132,22 @@ app.whenReady().then(async () => {
   for (const row of result.rows) {
     assert(row.error < 3, `${row.name}: ${row.error}px`);
     assert(Object.values(row.padding).every(x => x === 0));
-    if (row.expectedZoom != null) assert(Math.abs(row.zoom - row.expectedZoom) < 0.02, `${row.name}: zoom ${row.zoom}`);
-    if (row.expectedPitch != null) assert(Math.abs(row.pitch - row.expectedPitch) < 0.1, `${row.name}: pitch ${row.pitch}`);
+    if (row.expectedZoom != null) {
+      if (process.argv.includes('--online')) {
+        assert(row.zoom <= row.expectedZoom + 0.02 && row.zoom >= row.expectedZoom - 1.7,
+          `${row.name}: native collision-safe zoom ${row.zoom}`);
+      } else {
+        assert(Math.abs(row.zoom - row.expectedZoom) < 0.02, `${row.name}: zoom ${row.zoom}`);
+      }
+    }
+    if (row.expectedPitch != null) {
+      if (process.argv.includes('--online')) {
+        assert(row.pitch <= row.expectedPitch + 0.1 && row.pitch >= 0,
+          `${row.name}: native collision-safe pitch ${row.pitch}`);
+      } else {
+        assert(Math.abs(row.pitch - row.expectedPitch) < 0.1, `${row.name}: pitch ${row.pitch}`);
+      }
+    }
   }
   assert.strictEqual(result.rows.find(r => r.name === '2D').pitch, 0);
   assert.strictEqual(result.oldArrival, 0);

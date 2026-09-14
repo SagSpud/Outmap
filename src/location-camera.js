@@ -169,12 +169,16 @@
     let disposed = false;
     let internalMove = false;
     let ownedMoveActive = false;
-    let arrivalDelivered = false;
-    let refinementCount = 0;
+    let primaryMoveEnded = false;
+    let settlementStarted = false;
+    let settlementPass = 0;
+    let settlementStartElevation = 0;
+    let settlementTargetElevation = null;
     let easingProgress = 0;
+    let arrivalDelivered = false;
     let flightLoadStateActive = false;
     let expectedMoveEnd = 0;
-    let lateCorrectionTimer = 0;
+    let readinessTimer = 0;
 
     const listen = (type, handler) => {
       map.on(type, handler);
@@ -193,8 +197,8 @@
         interactionSurface.removeEventListener(type, dispose, true);
       }
       timers.forEach(clearTimeout);
-      // Restore the persistent user-zoom direction guard after this bounded
-      // flight-specific endpoint guard is finished or cancelled.
+      // Keep the persistent user-zoom direction guard installed after the
+      // bounded flight state is finished or cancelled.
       try { restoreZoomGuard(map); } catch (_) {}
       setFlightLoadState(false);
       if (active.get(map)?.dispose === dispose) active.delete(map);
@@ -250,86 +254,125 @@
       internalMove = false;
     };
 
-    // MapLibre protects its camera from entering newly arrived terrain before
-    // user camera callbacks run. During a long flight the destination DEM can
-    // arrive on the final frame; without this final-state guard the collision
-    // protection leaves the camera at an intermediate zoom/pitch. This public
-    // hook restores only the requested endpoint. Elevation is included only
-    // after MapLibre can sample the destination DEM; a stored POI elevation
-    // must not create a high-altitude camera before destination tiles exist.
-    // The screen anchor itself is solved below using
-    // project/unproject, so there is no dependency on private transforms.
-    map.setTransformCameraUpdate?.(transform => {
-      // The hook is retained briefly so a late DEM can start a bounded
-      // refinement, but it may only constrain frames of a move started by this
-      // adapter. Native zoom controls and other camera owners must never see
-      // the completed flight's old zoom target.
-      if (disposed || !ownedMoveActive || easingProgress < 0.999) {
-        return applyZoomDirectionGuard(map, transform);
-      }
-      let elevation;
+    const destinationTerrainState = () => {
+      let terrain;
+      try { terrain = map.getTerrain?.(); } catch (_) {}
+      if (!terrain?.source) return { hasTerrain: false, ready: true, elevation: null };
+      let elevation = null;
       try {
         const sampled = map.queryTerrainElevation?.(coords);
         if (Number.isFinite(sampled)) elevation = sampled;
       } catch (_) {}
+      let sourceReady = true;
+      if (typeof map.isSourceLoaded === 'function') {
+        try { sourceReady = map.isSourceLoaded(terrain.source) !== false; } catch (_) {}
+      }
+      // MapLibre reports 0 when no covering DEM is available. A non-zero
+      // sample is therefore sufficient to start settling even while adjacent
+      // tiles are still loading; flat/sea-level targets wait for sourceReady.
       return {
-        zoom,
-        pitch,
-        bearing,
-        ...(Number.isFinite(elevation) ? { elevation } : {})
+        hasTerrain: true,
+        ready: sourceReady || (Number.isFinite(elevation) && Math.abs(elevation) > 0.5),
+        elevation
+      };
+    };
+
+    // During the bounded settlement, supply only the destination ground
+    // elevation. Zoom, pitch and center remain under MapLibre's native camera
+    // and collision control. This is intentionally not an endpoint lock.
+    map.setTransformCameraUpdate?.(transform => {
+      if (disposed || !ownedMoveActive || !settlementStarted || !Number.isFinite(settlementTargetElevation)) {
+        return applyZoomDirectionGuard(map, transform);
+      }
+      const t = Math.max(0, Math.min(1, easingProgress));
+      const eased = t * t * (3 - 2 * t);
+      return {
+        elevation: settlementStartElevation
+          + (settlementTargetElevation - settlementStartElevation) * eased
       };
     });
 
-    const cameraMatches = () => (
-      Math.abs(map.getZoom() - zoom) < 0.015
-      && Math.abs(map.getPitch() - pitch) < 0.08
-    );
+    const completeArrival = () => {
+      if (disposed || arrivalDelivered) return;
+      arrivalDelivered = true;
+      try { map.triggerRepaint?.(); } catch (_) {}
+      try { options.onArrival?.(); } catch (_) {}
+      setFlightLoadState(false);
+      dispose();
+    };
 
-    const refineIfNeeded = () => {
-      if (disposed || map.isMoving() || refinementCount >= 4) return false;
-      const actual = map.project(coords);
-      const error = actual.sub(desiredAnchor);
-      if (error.mag() < 2.5 && cameraMatches()) return false;
+    const settleWhenReady = (force = false) => {
+      if (disposed || !primaryMoveEnded || settlementStarted || map.isMoving()) return false;
+      const terrainState = destinationTerrainState();
+      if (!force && !terrainState.ready) return false;
+      try { map.triggerRepaint?.(); } catch (_) {}
+      const currentElevation = Number(map.getCenterElevation?.());
+      const elevationMismatch = terrainState.hasTerrain
+        && Number.isFinite(terrainState.elevation)
+        && Number.isFinite(currentElevation)
+        && Math.abs(currentElevation - terrainState.elevation) > Math.max(2, Math.abs(terrainState.elevation) * 0.002);
+      if (landingError() < 2.5 && !elevationMismatch) {
+        completeArrival();
+        return true;
+      }
 
-      const rect = map.getContainer().getBoundingClientRect();
-      const viewportCenter = new maplibregl.Point(rect.width / 2, rect.height / 2);
-      let correctedCenter;
-      try {
-        correctedCenter = map.unproject(viewportCenter.add(error));
-      } catch (_) {
-        correctedCenter = maplibregl.LngLat.convert(coords);
-      }
-      if (!correctedCenter || !Number.isFinite(correctedCenter.lng) || !Number.isFinite(correctedCenter.lat)) {
-        correctedCenter = maplibregl.LngLat.convert(coords);
-      }
-      refinementCount++;
-      startNativeMove('easeTo', reduced ? 0 : 130, {
-        center: correctedCenter,
-        offset: [0, 0]
-      });
+      // A late destination DEM changes the ground elevation after the main
+      // flight. A short native ease updates that elevation and solves the
+      // requested screen offset again. The transform callback above supplies
+      // elevation only; it never overrides MapLibre's collision-safe zoom,
+      // pitch or center.
+      settlementStarted = true;
+      settlementPass = 1;
+      settlementStartElevation = Number.isFinite(currentElevation) ? currentElevation : 0;
+      settlementTargetElevation = Number.isFinite(terrainState.elevation) ? terrainState.elevation : null;
+      startNativeMove('easeTo', reduced ? 0 : 180);
       return true;
     };
 
-    const scheduleLateCorrection = (delay = 80) => {
-      if (disposed || !arrivalDelivered || lateCorrectionTimer) return;
-      lateCorrectionTimer = setTimeout(() => {
-        lateCorrectionTimer = 0;
-        refineIfNeeded();
+    const scheduleReadinessCheck = (delay = 50, force = false) => {
+      if (disposed || settlementStarted || readinessTimer) return;
+      readinessTimer = setTimeout(() => {
+        readinessTimer = 0;
+        settleWhenReady(force);
       }, delay);
-      timers.push(lateCorrectionTimer);
+      timers.push(readinessTimer);
     };
 
-    // A destination DEM can arrive after the first visual landing (especially
-    // on a cold web cache). Recheck only on that source and on idle, within the
-    // bounded lifetime below; this does not create a render loop.
     listen('sourcedata', event => {
-      if (event?.sourceId === 'terrain-dem') scheduleLateCorrection();
+      let terrain;
+      try { terrain = map.getTerrain?.(); } catch (_) {}
+      if (primaryMoveEnded && (!terrain?.source || event?.sourceId === terrain.source)) {
+        scheduleReadinessCheck();
+      }
     });
-    listen('idle', () => scheduleLateCorrection(0));
+    listen('idle', () => {
+      if (primaryMoveEnded) scheduleReadinessCheck(0);
+    });
 
     listen('moveend', () => {
       if (disposed) return;
       ownedMoveActive = false;
+      if (settlementStarted) {
+        if (settlementPass === 1 && landingError() >= 2.5) {
+          // If collision avoidance had to widen or flatten the requested view,
+          // one final native pass re-anchors the point using that safe camera.
+          // It is bounded to one pass, so later idle/source events can never
+          // produce the old repeated pullback.
+          settlementPass = 2;
+          const currentElevation = Number(map.getCenterElevation?.());
+          settlementStartElevation = Number.isFinite(currentElevation) ? currentElevation : settlementStartElevation;
+          const sampled = destinationTerrainState().elevation;
+          settlementTargetElevation = Number.isFinite(sampled) ? sampled : settlementStartElevation;
+          startNativeMove('easeTo', reduced ? 0 : 140, {
+            zoom: map.getZoom(),
+            pitch: map.getPitch(),
+            bearing: map.getBearing()
+          });
+          return;
+        }
+        completeArrival();
+        return;
+      }
       // A programmatic jump/another component can interrupt an in-flight
       // animation without emitting a second movestart. Do not pull the map
       // back to our old target from the moveend handler.
@@ -337,15 +380,14 @@
         dispose();
         return;
       }
-      if (refineIfNeeded()) return;
-      if (!arrivalDelivered) {
-        arrivalDelivered = true;
-        try { options.onArrival?.(); } catch (_) {}
-        setFlightLoadState(false);
-        scheduleLateCorrection(250);
-        timers.push(setTimeout(() => scheduleLateCorrection(0), 1100));
-        timers.push(setTimeout(dispose, 5000));
-      }
+      primaryMoveEnded = true;
+      if (settleWhenReady()) return;
+      // Missing/offline DEM tiles must not keep the flight state alive
+      // indefinitely. The forced pass still uses MapLibre's native collision
+      // protection and then completes without any repeating camera pullback.
+      timers.push(setTimeout(() => {
+        if (!settleWhenReady(true)) completeArrival();
+      }, 8000));
     });
 
     const current = map.getCenter();

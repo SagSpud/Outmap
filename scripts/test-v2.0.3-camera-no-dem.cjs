@@ -71,8 +71,12 @@ windowObject.OutmapLocationCamera.fly(missingDemMap, target, {
 const missingDemGuard = missingDemMap.transformCallback({});
 assert(!Object.prototype.hasOwnProperty.call(missingDemGuard, 'elevation'),
   'Stored favorite elevation must not be injected before destination DEM is loaded');
-assert.strictEqual(missingDemGuard.zoom, 13);
-assert.strictEqual(missingDemGuard.pitch, 50);
+assert(!Object.prototype.hasOwnProperty.call(missingDemGuard, 'zoom'),
+  'Flight callback must not override MapLibre terrain collision-safe zoom');
+assert(!Object.prototype.hasOwnProperty.call(missingDemGuard, 'pitch'),
+  'Flight callback must not override MapLibre terrain collision-safe pitch');
+assert(!Object.prototype.hasOwnProperty.call(missingDemMap.lastCameraOptions, 'elevation'),
+  'Stored POI elevation must not be passed into a flight before DEM readiness');
 
 const loadedDemMap = createMap(4188);
 windowObject.OutmapLocationCamera.fly(loadedDemMap, target, {
@@ -82,7 +86,92 @@ windowObject.OutmapLocationCamera.fly(loadedDemMap, target, {
   elevation: 4207
 });
 const loadedDemGuard = loadedDemMap.transformCallback({});
-assert.strictEqual(loadedDemGuard.elevation, 4188,
-  'Loaded native DEM elevation must remain authoritative for 3D landing');
+assert.strictEqual(Object.keys(loadedDemGuard).length, 0,
+  'MapLibre native terrain collision and elevation handling must remain authoritative');
 
-console.log('v2.0.3 missing-DEM camera guard regression passed');
+function createDelayedTerrainMap() {
+  const listeners = new Map();
+  const surface = { addEventListener() {}, removeEventListener() {} };
+  let ready = false;
+  let zoom = 11;
+  let pitch = 45;
+  let settled = false;
+  const map = {
+    easeCalls: 0,
+    repaintCalls: 0,
+    setReady(value) { ready = value; },
+    emit(type, event = {}) {
+      for (const handler of [...(listeners.get(type) || [])]) handler(event);
+    },
+    getContainer: () => ({ getBoundingClientRect: () => ({ width: 1200, height: 800 }), addEventListener() {}, removeEventListener() {} }),
+    getCanvasContainer: () => surface,
+    getCanvas: () => surface,
+    stop() {},
+    on(type, handler) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(handler);
+    },
+    off(type, handler) { listeners.get(type)?.delete(handler); },
+    getMinZoom: () => 3.8,
+    getMaxZoom: () => 17,
+    getMinPitch: () => 0,
+    getMaxPitch: () => 85,
+    getPitch: () => pitch,
+    getBearing: () => 0,
+    getZoom: () => zoom,
+    getCenter: () => ({ lng: 118.37, lat: 35.01 }),
+    getTerrain: () => ({ source: 'terrain-dem' }),
+    isSourceLoaded: () => ready,
+    isMoving: () => false,
+    setTransformCameraUpdate(callback) { this.transformCallback = callback; },
+    flyTo(options) {
+      options.easing?.(1);
+      this.lastCameraOptions = options;
+      // Simulate MapLibre lowering the endpoint to keep the camera outside a
+      // mountain whose DEM arrives on the final frame.
+      zoom = 11;
+      pitch = 45;
+    },
+    easeTo(options) {
+      this.easeCalls++;
+      options.easing?.(1);
+      zoom = options.zoom;
+      pitch = options.pitch;
+      settled = true;
+    },
+    project: () => new Point(600, settled ? 558.08 : 530),
+    triggerRepaint() { this.repaintCalls++; }
+  };
+  return map;
+}
+
+(async () => {
+  const delayedMap = createDelayedTerrainMap();
+  let arrivalCount = 0;
+  windowObject.OutmapLocationCamera.fly(delayedMap, [101.586, 30.213], {
+    zoom: 13,
+    pitch: 50,
+    duration: 0,
+    onArrival: () => arrivalCount++
+  });
+  delayedMap.emit('moveend');
+  assert.strictEqual(delayedMap.easeCalls, 0, 'Flight must wait for destination terrain readiness');
+  assert.strictEqual(arrivalCount, 0, 'Arrival must not be reported before the native landing is stable');
+
+  delayedMap.setReady(true);
+  delayedMap.emit('sourcedata', { sourceId: 'terrain-dem', isSourceLoaded: true });
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.strictEqual(delayedMap.easeCalls, 1, 'Late DEM must cause exactly one native settlement');
+  delayedMap.emit('moveend');
+  assert.strictEqual(arrivalCount, 1, 'Stable landing must report arrival exactly once');
+
+  delayedMap.emit('sourcedata', { sourceId: 'terrain-dem', isSourceLoaded: true });
+  delayedMap.emit('idle');
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.strictEqual(delayedMap.easeCalls, 1, 'Late source events must never pull the camera back repeatedly');
+  assert(delayedMap.repaintCalls >= 1, 'Stable arrival must request a final render');
+  console.log('Missing-DEM, delayed-DEM and native collision camera regressions passed');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

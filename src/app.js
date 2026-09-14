@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.7';
+const APP_VERSION = '2.0.8';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -8436,9 +8436,9 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       }
     }
 
-    // 起点、终点 setter 已经负责唯一一次飞行；途径点编辑在这里飞行。
-    // 过去的无条件第二次 fly 会立即取消第一次，是首个路线点跳动的来源。
-    if (item.coords && pointType === 'via') {
+    // 三类路线搜索候选都只在这里启动一次飞行。setter 只更新路线状态，
+    // 避免一次选择触发两次相机动画而产生“先到达、又被拉回”的观感。
+    if (item.coords) {
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
       flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650, centered: false });
     }
