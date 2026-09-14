@@ -65,6 +65,22 @@ app.whenReady().then(async () => {
     OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35],false,12,0);
     // Simulate a late, higher resolution DEM response after arrival.
     OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100}); await sleep(1500); sample('late DEM',[87,43],false,15,50);
+    // MapLibre markers and route-point overlays are children of the canvas
+    // container, not of the canvas itself. A wheel gesture beginning over one
+    // of them must cancel the completed flight guard before its first camera
+    // update, otherwise the guard restores the old zoom and creates a bounce.
+    OutmapLocationCamera.fly(m,[101.3451,30.06],{zoom:11.8,pitch:50,duration:100}); await sleep(450);
+    const wheelOverlay=document.createElement('div');
+    wheelOverlay.style.cssText='position:absolute;left:200px;top:200px;width:40px;height:40px';
+    m.getCanvasContainer().appendChild(wheelOverlay);
+    let overlayWheelZoom=null;
+    wheelOverlay.addEventListener('wheel',event=>{
+      m.jumpTo({zoom:12.25});
+      overlayWheelZoom=m.getZoom();
+      event.stopPropagation();
+    });
+    wheelOverlay.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-120}));
+    wheelOverlay.remove();
     if (innerWidth <= 768) {
       const panel = document.createElement('div'); panel.id='route-panel'; panel.style.cssText='position:fixed;left:0;right:0;bottom:0;height:300px;background:white'; document.body.appendChild(panel);
       OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:50,duration:120}); await sleep(500); sample('mobile drawer',[118,35],false,14,50);
@@ -73,7 +89,7 @@ app.whenReady().then(async () => {
       OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:0,duration:0}); await sleep(200); sample('hidden drawer',[118,35],false,14,0);
     }
     m.remove();
-    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps};
+    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps,overlayWheelZoom};
   })()`);
   console.log(JSON.stringify(result, null, 2));
   for (const row of result.rows) {
@@ -90,6 +106,8 @@ app.whenReady().then(async () => {
   assert(Math.abs(result.userCenter.lng - 110) < 1e-6);
   assert(Math.abs(result.replacementCenter.lng - 111) < 1e-6, 'External camera changes must not be hijacked');
   assert.strictEqual(result.correctiveJumps,0,'Terrain settling must not teleport the camera');
+  assert(Math.abs(result.overlayWheelZoom - 12.25) < 0.02,
+    `Wheel input over a map overlay was pulled back to zoom ${result.overlayWheelZoom}`);
   clearTimeout(watchdog);
   console.log('Camera projection and cancellation passed.'); app.quit();
 }).catch(e => { console.error(e); app.exit(1); });

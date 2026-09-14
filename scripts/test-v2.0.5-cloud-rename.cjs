@@ -4,11 +4,12 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
+const expectedVersion = require(path.join(root, 'package.json')).version;
 const sourceText = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 new vm.Script(sourceText, { filename: 'src/app.js' });
 
 const watchdog = setTimeout(() => {
-  console.error('v2.0.6 cloud rename test timed out');
+  console.error(`v${expectedVersion} cloud rename test timed out`);
   app.exit(1);
 }, 40000);
 
@@ -36,7 +37,7 @@ app.whenReady().then(async () => {
       };
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       check(window.mapInstance?.__outmapStyleReady, 'map did not initialize');
-      check(window.OUTMAP_APP_VERSION === '2.0.6', 'version mismatch');
+      check(window.OUTMAP_APP_VERSION === ${JSON.stringify(expectedVersion)}, 'version mismatch');
 
       const oldRoute = {
         id: 'route_cloud_205', name: '服务器旧名称', mode: 'drive',
@@ -115,7 +116,7 @@ app.whenReady().then(async () => {
       await waitFor(() => String(document.getElementById('outmap-global-toast')?.textContent || '').includes('服务器新名称'),
         'success was not shown after R2 verification');
 
-      check(remoteData.version === '2.0.6', 'R2 payload version mismatch');
+      check(remoteData.version === ${JSON.stringify(expectedVersion)}, 'R2 payload version mismatch');
       check(Number(remoteData.routes[0].updatedAt) > 1000, 'R2 route timestamp did not advance');
       check(pullCount >= 3, 'rename did not perform post-upload R2 verification');
 
@@ -140,12 +141,12 @@ app.whenReady().then(async () => {
       };
     })()`);
 
-    console.log('v2.0.6 cloud-confirmed route rename regression passed:', result);
+    console.log(`v${expectedVersion} cloud-confirmed route rename regression passed:`, result);
     clearTimeout(watchdog);
     win.destroy();
     app.exit(0);
   } catch (error) {
-    console.error('v2.0.6 cloud rename test failed:', error);
+    console.error(`v${expectedVersion} cloud rename test failed:`, error);
     clearTimeout(watchdog);
     if (win) win.destroy();
     app.exit(1);

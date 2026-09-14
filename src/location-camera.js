@@ -44,6 +44,11 @@
     map.stop();
 
     const canvas = map.getCanvas();
+    // Markers, route points and other MapLibre overlays are children of the
+    // canvas container rather than of the canvas. Listen at that shared
+    // interaction root so a user's first wheel/pointer event always cancels a
+    // completed flight guard before MapLibre applies its camera delta.
+    const interactionSurface = map.getCanvasContainer?.() || canvas;
     const subscriptions = [];
     const timers = [];
     let disposed = false;
@@ -69,7 +74,7 @@
       disposed = true;
       subscriptions.forEach(([type, handler]) => map.off(type, handler));
       for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) {
-        canvas.removeEventListener(type, dispose, true);
+        interactionSurface.removeEventListener(type, dispose, true);
       }
       timers.forEach(clearTimeout);
       // MapLibre 6 exposes this hook as a public API. Outmap owns the map and
@@ -82,7 +87,7 @@
 
     active.set(map, { dispose });
     for (const type of ['pointerdown', 'wheel', 'touchstart', 'keydown']) {
-      canvas.addEventListener(type, dispose, { capture: true, passive: true });
+      interactionSurface.addEventListener(type, dispose, { capture: true, passive: true });
     }
     listen('remove', dispose);
     listen('movestart', () => { if (!internalMove) dispose(); });
