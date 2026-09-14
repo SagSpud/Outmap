@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.8';
+const APP_VERSION = '2.0.9';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2463,6 +2463,7 @@ async function queryLocationCandidates(keyword, owner = window) {
           desc: `我的收藏 · ${cleanFolderTitle(folderName)}`,
           coords: [Number(wp.lng), Number(wp.lat)],
           type: wp.type || 'poi',
+          ele: Number.isFinite(Number(wp.ele)) && Number(wp.ele) !== 0 ? Number(wp.ele) : undefined,
           zoom: 14.0,
           _score: wp.name === raw ? 1 : 2
         });
@@ -3354,6 +3355,7 @@ function setupOfficeHeaderInteractions(map) {
       pitch: targetPitch,
       centered: isProv,
       duration: flightDuration,
+      elevation: Number.isFinite(Number(item.ele)) ? Number(item.ele) : undefined,
       onArrival: () => {
         ensureLandingMarker();
         if (currentLandingMarker) {
@@ -6096,6 +6098,12 @@ function getRealElevation(map, lngLat) {
   }
 }
 
+function getFlightElevationHint(map, coords) {
+  const embedded = Array.isArray(coords) ? Number(coords[2]) : NaN;
+  if (Number.isFinite(embedded) && embedded >= -500 && embedded <= 9000) return embedded;
+  return getRealElevation(map, coords);
+}
+
 function setupStatusBar(map) {
   const sCoords = document.getElementById('status-coords');
   const sElevation = document.getElementById('status-elevation');
@@ -8440,7 +8448,13 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     // 避免一次选择触发两次相机动画而产生“先到达、又被拉回”的观感。
     if (item.coords) {
       const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-      flyToLocationPrecisely(map, item.coords, { zoom: targetZoom, pitch: targetPitch, duration: 650, centered: false });
+      flyToLocationPrecisely(map, item.coords, {
+        zoom: targetZoom,
+        pitch: targetPitch,
+        duration: 650,
+        centered: false,
+        elevation: Number.isFinite(Number(item.ele)) ? Number(item.ele) : undefined
+      });
     }
   };
 
@@ -8948,7 +8962,7 @@ function bindRoutePointLayerEvents(map) {
       if (suppressNextClick) { suppressNextClick = false; return; }
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
-      const ele = getRealElevation(map, point.coords);
+      const ele = getFlightElevationHint(map, point.coords);
       flyToLocationPrecisely(map, point.coords, {
         zoom: 13.0,
         pitch: map.getPitch() ?? 50,
@@ -9427,7 +9441,7 @@ function renderViaList(mapInstance) {
     if (isNew) {
       tagEl.addEventListener('click', () => {
         if (row._map && row._via.coords) {
-          const ele = getRealElevation(row._map, row._via.coords);
+          const ele = getFlightElevationHint(row._map, row._via.coords);
           flyToLocationPrecisely(row._map, row._via.coords, {
             zoom: 13.0,
             pitch: row._map.getPitch() ?? 50,
@@ -10558,7 +10572,7 @@ function setupOutdoorRouteSystem(map) {
     staticStartTag.style.cursor = 'pointer';
     staticStartTag.addEventListener('click', () => {
       if (routeStartCoord && map) {
-        const ele = getRealElevation(map, routeStartCoord);
+        const ele = getFlightElevationHint(map, routeStartCoord);
         flyToLocationPrecisely(map, routeStartCoord, {
           zoom: routeStartZoom || 13.0,
           pitch: map.getPitch() ?? 50,
@@ -10575,7 +10589,7 @@ function setupOutdoorRouteSystem(map) {
     staticEndTag.style.cursor = 'pointer';
     staticEndTag.addEventListener('click', () => {
       if (routeEndCoord && map) {
-        const ele = getRealElevation(map, routeEndCoord);
+        const ele = getFlightElevationHint(map, routeEndCoord);
         flyToLocationPrecisely(map, routeEndCoord, {
           zoom: routeEndZoom || 13.0,
           pitch: map.getPitch() ?? 50,
@@ -10586,7 +10600,7 @@ function setupOutdoorRouteSystem(map) {
       } else if (routeViaPoints.length > 0 && map) {
         const lastVia = routeViaPoints[routeViaPoints.length - 1];
         if (lastVia.coords) {
-          const ele = getRealElevation(map, lastVia.coords);
+          const ele = getFlightElevationHint(map, lastVia.coords);
           flyToLocationPrecisely(map, lastVia.coords, {
             zoom: lastVia.zoom || 13.0,
             pitch: map.getPitch() ?? 50,
@@ -11767,9 +11781,15 @@ function displayImportedTrack(map, trackData) {
   });
   routeViaPoints = [];
 
-  const startCoord = (start && start.coords) ? [start.coords[0], start.coords[1]] : pathCoords[0];
+  const startCoord = (start && start.coords)
+    ? [start.coords[0], start.coords[1], ...(Number.isFinite(Number(start.coords[2])) ? [Number(start.coords[2])] : [])]
+    : (Number.isFinite(Number(coords[0]?.[2])) ? [pathCoords[0][0], pathCoords[0][1], Number(coords[0][2])] : pathCoords[0]);
   const startName = (start && start.name) ? start.name : `[导入] ${name} 起点`;
-  const endCoord = (end && end.coords) ? [end.coords[0], end.coords[1]] : pathCoords[pathCoords.length - 1];
+  const endCoord = (end && end.coords)
+    ? [end.coords[0], end.coords[1], ...(Number.isFinite(Number(end.coords[2])) ? [Number(end.coords[2])] : [])]
+    : (Number.isFinite(Number(coords[coords.length - 1]?.[2]))
+      ? [pathCoords[pathCoords.length - 1][0], pathCoords[pathCoords.length - 1][1], Number(coords[coords.length - 1][2])]
+      : pathCoords[pathCoords.length - 1]);
   const endName = (end && end.name) ? end.name : `[导入] ${name} 终点`;
 
   routeStartCoord = startCoord;
@@ -11784,7 +11804,7 @@ function displayImportedTrack(map, trackData) {
   const effectiveVias = viaPoints && viaPoints.length > 0 ? viaPoints : [];
   effectiveVias.forEach((via, i) => {
     const viaIdx = i + 1;
-    const vCoords = [via.coords[0], via.coords[1]];
+    const vCoords = [via.coords[0], via.coords[1], ...(Number.isFinite(Number(via.coords[2])) ? [Number(via.coords[2])] : [])];
     const vName = via.name || `途径点 ${viaIdx}`;
     routeViaPoints.push({
       id: 'via_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 4),

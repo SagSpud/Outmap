@@ -47,8 +47,8 @@ app.whenReady().then(async () => {
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
     function sample(name, c, centered=false, expectedZoom=null, expectedPitch=null) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),expectedZoom,expectedPitch,elevation:m.queryTerrainElevation(c),centerElevation:m.getCenterElevation(),center:m.getCenter(),padding:m.getPadding()}); }
-    for(const [name,c,z,pitch,centered] of [ ['nearby',[118.36,35.11],14.8,50,false], ['Lhasa app',[91.117,29.646],13,50,false], ['Lhasa close',[91.117,29.646],14.8,50,false], ['2D',[117.12,36.65],12,0,false], ['overview',[104.5,36],4.45,50,true], ['steep',[91.12,29.65],13,70,false] ]) {
-      OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 500); sample(name,c,centered,z,pitch);
+    for(const [name,c,z,pitch,centered,elevation] of [ ['nearby',[118.36,35.11],14.8,50,false,71], ['Lhasa app',[91.117,29.646],13,50,false,3652], ['Lhasa close',[91.117,29.646],14.8,50,false,3652], ['2D',[117.12,36.65],12,0,false,144], ['overview',[104.5,36],4.45,50,true,2084], ['steep',[91.12,29.65],13,70,false,3652] ]) {
+      OutmapLocationCamera.fly(m,c,{zoom:z,pitch,centered,duration:180,elevation:onlineTerrainTest ? elevation : 4000}); await waitForCameraSettle(onlineTerrainTest ? 3000 : 500); sample(name,c,centered,z,pitch);
     }
     let oldArrival=0,newArrival=0;
     OutmapLocationCamera.fly(m,[118.36,35.1],{duration:500,onArrival:()=>oldArrival++}); await sleep(30);
@@ -64,7 +64,7 @@ app.whenReady().then(async () => {
     let instantArrival=0;
     OutmapLocationCamera.fly(m,[118,35],{zoom:12,pitch:0,duration:0,onArrival:()=>instantArrival++}); await sleep(onlineTerrainTest ? 3000 : 250); sample('instant',[118,35],false,12,0);
     // Simulate a late, higher resolution DEM response after arrival.
-    OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100}); await sleep(1500); sample('late DEM',[87,43],false,15,50);
+    OutmapLocationCamera.fly(m,[87,43],{zoom:15,pitch:50,duration:100,elevation:onlineTerrainTest ? 3821 : 4000}); await sleep(1500); sample('late DEM',[87,43],false,15,50);
     // MapLibre markers and route-point overlays are children of the canvas
     // container, not of the canvas itself. A wheel gesture beginning over one
     // of them must cancel the completed flight guard before its first camera

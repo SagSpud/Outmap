@@ -120,11 +120,13 @@ function createDelayedTerrainMap() {
     getBearing: () => 0,
     getZoom: () => zoom,
     getCenter: () => ({ lng: 118.37, lat: 35.01 }),
-    getTerrain: () => ({ source: 'terrain-dem' }),
+    getTerrain: () => ({ source: 'terrain-dem', exaggeration: 1.5 }),
     isSourceLoaded: () => ready,
+    queryTerrainElevation: () => ready ? 4200 : null,
     isMoving: () => false,
     setTransformCameraUpdate(callback) { this.transformCallback = callback; },
     flyTo(options) {
+      this.flyCalls = (this.flyCalls || 0) + 1;
       options.easing?.(1);
       this.lastCameraOptions = options;
       // Simulate MapLibre lowering the endpoint to keep the camera outside a
@@ -135,8 +137,8 @@ function createDelayedTerrainMap() {
     easeTo(options) {
       this.easeCalls++;
       options.easing?.(1);
-      zoom = options.zoom;
-      pitch = options.pitch;
+      zoom = options.zoom ?? zoom;
+      pitch = options.pitch ?? pitch;
       settled = true;
     },
     project: () => new Point(600, settled ? 558.08 : 530),
@@ -146,6 +148,22 @@ function createDelayedTerrainMap() {
 }
 
 (async () => {
+  const hintedMap = createDelayedTerrainMap();
+  hintedMap.setReady(true);
+  windowObject.OutmapLocationCamera.fly(hintedMap, [91.117, 29.646], {
+    zoom: 13,
+    pitch: 50,
+    duration: 0,
+    elevation: 3652
+  });
+  const hintedTransform = hintedMap.transformCallback({ elevation: 106 });
+  assert.strictEqual(hintedTransform.elevation, 5478,
+    'Real point elevation must be scaled with terrain exaggeration inside the primary flight');
+  assert.strictEqual(hintedTransform.zoom, 13, 'Known terrain height must preserve the requested landing zoom');
+  assert.strictEqual(hintedTransform.pitch, 50, 'Known terrain height must preserve the requested landing pitch');
+  hintedMap.emit('moveend');
+  assert.strictEqual(hintedMap.easeCalls, 0, 'A known elevation must not create a post-arrival camera move');
+
   const delayedMap = createDelayedTerrainMap();
   let arrivalCount = 0;
   windowObject.OutmapLocationCamera.fly(delayedMap, [101.586, 30.213], {
@@ -155,22 +173,26 @@ function createDelayedTerrainMap() {
     onArrival: () => arrivalCount++
   });
   delayedMap.emit('moveend');
-  assert.strictEqual(delayedMap.easeCalls, 0, 'Flight must wait for destination terrain readiness');
-  assert.strictEqual(arrivalCount, 0, 'Arrival must not be reported before the native landing is stable');
+  assert.strictEqual(delayedMap.flyCalls, 1, 'A location request must start exactly one native flight');
+  assert.strictEqual(delayedMap.easeCalls, 0, 'Primary moveend must not start a second camera animation');
+  assert.strictEqual(arrivalCount, 1, 'Native moveend must report arrival exactly once');
+  const landedZoom = delayedMap.getZoom();
+  const landedPitch = delayedMap.getPitch();
 
   delayedMap.setReady(true);
   delayedMap.emit('sourcedata', { sourceId: 'terrain-dem', isSourceLoaded: true });
   await new Promise(resolve => setTimeout(resolve, 80));
-  assert.strictEqual(delayedMap.easeCalls, 1, 'Late DEM must cause exactly one native settlement');
-  delayedMap.emit('moveend');
-  assert.strictEqual(arrivalCount, 1, 'Stable landing must report arrival exactly once');
+  assert.strictEqual(delayedMap.easeCalls, 0, 'Late DEM must repaint without starting a settlement animation');
+  assert.strictEqual(delayedMap.getZoom(), landedZoom, 'Late DEM must not change landed zoom');
+  assert.strictEqual(delayedMap.getPitch(), landedPitch, 'Late DEM must not change landed pitch');
+  assert.strictEqual(arrivalCount, 1, 'Late DEM must not report arrival again');
 
   delayedMap.emit('sourcedata', { sourceId: 'terrain-dem', isSourceLoaded: true });
   delayedMap.emit('idle');
   await new Promise(resolve => setTimeout(resolve, 80));
-  assert.strictEqual(delayedMap.easeCalls, 1, 'Late source events must never pull the camera back repeatedly');
-  assert(delayedMap.repaintCalls >= 1, 'Stable arrival must request a final render');
-  console.log('Missing-DEM, delayed-DEM and native collision camera regressions passed');
+  assert.strictEqual(delayedMap.easeCalls, 0, 'Late source events must never pull the camera after landing');
+  assert(delayedMap.repaintCalls >= 1, 'Late terrain readiness must request a final render');
+  console.log('Missing-DEM, single-flight and late-repaint camera regressions passed');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
