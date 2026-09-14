@@ -8,7 +8,7 @@ const sourceText = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 new vm.Script(sourceText, { filename: 'src/app.js' });
 
 const watchdog = setTimeout(() => {
-  console.error('v2.0.5 cloud rename test timed out');
+  console.error('v2.0.6 cloud rename test timed out');
   app.exit(1);
 }, 40000);
 
@@ -36,7 +36,7 @@ app.whenReady().then(async () => {
       };
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       check(window.mapInstance?.__outmapStyleReady, 'map did not initialize');
-      check(window.OUTMAP_APP_VERSION === '2.0.5', 'version mismatch');
+      check(window.OUTMAP_APP_VERSION === '2.0.6', 'version mismatch');
 
       const oldRoute = {
         id: 'route_cloud_205', name: '服务器旧名称', mode: 'drive',
@@ -57,7 +57,7 @@ app.whenReady().then(async () => {
       }));
 
       let remoteData = {
-        version: '2.0.4', username: 'cloud-rename-test', password: '',
+        version: '2.0.5', username: 'cloud-rename-test', password: '',
         favorites: [], folders: [], routes: [clone(oldRoute)],
         deletedWaypoints: [], deletedRoutes: [], deletedFolders: [],
         folderTabOrder: [], folderTabOrderUpdatedAt: 0,
@@ -115,9 +115,18 @@ app.whenReady().then(async () => {
       await waitFor(() => String(document.getElementById('outmap-global-toast')?.textContent || '').includes('服务器新名称'),
         'success was not shown after R2 verification');
 
-      check(remoteData.version === '2.0.5', 'R2 payload version mismatch');
+      check(remoteData.version === '2.0.6', 'R2 payload version mismatch');
       check(Number(remoteData.routes[0].updatedAt) > 1000, 'R2 route timestamp did not advance');
       check(pullCount >= 3, 'rename did not perform post-upload R2 verification');
+
+      // 源站不可读时不能拿公共 CDN 的旧快照继续写，否则会覆盖其他端的新数据。
+      const uploadsBeforeOriginFailure = uploadCount;
+      window.electronAPI.pullCloudSyncData = async () => ({ success: false, message: 'origin unavailable' });
+      const failedWithoutFreshOrigin = await window.commitRouteRenameToCloud({
+        ...remoteData.routes[0], name: '不应写入的名称', updatedAt: Date.now() + 1
+      });
+      check(!failedWithoutFreshOrigin.success, 'rename used a stale fallback when R2 origin was unavailable');
+      check(uploadCount === uploadsBeforeOriginFailure, 'rename uploaded without a fresh R2 origin snapshot');
 
       localStorage.removeItem('outmap_user_account');
       delete window.electronAPI;
@@ -126,16 +135,17 @@ app.whenReady().then(async () => {
         pullCount,
         remoteName: remoteData.routes[0].name,
         queuedSyncWaited: true,
-        successAfterVerification: true
+        successAfterVerification: true,
+        staleCdnWritePrevented: true
       };
     })()`);
 
-    console.log('v2.0.5 cloud-confirmed route rename regression passed:', result);
+    console.log('v2.0.6 cloud-confirmed route rename regression passed:', result);
     clearTimeout(watchdog);
     win.destroy();
     app.exit(0);
   } catch (error) {
-    console.error('v2.0.5 cloud rename test failed:', error);
+    console.error('v2.0.6 cloud rename test failed:', error);
     clearTimeout(watchdog);
     if (win) win.destroy();
     app.exit(1);

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.5';
+const APP_VERSION = '2.0.6';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -5208,20 +5208,23 @@ async function uploadCloudSyncPayload(payload) {
   if (window.electronAPI?.uploadCloudSyncData) return window.electronAPI.uploadCloudSyncData(payload);
   return uploadWebCloudSyncData(payload);
 }
-async function pullCloudSyncPayload(syncKey) {
+async function pullCloudSyncPayload(syncKey, { allowCdnFallback = true } = {}) {
   if (window.electronAPI?.pullCloudSyncData) {
     const result = await window.electronAPI.pullCloudSyncData({ syncKey });
-    if (result?.success || result?.notFound) return result;
+    if (result?.success || result?.notFound) return { ...result, source: 'r2-origin' };
   } else {
     try {
       const result = await pullWebCloudSyncData({ syncKey });
-      if (result?.success || result?.notFound) return result;
+      if (result?.success || result?.notFound) return { ...result, source: 'r2-origin' };
     } catch (_) {}
   }
+  // 公开 CDN 只适合普通只读同步。明确写操作必须以 R2 源站的新鲜对象为基准，
+  // 否则拿缓存快照做 read-modify-write 会覆盖另一端刚写入的数据。
+  if (!allowCdnFallback) return { success: false, source: 'r2-origin' };
   try {
     const response = await fetch(`https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(syncKey)}.json?t=${Date.now()}`, { cache: 'no-store' });
-    if (response.ok) return { success: true, data: await response.json() };
-    if (response.status === 404) return { success: false, notFound: true };
+    if (response.ok) return { success: true, data: await response.json(), source: 'cdn' };
+    if (response.status === 404) return { success: false, notFound: true, source: 'cdn' };
   } catch (_) {}
   return { success: false };
 }
@@ -5402,6 +5405,96 @@ async function triggerRealtimeCloudSync(reason = 'change', immediate = false) {
   }
 }
 window.triggerRealtimeCloudSync = triggerRealtimeCloudSync;
+
+function routesRepresentSameRecord(a, b) {
+  if (!a || !b) return false;
+  if (a.id && b.id) return String(a.id) === String(b.id);
+  const aStart = routeCoords(a, 'start');
+  const bStart = routeCoords(b, 'start');
+  const aEnd = routeCoords(a, 'end');
+  const bEnd = routeCoords(b, 'end');
+  const close = (p, q) => Array.isArray(p) && Array.isArray(q)
+    && Math.abs(Number(p[0]) - Number(q[0])) < 0.0001
+    && Math.abs(Number(p[1]) - Number(q[1])) < 0.0001;
+  const aDist = Number(a.metrics?.distKm ?? a.distance);
+  const bDist = Number(b.metrics?.distKm ?? b.distance);
+  return close(aStart, bStart) && close(aEnd, bEnd)
+    && (!Number.isFinite(aDist) || !Number.isFinite(bDist) || Math.abs(aDist - bDist) < 0.1);
+}
+
+// 路线重命名是明确的用户写操作，不能再交给全量 LWW 合并去猜测意图。
+// 在同一同步队列中读取最新 R2 对象，按稳定路线 ID 原子改名后写回并校验。
+async function commitRouteRenameToCloud(updatedRoute) {
+  const user = getLoggedInUser();
+  if (!user) return { success: true, localOnly: true, route: updatedRoute };
+  if (!updatedRoute || !String(updatedRoute.name || '').trim()) {
+    return { success: false, message: '路线名称无效' };
+  }
+  const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
+
+  try {
+    return await enqueueCloudSync(async () => {
+      let lastMessage = 'R2 未确认写入成功';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const pulled = await pullCloudSyncPayload(syncKey, { allowCdnFallback: false });
+        if (!pulled?.success && !pulled?.notFound) {
+          lastMessage = '无法读取 R2 最新记录';
+          if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
+          continue;
+        }
+
+        const cloudData = pulled?.data && typeof pulled.data === 'object' ? pulled.data : {};
+        const remoteRoutes = Array.isArray(cloudData.routes) ? cloudData.routes.slice() : [];
+        const routeIndex = remoteRoutes.findIndex(item => routesRepresentSameRecord(item, updatedRoute));
+        const remoteRoute = routeIndex >= 0 ? remoteRoutes[routeIndex] : null;
+        const appliedUpdatedAt = Math.max(
+          Date.now(),
+          (Number(updatedRoute.updatedAt) || 0),
+          (Number(remoteRoute?.updatedAt) || Number(remoteRoute?.timestamp) || 0) + 1
+        );
+        const appliedRoute = {
+          ...(remoteRoute || {}),
+          ...updatedRoute,
+          name: String(updatedRoute.name).trim(),
+          updatedAt: appliedUpdatedAt
+        };
+        if (routeIndex >= 0) remoteRoutes[routeIndex] = appliedRoute;
+        else remoteRoutes.unshift(appliedRoute);
+
+        const nextData = {
+          ...cloudData,
+          version: APP_VERSION,
+          username: user.username,
+          password: cloudData.password ?? user.password ?? '',
+          syncedAt: new Date().toISOString(),
+          routes: remoteRoutes
+        };
+        const uploadResult = await uploadCloudSyncPayload({ syncKey, data: nextData });
+        if (!uploadResult?.success) {
+          lastMessage = uploadResult?.message || 'R2 写入失败';
+          if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
+          continue;
+        }
+
+        const verified = await pullCloudSyncPayload(syncKey, { allowCdnFallback: false });
+        const verifiedRoute = Array.isArray(verified?.data?.routes)
+          ? verified.data.routes.find(item => routesRepresentSameRecord(item, appliedRoute))
+          : null;
+        if (verifiedRoute
+          && String(verifiedRoute.name || '').trim() === appliedRoute.name
+          && (Number(verifiedRoute.updatedAt) || 0) >= appliedUpdatedAt) {
+          return { success: true, verified: true, route: appliedRoute };
+        }
+        lastMessage = 'R2 源站仍返回旧名称';
+        if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
+      }
+      return { success: false, message: lastMessage };
+    });
+  } catch (error) {
+    return { success: false, message: String(error?.message || error || '云端同步失败') };
+  }
+}
+window.commitRouteRenameToCloud = commitRouteRenameToCloud;
 
 // 移动端切后台 / 关闭标签页时，若有未落地的变更立即执行同步，防止数据丢失
 window.addEventListener('pagehide', () => {
@@ -6769,36 +6862,7 @@ function setupWaypointAndFavoritesSystem(map) {
   const favRoutesCount = document.getElementById('fav-routes-count');
 
   const syncAndVerifySavedRouteName = async (updatedRoute) => {
-    const user = getLoggedInUser();
-    if (!user) return { success: true, localOnly: true };
-    const syncKey = user.syncKey || ('user_' + encodeURIComponent(user.username.toLowerCase()));
-    let lastMessage = '服务器没有确认新名称';
-
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const syncResult = await window.triggerRealtimeCloudSync?.('update_route', true);
-        if (!syncResult?.success) {
-          lastMessage = syncResult?.message || '同步请求失败';
-        } else {
-          const pulled = await pullCloudSyncPayload(syncKey);
-          const remoteRoutes = Array.isArray(pulled?.data?.routes) ? pulled.data.routes : [];
-          const remoteRoute = updatedRoute.id
-            ? remoteRoutes.find(item => item?.id && String(item.id) === String(updatedRoute.id))
-            : remoteRoutes.find(item => String(item?.name || '').trim() === updatedRoute.name);
-          if (remoteRoute
-            && String(remoteRoute.name || '').trim() === updatedRoute.name
-            && (Number(remoteRoute.updatedAt) || 0) >= (Number(updatedRoute.updatedAt) || 0)) {
-            return { success: true, verified: true };
-          }
-          lastMessage = pulled?.success ? '服务器仍返回旧名称' : '无法回读服务器记录';
-        }
-      } catch (error) {
-        lastMessage = String(error?.message || error || '同步请求失败');
-      }
-      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
-    }
-
-    return { success: false, message: lastMessage };
+    return commitRouteRenameToCloud(updatedRoute);
   };
 
   // 1. 收藏地点列表渲染
@@ -7302,6 +7366,15 @@ function setupWaypointAndFavoritesSystem(map) {
                 const reason = rawReason.length > 80 ? `${rawReason.slice(0, 77)}…` : rawReason;
                 showToast(`路线已在本地重命名，云端同步失败：${reason}`, 4500);
                 return;
+              }
+              if (syncResult.route && Number(syncResult.route.updatedAt) > updatedAt) {
+                const syncedRoutes = savedRoutes.map(item => routesRepresentSameRecord(item, syncResult.route)
+                  ? { ...item, name: syncResult.route.name, updatedAt: syncResult.route.updatedAt }
+                  : item);
+                try {
+                  localStorage.setItem('outmap_saved_routes', JSON.stringify(syncedRoutes));
+                  savedRoutes = syncedRoutes;
+                } catch (_) {}
               }
               showToast(`已重命名路线为“${trimmed}”`);
             }
