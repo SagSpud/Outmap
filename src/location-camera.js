@@ -133,12 +133,14 @@
     // user camera callbacks run. During a long flight the destination DEM can
     // arrive on the final frame; without this final-state guard the collision
     // protection leaves the camera at an intermediate zoom/pitch. This public
-    // hook restores only the requested endpoint, with the best elevation that
-    // is currently available. The screen anchor itself is solved below using
+    // hook restores only the requested endpoint. Elevation is included only
+    // after MapLibre can sample the destination DEM; a stored POI elevation
+    // must not create a high-altitude camera before destination tiles exist.
+    // The screen anchor itself is solved below using
     // project/unproject, so there is no dependency on private transforms.
     map.setTransformCameraUpdate?.(transform => {
       if (disposed || easingProgress < 0.999) return {};
-      let elevation = Number(options.elevation);
+      let elevation;
       try {
         const sampled = map.queryTerrainElevation?.(coords);
         if (Number.isFinite(sampled)) elevation = sampled;
