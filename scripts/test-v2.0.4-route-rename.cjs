@@ -26,9 +26,19 @@ app.whenReady().then(async () => {
     const result = await win.webContents.executeJavaScript(`(async () => {
       const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       const check = (value, message) => { if (!value) throw new Error(message); };
+      const versionAtLeast = (actual, minimum) => {
+        const current = String(actual).split('.').map(Number);
+        const required = String(minimum).split('.').map(Number);
+        for (let i = 0; i < Math.max(current.length, required.length); i++) {
+          const left = current[i] || 0;
+          const right = required[i] || 0;
+          if (left !== right) return left > right;
+        }
+        return true;
+      };
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       check(window.mapInstance?.__outmapStyleReady, 'map did not initialize');
-      check(window.OUTMAP_APP_VERSION >= '2.0.4', 'version mismatch');
+      check(versionAtLeast(window.OUTMAP_APP_VERSION, '2.0.4'), 'version mismatch');
 
       localStorage.removeItem('outmap_user_account');
       savedRoutes = [{
