@@ -3,112 +3,15 @@
   'use strict';
   const active = new WeakMap();
 
-  const zoomGuards = new WeakMap();
-
-  function touchDistance(touches) {
-    if (!touches || touches.length < 2) return 0;
-    return Math.hypot(
-      touches[0].clientX - touches[1].clientX,
-      touches[0].clientY - touches[1].clientY
-    );
-  }
-
   function interactionSurfaceFor(map) {
     return [map.getContainer?.(), map.getCanvasContainer?.(), map.getCanvas?.()]
       .find(candidate => typeof candidate?.addEventListener === 'function') || null;
   }
 
-  function clearZoomIntent(map) {
-    const state = zoomGuards.get(map);
-    if (!state) return;
-    state.direction = 0;
-    state.expiresAt = 0;
-    state.touchDistance = 0;
-  }
-
-  function applyZoomDirectionGuard(map, transform) {
-    const state = zoomGuards.get(map);
-    if (!state || !state.direction || performance.now() > state.expiresAt) return {};
-    const currentZoom = map.getZoom();
-    const reversesDirection = state.direction > 0
-      ? transform.zoom < currentZoom - 0.002
-      : transform.zoom > currentZoom + 0.002;
-    if (!reversesDirection) return {};
-    // Hold zoom to avoid rollback, but never touch center so cursor anchoring remains 100% stable
-    return { zoom: currentZoom };
-  }
-
   function install(map) {
-    if (!map || zoomGuards.has(map)) return;
-    const surface = interactionSurfaceFor(map);
-    const state = {
-      direction: 0,
-      expiresAt: 0,
-      touchDistance: 0,
-      clearTimer: 0,
-      transform: transform => applyZoomDirectionGuard(map, transform)
-    };
-    const setIntent = direction => {
-      if (!direction) return;
-      clearTimeout(state.clearTimer);
-      state.clearTimer = 0;
-      state.direction = direction;
-      state.expiresAt = performance.now() + 1200;
-    };
-    const onWheel = event => setIntent(event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0);
-    const onDoubleClick = event => setIntent(event.shiftKey ? -1 : 1);
-    const onKeyDown = event => {
-      if (event.key === '+' || event.key === '=') setIntent(1);
-      else if (event.key === '-' || event.key === '_') setIntent(-1);
-    };
-    const onTouchStart = event => { state.touchDistance = touchDistance(event.touches); };
-    const onTouchMove = event => {
-      const nextDistance = touchDistance(event.touches);
-      if (nextDistance > 0 && state.touchDistance > 0) {
-        const delta = nextDistance - state.touchDistance;
-        if (Math.abs(delta) > 0.5) setIntent(delta > 0 ? 1 : -1);
-      }
-      state.touchDistance = nextDistance;
-    };
-    const onTouchEnd = event => {
-      if (!event.touches || event.touches.length < 2) state.touchDistance = 0;
-    };
-    const onZoomEnd = () => {
-      clearTimeout(state.clearTimer);
-      state.clearTimer = setTimeout(() => {
-        state.clearTimer = 0;
-        clearZoomIntent(map);
-      }, 0);
-    };
-    const cleanup = () => {
-      clearTimeout(state.clearTimer);
-      surface?.removeEventListener('wheel', onWheel, true);
-      surface?.removeEventListener('dblclick', onDoubleClick, true);
-      surface?.removeEventListener('keydown', onKeyDown, true);
-      surface?.removeEventListener('touchstart', onTouchStart, true);
-      surface?.removeEventListener('touchmove', onTouchMove, true);
-      surface?.removeEventListener('touchend', onTouchEnd, true);
-      surface?.removeEventListener('touchcancel', onTouchEnd, true);
-      map.off('zoomend', onZoomEnd);
-      map.off('remove', cleanup);
-      zoomGuards.delete(map);
-    };
-    zoomGuards.set(map, state);
-    surface?.addEventListener('wheel', onWheel, { capture: true, passive: true });
-    surface?.addEventListener('dblclick', onDoubleClick, { capture: true, passive: true });
-    surface?.addEventListener('keydown', onKeyDown, { capture: true, passive: true });
-    surface?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
-    surface?.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
-    surface?.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
-    surface?.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
-    map.on('zoomend', onZoomEnd);
-    map.on('remove', cleanup);
-    map.setTransformCameraUpdate?.(state.transform);
-  }
-
-  function restoreZoomGuard(map) {
-    const state = zoomGuards.get(map);
-    map.setTransformCameraUpdate?.(state?.transform || null);
+    // Native MapLibre 6.9 handles user zoom and 3D terrain collision natively.
+    if (!map) return;
+    try { map.setTransformCameraUpdate?.(null); } catch (_) {}
   }
 
   function anchor(map, centered) {
@@ -180,7 +83,7 @@
         interactionSurface.removeEventListener(type, dispose, true);
       }
       timers.forEach(clearTimeout);
-      try { restoreZoomGuard(map); } catch (_) {}
+      try { map.setTransformCameraUpdate?.(null); } catch (_) {}
       setFlightLoadState(false);
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
@@ -252,8 +155,7 @@
     };
 
     map.setTransformCameraUpdate?.(transform => {
-      const zoomGuard = applyZoomDirectionGuard(map, transform);
-      if (disposed || !ownedMoveActive || !terrain?.source) return zoomGuard;
+      if (disposed || !ownedMoveActive || !terrain?.source) return {};
       if (!Number.isFinite(targetElevation)) {
         let sampled = null;
         try { sampled = map.queryTerrainElevation?.(coords); } catch (_) {}
@@ -265,15 +167,15 @@
           elevationStartProgress = easingProgress;
         }
       }
-      if (!Number.isFinite(targetElevation)) return zoomGuard;
+      if (!Number.isFinite(targetElevation)) return {};
       const remaining = Math.max(0.0001, 1 - elevationStartProgress);
       const localProgress = Math.max(0, Math.min(1, (easingProgress - elevationStartProgress) / remaining));
       const eased = localProgress * localProgress * (3 - 2 * localProgress);
       const elevation = elevationStart + (targetElevation - elevationStart) * eased;
       if (easingProgress >= 0.999) {
-        return { ...zoomGuard, elevation: targetElevation, zoom, pitch, bearing };
+        return { elevation: targetElevation, zoom, pitch, bearing };
       }
-      return { ...zoomGuard, elevation };
+      return { elevation };
     });
 
     listen('moveend', () => {

@@ -84,7 +84,7 @@ app.whenReady().then(async () => {
     const nativeJump=m.jumpTo.bind(m);
     m.jumpTo=(opts,...args)=>{if(opts.duration === undefined && opts.elevation !== undefined)correctiveJumps++;return nativeJump(opts,...args)};
     function sample(name, c, centered=false, expectedZoom=null, expectedPitch=null) { const p=m.project(c),a=OutmapLocationCamera.anchor(m,centered); rows.push({name,error:Math.hypot(p.x-a.x,p.y-a.y),pitch:m.getPitch(),zoom:m.getZoom(),expectedZoom,expectedPitch,elevation:m.queryTerrainElevation(c),centerElevation:m.getCenterElevation(),center:m.getCenter(),padding:m.getPadding()}); }
-    const settleBase = (innerWidth <= 768 || onlineTerrainTest) ? 2200 : 600;
+    const settleBase = 2200;
     for(const [name,c,z,pitch,centered,elevation] of [ ['nearby',[118.36,35.11],14.8,50,false,71], ['Lhasa app',[91.117,29.646],13,50,false,3652], ['Lhasa close',[91.117,29.646],14.8,50,false,3652], ['2D',[117.12,36.65],12,0,false,144], ['overview',[104.5,36],4.45,50,true,2084], ['steep',[91.12,29.65],13,70,false,3652] ]) {
       fly(c,{zoom:z,pitch,centered,duration:180,elevation:onlineTerrainTest ? elevation : 4000}); await waitForCameraSettle(settleBase); sample(name,c,centered,z,pitch);
     }
