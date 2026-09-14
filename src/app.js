@@ -1651,6 +1651,7 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
+  window.OutmapLocationCamera?.install?.(map);
 
 
   // 鼠标拖拽平移地图时实时切换为 Windows 原生移动四向箭头 (move)，松手立刻恢复普通箭头 (default)

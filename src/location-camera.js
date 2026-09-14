@@ -2,6 +2,119 @@
 (function (global) {
   'use strict';
   const active = new WeakMap();
+  const zoomGuards = new WeakMap();
+
+  function touchDistance(touches) {
+    if (!touches || touches.length < 2) return 0;
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY
+    );
+  }
+
+  function interactionSurfaceFor(map) {
+    return [map.getContainer?.(), map.getCanvasContainer?.(), map.getCanvas?.()]
+      .find(candidate => typeof candidate?.addEventListener === 'function') || null;
+  }
+
+  function clearZoomIntent(map) {
+    const state = zoomGuards.get(map);
+    if (!state) return;
+    state.direction = 0;
+    state.expiresAt = 0;
+    state.touchDistance = 0;
+  }
+
+  function applyZoomDirectionGuard(map, transform) {
+    const state = zoomGuards.get(map);
+    if (!state || !state.direction || performance.now() > state.expiresAt) return {};
+    const currentZoom = map.getZoom();
+    const reversesDirection = state.direction > 0
+      ? transform.zoom < currentZoom - 0.002
+      : transform.zoom > currentZoom + 0.002;
+    if (!reversesDirection) return {};
+    // Terrain collision avoidance can legitimately cap the closest safe zoom,
+    // but it must not turn a zoom-in gesture into a visible zoom-out (or vice
+    // versa). Hold the last rendered camera for that invalid frame; MapLibre
+    // then ends the gesture normally and keeps all terrain safety checks.
+    return { center: map.getCenter(), zoom: currentZoom };
+  }
+
+  function install(map) {
+    if (!map || zoomGuards.has(map)) return;
+    const surface = interactionSurfaceFor(map);
+    const state = {
+      direction: 0,
+      expiresAt: 0,
+      touchDistance: 0,
+      clearTimer: 0,
+      transform: transform => applyZoomDirectionGuard(map, transform)
+    };
+    const setIntent = direction => {
+      if (!direction) return;
+      clearTimeout(state.clearTimer);
+      state.clearTimer = 0;
+      state.direction = direction;
+      state.expiresAt = performance.now() + 1200;
+    };
+    const onWheel = event => setIntent(event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0);
+    const onDoubleClick = event => setIntent(event.shiftKey ? -1 : 1);
+    const onKeyDown = event => {
+      if (event.key === '+' || event.key === '=') setIntent(1);
+      else if (event.key === '-' || event.key === '_') setIntent(-1);
+    };
+    const onTouchStart = event => { state.touchDistance = touchDistance(event.touches); };
+    const onTouchMove = event => {
+      const nextDistance = touchDistance(event.touches);
+      if (nextDistance > 0 && state.touchDistance > 0) {
+        const delta = nextDistance - state.touchDistance;
+        if (Math.abs(delta) > 0.5) setIntent(delta > 0 ? 1 : -1);
+      }
+      state.touchDistance = nextDistance;
+    };
+    const onTouchEnd = event => {
+      if (!event.touches || event.touches.length < 2) state.touchDistance = 0;
+    };
+    const onZoomEnd = () => {
+      // MapLibre fires zoomend immediately before its terrain gesture
+      // finalizer recalculates zoom/center. Keep the direction for the rest of
+      // this event stack so that finalizer cannot reverse the user's gesture.
+      clearTimeout(state.clearTimer);
+      state.clearTimer = setTimeout(() => {
+        state.clearTimer = 0;
+        clearZoomIntent(map);
+      }, 0);
+    };
+    const cleanup = () => {
+      clearTimeout(state.clearTimer);
+      surface?.removeEventListener('wheel', onWheel, true);
+      surface?.removeEventListener('dblclick', onDoubleClick, true);
+      surface?.removeEventListener('keydown', onKeyDown, true);
+      surface?.removeEventListener('touchstart', onTouchStart, true);
+      surface?.removeEventListener('touchmove', onTouchMove, true);
+      surface?.removeEventListener('touchend', onTouchEnd, true);
+      surface?.removeEventListener('touchcancel', onTouchEnd, true);
+      map.off('zoomend', onZoomEnd);
+      map.off('remove', cleanup);
+      zoomGuards.delete(map);
+    };
+    zoomGuards.set(map, state);
+    surface?.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    surface?.addEventListener('dblclick', onDoubleClick, { capture: true, passive: true });
+    surface?.addEventListener('keydown', onKeyDown, { capture: true, passive: true });
+    surface?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    surface?.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
+    surface?.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+    surface?.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
+    map.on('zoomend', onZoomEnd);
+    map.on('remove', cleanup);
+    map.setTransformCameraUpdate?.(state.transform);
+  }
+
+  function restoreZoomGuard(map) {
+    const state = zoomGuards.get(map);
+    map.setTransformCameraUpdate?.(state?.transform || null);
+  }
 
   function anchor(map, centered) {
     const rect = map.getContainer().getBoundingClientRect();
@@ -40,6 +153,8 @@
     const coords = coordinates.slice(0, 2).map(Number);
     if (!coords.every(Number.isFinite) || Math.abs(coords[0]) > 180 || Math.abs(coords[1]) > 85) return;
 
+    install(map);
+    clearZoomIntent(map);
     cancel(map);
     map.stop();
 
@@ -48,11 +163,12 @@
     // canvas container rather than of the canvas. Listen at that shared
     // interaction root so a user's first wheel/pointer event always cancels a
     // completed flight guard before MapLibre applies its camera delta.
-    const interactionSurface = map.getCanvasContainer?.() || canvas;
+    const interactionSurface = interactionSurfaceFor(map) || canvas;
     const subscriptions = [];
     const timers = [];
     let disposed = false;
     let internalMove = false;
+    let ownedMoveActive = false;
     let arrivalDelivered = false;
     let refinementCount = 0;
     let easingProgress = 0;
@@ -77,10 +193,9 @@
         interactionSurface.removeEventListener(type, dispose, true);
       }
       timers.forEach(clearTimeout);
-      // MapLibre 6 exposes this hook as a public API. Outmap owns the map and
-      // does not install another camera transform callback, so always clear
-      // our bounded landing guard when this flight is finished/cancelled.
-      try { map.setTransformCameraUpdate?.(null); } catch (_) {}
+      // Restore the persistent user-zoom direction guard after this bounded
+      // flight-specific endpoint guard is finished or cancelled.
+      try { restoreZoomGuard(map); } catch (_) {}
       setFlightLoadState(false);
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
@@ -129,6 +244,7 @@
     const startNativeMove = (method, moveDuration, overrides = null) => {
       expectedMoveEnd = performance.now() + Math.max(0, moveDuration);
       easingProgress = moveDuration === 0 ? 1 : 0;
+      ownedMoveActive = true;
       internalMove = true;
       map[method]({ ...cameraOptions(moveDuration), ...(overrides || {}) });
       internalMove = false;
@@ -144,7 +260,13 @@
     // The screen anchor itself is solved below using
     // project/unproject, so there is no dependency on private transforms.
     map.setTransformCameraUpdate?.(transform => {
-      if (disposed || easingProgress < 0.999) return {};
+      // The hook is retained briefly so a late DEM can start a bounded
+      // refinement, but it may only constrain frames of a move started by this
+      // adapter. Native zoom controls and other camera owners must never see
+      // the completed flight's old zoom target.
+      if (disposed || !ownedMoveActive || easingProgress < 0.999) {
+        return applyZoomDirectionGuard(map, transform);
+      }
       let elevation;
       try {
         const sampled = map.queryTerrainElevation?.(coords);
@@ -207,6 +329,7 @@
 
     listen('moveend', () => {
       if (disposed) return;
+      ownedMoveActive = false;
       // A programmatic jump/another component can interrupt an in-flight
       // animation without emitting a second movestart. Do not pull the map
       // back to our old target from the moveend handler.
@@ -232,5 +355,5 @@
     startNativeMove(nearby ? 'easeTo' : 'flyTo', duration);
   }
 
-  global.OutmapLocationCamera = Object.freeze({ fly, cancel, anchor });
+  global.OutmapLocationCamera = Object.freeze({ fly, cancel, anchor, install });
 })(window);

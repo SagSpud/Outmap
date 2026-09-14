@@ -18,7 +18,7 @@ assert(!/cancelPendingTileRequestsWhileZooming:\s*true/.test(appSource),
 const watchdog = setTimeout(() => {
   console.error('Fractional 3D continuity test timed out');
   app.exit(1);
-}, 45000);
+}, 90000);
 
 app.whenReady().then(async () => {
   const fixturePng = new PNG({ width: 256, height: 256 });
@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
       }, 20);
     })`);
     await win.webContents.executeJavaScript(`window.reliefFixtureUrl = 'http://127.0.0.1:${fixturePort}/{z}/{x}/{y}.png'`);
-    for (const file of ['src/vendor/maplibre-contour.js']) {
+    for (const file of ['src/vendor/maplibre-contour.js', 'src/location-camera.js']) {
       await win.webContents.executeJavaScript(fs.readFileSync(path.join(root, file), 'utf8'));
     }
     const result = await win.webContents.executeJavaScript(`(async () => {
@@ -85,6 +85,7 @@ app.whenReady().then(async () => {
           id: 'background', type: 'background', paint: { 'background-color': '#f2f1ec' }
         }] }
       });
+      OutmapLocationCamera.install(map);
       const errors = [];
       map.on('error', event => errors.push(String(event?.error?.stack || event?.error || event)));
       map.getCanvas().addEventListener('webglcontextlost', () => { contextLost = true; });
@@ -113,15 +114,73 @@ app.whenReady().then(async () => {
       // exposed flashing in steep terrain.
       const ascending = [3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 15.1, 16.0, 16.8];
       const zooms = [...ascending, ...ascending.slice().reverse()];
+      const fractionalMatrix = [];
       for (const pitch of [50, 70]) {
         map.jumpTo({ pitch });
         for (const zoom of zooms) {
+          const beforeZoom = map.getZoom();
+          const motionZooms = [beforeZoom];
+          const recordMotionZoom = () => motionZooms.push(map.getZoom());
+          map.on('zoom', recordMotionZoom);
           map.easeTo({ zoom, duration: 140 });
           await sleep(55);
           if (!map.getSource('terrain-dem') || !map.getSource('contour-source')) throw new Error('3D source disappeared');
           if (!map.getLayer('hillshade-layer') || !map.getLayer('contour-lines')) throw new Error('3D layer disappeared');
           if (!map.getTerrain()) throw new Error('terrain detached during fractional zoom');
           await sleep(110);
+          map.off('zoom', recordMotionZoom);
+          const actualZoom = map.getZoom();
+          const zoomingIn = zoom > beforeZoom + 0.01;
+          const zoomingOut = zoom < beforeZoom - 0.01;
+          const rollback = zoomingIn
+            ? Math.max(...motionZooms, actualZoom) - actualZoom
+            : zoomingOut ? actualZoom - Math.min(...motionZooms, actualZoom) : 0;
+          fractionalMatrix.push({ pitch, requestedZoom: zoom, beforeZoom, actualZoom, rollback });
+        }
+      }
+
+      const wheelMatrix = [];
+      const wheelOnce = async (pitch, startZoom, deltaY, yRatio = 0.68) => {
+        map.stop();
+        map.jumpTo({ center: [101.3451, 30.06], pitch, zoom: startZoom });
+        await sleep(45);
+        const actualStartZoom = map.getZoom();
+        const samples = [actualStartZoom];
+        const onZoom = () => samples.push(map.getZoom());
+        map.on('zoom', onZoom);
+        const ended = new Promise(resolve => map.once('zoomend', resolve));
+        const canvas = map.getCanvas();
+        canvas.dispatchEvent(new WheelEvent('wheel', {
+          bubbles: true, cancelable: true, deltaMode: 0, deltaY,
+          clientX: canvas.clientWidth * 0.5, clientY: canvas.clientHeight * yRatio
+        }));
+        await Promise.race([ended, sleep(900)]);
+        await sleep(35);
+        map.off('zoom', onZoom);
+        const endZoom = map.getZoom();
+        const peak = Math.max(...samples, endZoom);
+        const trough = Math.min(...samples, endZoom);
+        const directionOk = deltaY < 0 ? endZoom >= actualStartZoom - 0.005 : endZoom <= actualStartZoom + 0.005;
+        const rollback = deltaY < 0 ? peak - endZoom : endZoom - trough;
+        if (!directionOk || rollback > 0.04) {
+          throw new Error('wheel zoom unstable at ' + pitch + '° / L' + startZoom
+            + ': end=' + endZoom + ', rollback=' + rollback + ', deltaY=' + deltaY);
+        }
+        wheelMatrix.push({ pitch, startZoom, actualStartZoom, deltaY, yRatio, endZoom, rollback, frames: samples.length });
+      };
+      const wheelLevels = [3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 15.1, 16.0, 16.8];
+      for (const pitch of [0, 50, 70]) {
+        for (const startZoom of wheelLevels) {
+          await wheelOnce(pitch, startZoom, -120);
+          await wheelOnce(pitch, startZoom, 120);
+        }
+      }
+      // Above-horizon and foreground terrain use different native around-point
+      // paths. Exercise both at the DEM hand-off and close-range levels.
+      for (const pitch of [50, 70]) {
+        for (const startZoom of [11.8, 14.2, 16.0]) {
+          await wheelOnce(pitch, startZoom, -120, 0.15);
+          await wheelOnce(pitch, startZoom, -120, 0.85);
         }
       }
       await Promise.race([new Promise(resolve => map.once('idle', resolve)), sleep(5000)]);
@@ -134,13 +193,28 @@ app.whenReady().then(async () => {
         tilesLoaded: map.areTilesLoaded(),
         contextLost,
         errors,
-        contourProtocolCalls
+        contourProtocolCalls,
+        wheelMatrix,
+        fractionalMatrix
       };
       map.remove();
       return result;
     })()`);
 
-    console.log('Fractional 3D tile continuity result:', result);
+    console.log('Fractional 3D tile continuity result:', {
+      ...result,
+      wheelMatrix: {
+        cases: result.wheelMatrix.length,
+        maxRollback: Math.max(...result.wheelMatrix.map(item => item.rollback)),
+        pitches: [...new Set(result.wheelMatrix.map(item => item.pitch))],
+        minZoom: Math.min(...result.wheelMatrix.map(item => item.startZoom)),
+        maxZoom: Math.max(...result.wheelMatrix.map(item => item.startZoom))
+      },
+      fractionalMatrix: {
+        cases: result.fractionalMatrix.length,
+        maxNativeTerrainCorrection: Math.max(...result.fractionalMatrix.map(item => item.rollback))
+      }
+    });
     assert.strictEqual(result.version, '6.9.0', 'MapLibre runtime version mismatch');
     assert(/maplibre-gl-worker\.mjs(?:$|[?#])/.test(result.workerUrl), 'MapLibre 6 module worker URL is not configured');
     assert.strictEqual(result.cancellationEnabled, false, 'runtime tile cancellation policy mismatch');

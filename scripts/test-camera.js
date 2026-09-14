@@ -81,6 +81,43 @@ app.whenReady().then(async () => {
     });
     wheelOverlay.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-120}));
     wheelOverlay.remove();
+    OutmapLocationCamera.fly(m,[102.1,31.2],{zoom:10.6,pitch:50,duration:100}); await sleep(450);
+    m.zoomTo(11.15,{duration:0});
+    await sleep(30);
+    const externalControlZoom=m.getZoom();
+    m.jumpTo({zoom:12});
+    const touchOverlay=document.createElement('div');
+    m.getContainer().appendChild(touchOverlay);
+    touchOverlay.addEventListener('touchstart',event=>event.stopPropagation());
+    touchOverlay.addEventListener('touchmove',event=>event.stopPropagation());
+    const sendSyntheticTouch=(type,points)=>{
+      const event=new Event(type,{bubbles:true,cancelable:true});
+      Object.defineProperty(event,'touches',{value:points});
+      touchOverlay.dispatchEvent(event);
+    };
+    sendSyntheticTouch('touchstart',[{clientX:100,clientY:100},{clientX:200,clientY:100}]);
+    sendSyntheticTouch('touchmove',[{clientX:80,clientY:100},{clientX:220,clientY:100}]);
+    // A wider pinch means zoom-in; emulate a terrain correction proposing the
+    // opposite direction and verify it is held at the current safe zoom.
+    m.jumpTo({zoom:11.5});
+    const touchDirectionGuardZoom=m.getZoom();
+    touchOverlay.remove();
+    await sleep(20);
+    const intentOverlay=document.createElement('button');
+    m.getContainer().appendChild(intentOverlay);
+    intentOverlay.addEventListener('keydown',event=>event.stopPropagation());
+    intentOverlay.addEventListener('dblclick',event=>event.stopPropagation());
+    m.jumpTo({zoom:12});
+    intentOverlay.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,key:'+'}));
+    m.jumpTo({zoom:11.5});
+    const keyboardDirectionGuardZoom=m.getZoom();
+    await sleep(20);
+    m.jumpTo({zoom:12});
+    intentOverlay.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));
+    m.jumpTo({zoom:11.5});
+    const doubleClickDirectionGuardZoom=m.getZoom();
+    intentOverlay.remove();
+    await sleep(20);
     if (innerWidth <= 768) {
       const panel = document.createElement('div'); panel.id='route-panel'; panel.style.cssText='position:fixed;left:0;right:0;bottom:0;height:300px;background:white'; document.body.appendChild(panel);
       OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:50,duration:120}); await sleep(500); sample('mobile drawer',[118,35],false,14,50);
@@ -89,7 +126,7 @@ app.whenReady().then(async () => {
       OutmapLocationCamera.fly(m,[118,35],{zoom:14,pitch:0,duration:0}); await sleep(200); sample('hidden drawer',[118,35],false,14,0);
     }
     m.remove();
-    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps,overlayWheelZoom};
+    return {rows,oldArrival,newArrival,interruptedArrival,instantArrival,userCenter,replacementCenter,correctiveJumps,overlayWheelZoom,externalControlZoom,touchDirectionGuardZoom,keyboardDirectionGuardZoom,doubleClickDirectionGuardZoom};
   })()`);
   console.log(JSON.stringify(result, null, 2));
   for (const row of result.rows) {
@@ -108,6 +145,14 @@ app.whenReady().then(async () => {
   assert.strictEqual(result.correctiveJumps,0,'Terrain settling must not teleport the camera');
   assert(Math.abs(result.overlayWheelZoom - 12.25) < 0.02,
     `Wheel input over a map overlay was pulled back to zoom ${result.overlayWheelZoom}`);
+  assert(Math.abs(result.externalControlZoom - 11.15) < 0.02,
+    `A native zoom control was pulled back to zoom ${result.externalControlZoom}`);
+  assert(Math.abs(result.touchDirectionGuardZoom - 12) < 0.02,
+    `A pinch zoom-in was reversed to zoom ${result.touchDirectionGuardZoom}`);
+  assert(Math.abs(result.keyboardDirectionGuardZoom - 12) < 0.02,
+    `A keyboard zoom-in was reversed to zoom ${result.keyboardDirectionGuardZoom}`);
+  assert(Math.abs(result.doubleClickDirectionGuardZoom - 12) < 0.02,
+    `A double-click zoom-in was reversed to zoom ${result.doubleClickDirectionGuardZoom}`);
   clearTimeout(watchdog);
   console.log('Camera projection and cancellation passed.'); app.quit();
 }).catch(e => { console.error(e); app.exit(1); });
