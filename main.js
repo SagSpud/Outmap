@@ -2544,6 +2544,7 @@ del "%~f0"
           'Host': host,
           'Content-Type': contentType,
           'Content-Length': buffer.length,
+          'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
           'x-amz-date': amzDate,
           'x-amz-content-sha256': payloadHash,
           'Authorization': authorization
@@ -2560,6 +2561,10 @@ del "%~f0"
             reject(new Error(`HTTP ${res.statusCode}: ${respBody}`));
           }
         });
+      });
+
+      req.setTimeout(8000, () => {
+        req.destroy(new Error('R2 S3 upload request timed out (8000ms)'));
       });
 
       req.on('error', (err) => {
@@ -2679,6 +2684,10 @@ del "%~f0"
         });
       });
 
+      req.setTimeout(6000, () => {
+        req.destroy(new Error('R2 S3 pull request timed out (6000ms)'));
+      });
+
       req.on('error', (err) => {
         reject(err);
       });
@@ -2686,19 +2695,32 @@ del "%~f0"
     });
   }
 
-  ipcMain.handle('pull-cloud-sync-data', async (event, { syncKey }) => {
+  ipcMain.handle('pull-cloud-sync-data', async (event, { syncKey, allowCdnFallback = true } = {}) => {
     const key = (syncKey || 'default').trim();
+    let originError = null;
     // 1. 直读 R2 源站，避免 CDN 尚未刷新时把另一端的新收藏误当作旧数据。
     try {
       const s3Key = `Outmap/sync/${encodeURIComponent(key)}.json`;
       const direct = await pullBufferFromR2(s3Key);
       if (direct.success || direct.notFound) return direct;
-    } catch (_) {}
+      if (direct.message) originError = new Error(direct.message);
+    } catch (err) {
+      originError = err;
+    }
+
+    // 若调用方明确禁止 CDN 兜底（例如写前校验、改名一致性检查），源站失败严禁走 CDN 缓存
+    if (allowCdnFallback === false) {
+      return { success: false, message: originError ? originError.message : '无法直连 R2 源站确认最新数据' };
+    }
 
     // 2. 源站临时不可用时再走公网 CDN 兜底。
     try {
       const url = `https://r2.053999.xyz/Outmap/sync/${encodeURIComponent(key)}.json?t=${Date.now()}`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(5000), cache: 'no-store' });
+      const r = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache' }
+      });
       if (r.ok) return { success: true, data: await r.json() };
       if (r.status === 404) return { success: false, notFound: true, message: '云端暂未发现此账号的同步记录' };
       return { success: false, message: `CDN GET HTTP ${r.status}` };

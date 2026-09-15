@@ -1,4 +1,4 @@
-﻿const assert = require('assert');
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
@@ -14,13 +14,14 @@ const indexHtml = fs.readFileSync(path.join(root, 'src/index.html'), 'utf8');
 const mapBootstrapJs = fs.readFileSync(path.join(root, 'src/map-bootstrap.js'), 'utf8');
 
 // 1. Version consistency check
-assert.strictEqual(pkg.version, '2.0.15', 'package.json version must be 2.0.15');
-assert(indexHtml.includes('style.css?v=2.0.15'), 'index.html must reference style.css?v=2.0.15');
-assert(indexHtml.includes('id="brand-ver-badge-txt">v2.0.15</span>'), 'index.html brand badge must show v2.0.15');
-assert(indexHtml.includes('map-bootstrap.js?v=2.0.15'), 'index.html must reference map-bootstrap.js?v=2.0.15');
-assert(mapBootstrapJs.includes('app.js?v=2.0.15'), 'map-bootstrap.js must load app.js?v=2.0.15');
-assert(appJs.includes("const APP_VERSION = '2.0.15';"), 'app.js must declare APP_VERSION = 2.0.15');
-console.log('  [PASS] 1. Version 2.0.15 unified across package.json, index.html, map-bootstrap.js, and app.js');
+const curVer = pkg.version;
+assert(['2.0.15', '2.0.16'].includes(curVer), `package.json version must be 2.0.15 or 2.0.16, found: ${curVer}`);
+assert(indexHtml.includes(`style.css?v=${curVer}`), `index.html must reference style.css?v=${curVer}`);
+assert(indexHtml.includes(`id="brand-ver-badge-txt">v${curVer}</span>`), `index.html brand badge must show v${curVer}`);
+assert(indexHtml.includes(`map-bootstrap.js?v=${curVer}`), `index.html must reference map-bootstrap.js?v=${curVer}`);
+assert(mapBootstrapJs.includes(`app.js?v=${curVer}`), `map-bootstrap.js must load app.js?v=${curVer}`);
+assert(appJs.includes(`const APP_VERSION = '${curVer}';`), `app.js must declare APP_VERSION = ${curVer}`);
+console.log(`  [PASS] 1. Version ${curVer} unified across package.json, index.html, map-bootstrap.js, and app.js`);
 
 // 2. Search In-Flight Abort & 0ms LRU Memory Cache
 assert(appJs.includes('const searchMemoryCache = new Map();'), 'app.js must define searchMemoryCache');
