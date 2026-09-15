@@ -18,7 +18,7 @@ assert(!/cancelPendingTileRequestsWhileZooming:\s*true/.test(appSource),
 const watchdog = setTimeout(() => {
   console.error('Fractional 3D continuity test timed out');
   app.exit(1);
-}, 45000);
+}, 180000);
 
 app.whenReady().then(async () => {
   const fixturePng = new PNG({ width: 256, height: 256 });
@@ -124,6 +124,84 @@ app.whenReady().then(async () => {
           await sleep(110);
         }
       }
+
+      // Do not weaken this matrix when changing flight behavior: user zoom is
+      // native and must remain settled after zoomend at every supported level,
+      // pitch and both foreground/sky cursor anchors.
+      const wheelMatrix = [];
+      const wheelOnce = async (pitch, startZoom, deltaY, yRatio = 0.68) => {
+        map.stop();
+        map.jumpTo({ center: [101.3451, 30.06], pitch, zoom: startZoom });
+        await Promise.race([new Promise(resolve => map.once('idle', resolve)), sleep(350)]);
+        await sleep(40);
+        const actualStartZoom = map.getZoom();
+        const zoomSamples = [actualStartZoom];
+        const recordZoom = () => zoomSamples.push(map.getZoom());
+        map.on('zoom', recordZoom);
+        let centerAtMoveEnd = null;
+        let zoomAtMoveEnd = null;
+        const ended = new Promise(resolve => map.once('moveend', () => {
+          const center = map.getCenter();
+          centerAtMoveEnd = [center.lng, center.lat];
+          zoomAtMoveEnd = map.getZoom();
+          resolve();
+        }));
+        const canvas = map.getCanvas();
+        const dispatchWheel = () => canvas.dispatchEvent(new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaMode: 0,
+          deltaY,
+          clientX: canvas.clientWidth * 0.5,
+          clientY: canvas.clientHeight * yRatio
+        }));
+        dispatchWheel();
+        await Promise.race([ended, sleep(1500)]);
+        if (!centerAtMoveEnd) {
+          dispatchWheel();
+          await Promise.race([ended, sleep(1500)]);
+        }
+        await sleep(80);
+        map.off('zoom', recordZoom);
+        const endZoom = map.getZoom();
+        const endCenter = map.getCenter();
+        const centerDrift = centerAtMoveEnd
+          ? Math.hypot(endCenter.lng - centerAtMoveEnd[0], endCenter.lat - centerAtMoveEnd[1])
+          : Infinity;
+        const postEndZoomDrift = Number.isFinite(zoomAtMoveEnd)
+          ? Math.abs(endZoom - zoomAtMoveEnd)
+          : Infinity;
+        const directionOk = deltaY < 0
+          ? endZoom >= actualStartZoom - 0.005
+          : endZoom <= actualStartZoom + 0.005;
+        const maxFrameDelta = zoomSamples.reduce((maximum, value, index) => index
+          ? Math.max(maximum, Math.abs(value - zoomSamples[index - 1]))
+          : maximum, 0);
+        if (pitch === 0 && !directionOk) {
+          throw new Error('wheel direction reversed at ' + pitch + '° / L' + startZoom + ': ' + actualStartZoom + ' -> ' + endZoom);
+        }
+        if (maxFrameDelta > 0.35) {
+          throw new Error('terrain collision caused a visible zoom jump at ' + pitch + '° / L' + startZoom + ': frameDelta=' + maxFrameDelta);
+        }
+        if (centerDrift > 1e-8 || postEndZoomDrift > 0.002) {
+          throw new Error('wheel moved after moveend at ' + pitch + '° / L' + startZoom + ': center=' + centerDrift + ', zoom=' + postEndZoomDrift);
+        }
+        wheelMatrix.push({ pitch, startZoom, deltaY, yRatio, endZoom,
+          collisionAdjusted: !directionOk, maxFrameDelta, centerDrift, postEndZoomDrift });
+      };
+      const wheelLevels = [3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 15.1, 16.0, 16.8];
+      for (const pitch of [0, 50, 70]) {
+        for (const startZoom of wheelLevels) {
+          await wheelOnce(pitch, startZoom, -120);
+          await wheelOnce(pitch, startZoom, 120);
+        }
+      }
+      for (const pitch of [50, 70]) {
+        for (const startZoom of [11.8, 14.2, 16.0]) {
+          await wheelOnce(pitch, startZoom, -120, 0.15);
+          await wheelOnce(pitch, startZoom, -120, 0.85);
+        }
+      }
       await Promise.race([new Promise(resolve => map.once('idle', resolve)), sleep(5000)]);
       const result = {
         version: maplibregl.getVersion(),
@@ -134,7 +212,8 @@ app.whenReady().then(async () => {
         tilesLoaded: map.areTilesLoaded(),
         contextLost,
         errors,
-        contourProtocolCalls
+        contourProtocolCalls,
+        wheelMatrix
       };
       map.remove();
       return result;
@@ -151,6 +230,8 @@ app.whenReady().then(async () => {
       `MapLibre 6 emitted a terrain/worker error: ${result.errors.join(' | ')}`);
     assert(result.terrainLoaded && result.contourLoaded && result.tilesLoaded,
       'terrain, contours and tiles must settle after repeated 50/70-degree zoom hand-offs');
+    assert.strictEqual(result.wheelMatrix.length, 114,
+      'all 2D/50°/70° wheel levels and foreground/sky anchors must be exercised');
     clearTimeout(watchdog);
     win.destroy();
     fixtureServer.close();

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.12';
+const APP_VERSION = '2.0.13';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1609,12 +1609,12 @@ async function initApplication() {
   });
   demSource.setupMaplibre(maplibregl);
 
-  // Keep only references to a small set of already-decoded DEM tiles. This is
-  // intentionally much smaller than DemSource's own cache: it is used only to
-  // give MapLibre's native camera transform a synchronous destination-center
-  // elevation during a cold, long-distance flight.
+  // A small decoded-height LRU is used only while a cold long-distance flight
+  // is in progress. It does not create another renderer or process. Supplying
+  // the native camera with the elevation of its actual geographic center
+  // avoids the zero-height cold landing without ever overriding center/zoom.
   const preparedTerrainTiles = new Map();
-  const preparedTerrainLimit = constrainedWeb ? 24 : 72;
+  const preparedTerrainLimit = constrainedWeb ? 12 : 24;
   const rememberPreparedTerrainTile = (key, tile) => {
     if (!tile || !Number.isFinite(tile.width) || !Number.isFinite(tile.height) || !tile.data) return;
     preparedTerrainTiles.delete(key);
@@ -1630,13 +1630,10 @@ async function initApplication() {
     const rawLat = Number(Array.isArray(coordinates) ? coordinates[1] : coordinates.lat);
     if (!Number.isFinite(lng) || !Number.isFinite(rawLat)) return null;
     const lat = Math.max(-85.0511, Math.min(85.0511, rawLat));
-    const maximumZ = Math.max(0, Math.min(12, Math.floor(Number.isFinite(Number(requestedZoom)) ? Number(requestedZoom) : 12)));
-    let sample = null;
+    const maximumZ = Math.max(0, Math.min(12,
+      Math.floor(Number.isFinite(Number(requestedZoom)) ? Number(requestedZoom) : 12)));
 
-    // A flight normally resolves at the exact prepared zoom. Searching parent
-    // tiles as a fallback also makes the resolver robust when a low-zoom
-    // camera frame crosses into the warmed destination neighborhood.
-    for (let z = maximumZ; z >= 0 && sample === null; z--) {
+    for (let z = maximumZ; z >= 0; z--) {
       const n = 2 ** z;
       const worldX = ((((lng + 180) / 360) * n) % n + n) % n;
       const latRad = lat * Math.PI / 180;
@@ -1648,41 +1645,37 @@ async function initApplication() {
       const tile = preparedTerrainTiles.get(key);
       if (!tile) continue;
 
-      // DEM samples are pixel-centred. Bilinear interpolation avoids a visible
-      // camera-height step while crossing a DEM pixel or tile boundary.
       const width = Math.max(1, Math.floor(tile.width));
       const height = Math.max(1, Math.floor(tile.height));
       const px = (worldX - tileX) * width - 0.5;
       const py = (worldY - tileY) * height - 0.5;
-      const x0 = Math.max(0, Math.min(width - 1, Math.floor(px)));
-      const y0 = Math.max(0, Math.min(height - 1, Math.floor(py)));
+      const floorX = Math.floor(px);
+      const floorY = Math.floor(py);
+      const x0 = Math.max(0, Math.min(width - 1, floorX));
+      const y0 = Math.max(0, Math.min(height - 1, floorY));
       const x1 = Math.min(width - 1, x0 + 1);
       const y1 = Math.min(height - 1, y0 + 1);
-      const tx = Math.max(0, Math.min(1, px - Math.floor(px)));
-      const ty = Math.max(0, Math.min(1, py - Math.floor(py)));
+      const tx = Math.max(0, Math.min(1, px - floorX));
+      const ty = Math.max(0, Math.min(1, py - floorY));
       const read = (x, y) => Number(tile.data[y * width + x]);
       const a = read(x0, y0);
       const b = read(x1, y0);
       const c = read(x0, y1);
       const d = read(x1, y1);
-      const values = [a, b, c, d];
-      if (!values.every(value => Number.isFinite(value) && value >= -12000 && value <= 9000)) continue;
-      const top = a + (b - a) * tx;
-      const bottom = c + (d - c) * tx;
-      sample = top + (bottom - top) * ty;
+      if (![a, b, c, d].every(value => Number.isFinite(value) && value >= -12000 && value <= 9000)) continue;
 
-      // Refresh LRU order without cloning the large Float32Array.
       preparedTerrainTiles.delete(key);
       preparedTerrainTiles.set(key, tile);
+      const top = a + (b - a) * tx;
+      const bottom = c + (d - c) * tx;
+      let exaggeration = 1;
+      try {
+        const value = Number(mapInstance?.getTerrain?.()?.exaggeration);
+        if (Number.isFinite(value)) exaggeration = Math.max(0, value);
+      } catch (_) {}
+      return (top + (bottom - top) * ty) * exaggeration;
     }
-
-    if (!Number.isFinite(sample)) return null;
-    let exaggeration = 1;
-    try {
-      const value = Number(mapInstance?.getTerrain?.()?.exaggeration);
-      if (Number.isFinite(value)) exaggeration = Math.max(0, value);
-    } catch (_) {}
-    return sample * exaggeration;
+    return null;
   };
 
   // Warm the destination DEM through the same shared manager used by terrain
@@ -1699,30 +1692,41 @@ async function initApplication() {
     if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
     const requestedZoom = Number(options.zoom);
     const z = Math.max(0, Math.min(12, Math.floor(Number.isFinite(requestedZoom) ? requestedZoom : 12)));
-    const n = 2 ** z;
-    const centerX = Math.floor(((lng + 180) / 360) * n);
     const latRad = lat * Math.PI / 180;
-    const centerY = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
     const controller = new AbortController();
     const signal = options.signal;
     const abort = () => controller.abort(signal?.reason);
     if (signal?.aborted) abort();
     else signal?.addEventListener?.('abort', abort, { once: true });
+    const fetchPreparedTile = async (tileZ, tileX, tileY) => {
+      const key = `${tileZ}/${tileX}/${tileY}`;
+      const tile = await demSource.getDemTile(tileZ, tileX, tileY, controller);
+      rememberPreparedTerrainTile(key, tile);
+      return tile;
+    };
+
+    // Four nested levels are faster and lighter than decoding a 3x3 block at
+    // L12. The first available parent already supplies a safe camera height;
+    // finer levels refine it during the same flight.
+    const levels = [...new Set([Math.min(z, 6), Math.min(z, 8), Math.min(z, 10), z])];
     const requests = [];
-    for (let dy = -1; dy <= 1; dy++) {
-      const y = Math.max(0, Math.min(n - 1, centerY + dy));
-      for (let dx = -1; dx <= 1; dx++) {
-        const x = (centerX + dx + n) % n;
-        const key = `${z}/${x}/${y}`;
-        requests.push(demSource.getDemTile(z, x, y, controller).then(tile => {
-          rememberPreparedTerrainTile(key, tile);
-          return tile;
-        }));
-      }
+    for (const level of levels) {
+      const levelN = 2 ** level;
+      const x = Math.floor(((lng + 180) / 360) * levelN);
+      const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * levelN);
+      requests.push(fetchPreparedTile(level, (x + levelN) % levelN,
+        Math.max(0, Math.min(levelN - 1, y))));
     }
     try {
+      // The flight itself never awaits this work, but keep the warm-up alive
+      // until every requested refinement has settled. Finishing after the
+      // first parent tile used to abort L8/L10/L12 immediately; MapLibre would
+      // then discover the finer terrain only after arrival and the projected
+      // location could visibly shift by several pixels.
       const results = await Promise.allSettled(requests);
-      if (!results.some(result => result.status === 'fulfilled')) throw new Error('Destination terrain is unavailable');
+      if (!results.some(result => result.status === 'fulfilled')) {
+        throw new Error('Destination terrain is unavailable');
+      }
     } finally {
       signal?.removeEventListener?.('abort', abort);
     }
@@ -2792,6 +2796,10 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   if (window.OutmapLocationCamera?.fly) {
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
+      prepareTerrain: flyOpts.prepareTerrain || window.OutmapPrepareTerrainAt,
+      resolveTerrainElevation: flyOpts.resolveTerrainElevation || window.OutmapResolvePreparedTerrainElevation,
+      coldDuration: flyOpts.coldDuration || (isWebMode ? 2300 : 1500),
+      instantTerrainTimeout: flyOpts.instantTerrainTimeout || (isWebMode ? 2500 : 1200),
       onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
         // Route point symbols are terrain-projected natively by MapLibre 6;
