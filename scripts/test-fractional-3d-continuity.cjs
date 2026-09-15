@@ -79,6 +79,7 @@ app.whenReady().then(async () => {
       const map = new maplibregl.Map({
         container: 'map', center: [101.3451, 30.06], zoom: 11.55,
         pitch: 50, maxPitch: 85, fadeDuration: 180,
+        scrollZoom: { around: 'center' },
         cancelPendingTileRequestsWhileZooming: false,
         attributionControl: false,
         style: { version: 8, sources: {}, layers: [{
@@ -130,7 +131,7 @@ app.whenReady().then(async () => {
       // native and must remain settled after zoomend at every supported level,
       // pitch and both foreground/sky cursor anchors.
       const wheelMatrix = [];
-      const wheelOnce = async (pitch, startZoom, deltaY, yRatio = 0.68) => {
+      const wheelOnce = async (pitch, startZoom, deltaY, yRatio = 0.68, xRatio = 0.5) => {
         map.stop();
         map.jumpTo({ center: [101.3451, 30.06], pitch, zoom: startZoom });
         await Promise.race([new Promise(resolve => map.once('idle', resolve)), sleep(350)]);
@@ -153,7 +154,7 @@ app.whenReady().then(async () => {
           cancelable: true,
           deltaMode: 0,
           deltaY,
-          clientX: canvas.clientWidth * 0.5,
+          clientX: canvas.clientWidth * xRatio,
           clientY: canvas.clientHeight * yRatio
         }));
         dispatchWheel();
@@ -191,7 +192,8 @@ app.whenReady().then(async () => {
           throw new Error('wheel moved after moveend at ' + pitch + '° / L' + startZoom + ': center=' + centerDrift + ', zoom=' + postEndZoomDrift);
         }
         wheelMatrix.push({ pitch, startZoom, deltaY, yRatio, endZoom,
-          maxFrameDelta, centerDrift, postEndZoomDrift });
+          xRatio, maxFrameDelta, centerDrift, postEndZoomDrift });
+        return { endZoom, center: [endCenter.lng, endCenter.lat] };
       };
       const wheelLevels = [3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 15.1, 16.0, 16.8];
       for (const pitch of [0, 50, 70]) {
@@ -204,6 +206,16 @@ app.whenReady().then(async () => {
         for (const startZoom of [11.8, 14.2, 16.0]) {
           await wheelOnce(pitch, startZoom, -120, 0.15);
           await wheelOnce(pitch, startZoom, -120, 0.85);
+        }
+      }
+      for (const pitch of [50, 70]) {
+        const left = await wheelOnce(pitch, 11.8, -120, 0.68, 0.12);
+        const right = await wheelOnce(pitch, 11.8, -120, 0.68, 0.88);
+        const pointerCenterDifference = Math.hypot(
+          left.center[0] - right.center[0], left.center[1] - right.center[1]
+        );
+        if (pointerCenterDifference > 1e-8 || Math.abs(left.endZoom - right.endZoom) > 0.002) {
+          throw new Error('wheel result still depends on pointer position at ' + pitch + '°');
         }
       }
       await Promise.race([new Promise(resolve => map.once('idle', resolve)), sleep(5000)]);
@@ -234,7 +246,7 @@ app.whenReady().then(async () => {
       `MapLibre 6 emitted a terrain/worker error: ${result.errors.join(' | ')}`);
     assert(result.terrainLoaded && result.contourLoaded && result.tilesLoaded,
       'terrain, contours and tiles must settle after repeated 50/70-degree zoom hand-offs');
-    assert.strictEqual(result.wheelMatrix.length, 114,
+    assert.strictEqual(result.wheelMatrix.length, 118,
       'all 2D/50°/70° wheel levels and foreground/sky anchors must be exercised');
     clearTimeout(watchdog);
     win.destroy();
