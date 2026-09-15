@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.14';
+const APP_VERSION = '2.0.15';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2496,26 +2496,83 @@ function parseCoordinates(str) {
   return null;
 }
 
+// 0. 搜索请求内存极速 LRU 缓存与主动取消
+const searchMemoryCache = new Map();
+const MAX_SEARCH_MEMORY_CACHE = 60;
+
+function getCachedSearchResults(key) {
+  if (!key || typeof key !== 'string') return null;
+  const k = key.trim().toLowerCase();
+  if (!searchMemoryCache.has(k)) return null;
+  const val = searchMemoryCache.get(k);
+  searchMemoryCache.delete(k);
+  searchMemoryCache.set(k, val);
+  return val;
+}
+
+function setCachedSearchResults(key, results) {
+  if (!key || typeof key !== 'string' || !Array.isArray(results) || results.length === 0) return;
+  const k = key.trim().toLowerCase();
+  if (searchMemoryCache.has(k)) {
+    searchMemoryCache.delete(k);
+  }
+  while (searchMemoryCache.size >= MAX_SEARCH_MEMORY_CACHE) {
+    const oldest = searchMemoryCache.keys().next().value;
+    if (oldest === undefined) break;
+    searchMemoryCache.delete(oldest);
+  }
+  searchMemoryCache.set(k, results);
+}
+
+function cancelActiveSearch(owner = window) {
+  if (owner && typeof locationSearchControllers !== 'undefined') {
+    locationSearchControllers.get(owner)?.abort();
+    locationSearchControllers.delete(owner);
+  }
+  if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.cancelSearchLocation === 'function') {
+    try {
+      const p = window.electronAPI.cancelSearchLocation();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (_) {}
+  }
+}
+if (typeof window !== 'undefined') {
+  window.cancelActiveSearch = cancelActiveSearch;
+}
+
 /// 综合检索引擎 (中国专属极速匹配)：彻底废除拼音网络转换，本地字典 0ms 秒出，仅检索中国境内地点
 const locationSearchControllers = new WeakMap();
+
 async function queryLocationCandidates(keyword, owner = window) {
-  locationSearchControllers.get(owner)?.abort();
-  locationSearchControllers.delete(owner);
+  if (owner) {
+    locationSearchControllers.get(owner)?.abort();
+    locationSearchControllers.delete(owner);
+  }
   const raw = (keyword || '').trim();
   if (!raw) {
     return [];
   }
 
+  // 0. 内存 LRU 极速缓存检测 (0ms 瞬时直出)
+  const memoryCached = typeof getCachedSearchResults === 'function' ? getCachedSearchResults(raw) : null;
+  if (memoryCached) {
+    return memoryCached;
+  }
+
   // 1. GPS 经纬度绝对坐标解析 (如 116.39, 39.90)
   const coordMatch = parseCoordinates(raw);
   if (coordMatch) {
-    return [{
+    const coordResults = [{
       name: coordMatch.title,
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       type: 'target',
       zoom: 13.0
     }];
+    if (typeof setCachedSearchResults === 'function') {
+      setCachedSearchResults(raw, coordResults);
+    }
+    return coordResults;
   }
 
   const localMatches = [];
@@ -2597,8 +2654,16 @@ async function queryLocationCandidates(keyword, owner = window) {
   // 6. 精确本地命中立即返回，不能按候选数量决定是否联网。
   localMatches.sort((a, b) => (a._score || 5) - (b._score || 5));
   if (localMatches.some(item => item._score === 1)) {
-    return localMatches.slice(0, 8);
+    const exactMatches = localMatches.slice(0, 8);
+    if (typeof setCachedSearchResults === 'function') {
+      setCachedSearchResults(raw, exactMatches);
+    }
+    return exactMatches;
   }
+
+  const ctrl = new AbortController();
+  locationSearchControllers.set(owner, ctrl);
+  const timeoutId = setTimeout(() => ctrl.abort(), 6500);
 
   // 7. 仅在本地无精确匹配时，按需请求在线高精地理编码，且【严格限定仅搜索中国境内】
   try {
@@ -2608,40 +2673,36 @@ async function queryLocationCandidates(keyword, owner = window) {
     if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.searchLocation === 'function') {
       try {
         geojson = await window.electronAPI.searchLocation(raw);
+        if (ctrl.signal.aborted) return [];
       } catch (ipcErr) {}
     }
 
-    if (!geojson) {
-      const ctrl = new AbortController();
-      locationSearchControllers.set(owner, ctrl);
-      const timeoutId = setTimeout(() => ctrl.abort(), 6500);
-
+    if (!geojson && !ctrl.signal.aborted) {
       const isDesktop = typeof window !== 'undefined' && Boolean(window.electronAPI);
       const onlineUrl = isDesktop
         ? `http://127.0.0.1:${localServerPort}/search?q=${encodeURIComponent(raw)}`
         : `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
 
       try {
-      let resp;
-      try {
-        resp = await fetch(onlineUrl, { signal: ctrl.signal });
-      } catch (netErr) {
-        if (isDesktop && !ctrl.signal.aborted) {
-          // 本地代理不可达时平滑回退直接连接
-          resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`, { signal: ctrl.signal });
-        } else {
-          throw netErr;
+        let resp;
+        try {
+          resp = await fetch(onlineUrl, { signal: ctrl.signal });
+        } catch (netErr) {
+          if (isDesktop && !ctrl.signal.aborted) {
+            // 本地代理不可达时平滑回退直接连接
+            resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`, { signal: ctrl.signal });
+          } else {
+            throw netErr;
+          }
         }
-      }
 
-      if (resp && resp.ok) {
-        geojson = await resp.json();
-      }
-      } finally {
-        clearTimeout(timeoutId);
-        if (locationSearchControllers.get(owner) === ctrl) locationSearchControllers.delete(owner);
-      }
+        if (resp && resp.ok && !ctrl.signal.aborted) {
+          geojson = await resp.json();
+        }
+      } catch (err) {}
     }
+
+    if (ctrl.signal.aborted) return [];
 
     if (geojson && Array.isArray(geojson.features)) {
       geojson.features.forEach(f => {
@@ -2698,17 +2759,35 @@ async function queryLocationCandidates(keyword, owner = window) {
         }
       });
     }
-    } catch (e) {
-      // 离线或超时平滑回退本地结果
-    }
+  } catch (e) {
+    // 离线或超时平滑回退本地结果
+  } finally {
+    clearTimeout(timeoutId);
+    if (locationSearchControllers.get(owner) === ctrl) locationSearchControllers.delete(owner);
+  }
 
-
-
-  return localMatches.slice(0, 16);
+  if (ctrl.signal.aborted) return [];
+  const finalResults = localMatches.slice(0, 16);
+  if (typeof setCachedSearchResults === 'function') {
+    setCachedSearchResults(raw, finalResults);
+  }
+  return finalResults;
 }
 
 if (typeof window !== 'undefined') {
   window.queryLocationCandidates = queryLocationCandidates;
+}
+
+let lastElevationProfileFingerprint = '';
+let lastElevationProfileAllKnown = false;
+
+function computeRouteElevationFingerprint(coords) {
+  if (!coords || !Array.isArray(coords) || coords.length === 0) return '';
+  const n = coords.length;
+  const p0 = coords[0];
+  const pm = coords[Math.floor(n / 2)];
+  const p1 = coords[n - 1];
+  return `${n}:${Number(p0[0]).toFixed(5)},${Number(p0[1]).toFixed(5)}|${Number(pm[0]).toFixed(5)},${Number(pm[1]).toFixed(5)}|${Number(p1[0]).toFixed(5)},${Number(p1[1]).toFixed(5)}`;
 }
 
 let routeElevationRefreshTimer = 0;
@@ -2777,6 +2856,14 @@ function refreshRouteElevationProfile(map) {
     if (!m || typeof currentPlannedRouteCoords === 'undefined' || !currentPlannedRouteCoords || currentPlannedRouteCoords.length < 2 || !currentRouteMetrics) return;
     const chartSection = document.getElementById('route-chart-section');
     if (!chartSection || chartSection.style.display === 'none') return;
+
+    // 路线几何与高程完整性指纹检测：
+    // 若路线几何未变，且上一轮采样所有点已具备 100% 真实 DEM，则视口移动/瓦片加载无需重复计算与重绘
+    const currentFingerprint = computeRouteElevationFingerprint(currentPlannedRouteCoords);
+    if (currentFingerprint && currentFingerprint === lastElevationProfileFingerprint && lastElevationProfileAllKnown) {
+      return;
+    }
+
     if (typeof updateProfileAndMetrics === 'function') {
       updateProfileAndMetrics(m, currentPlannedRouteCoords, currentRouteMetrics.totalDistKm, currentRouteMetrics.durationSec, currentRouteMetrics.isRealRoad, false);
     }
@@ -3418,6 +3505,7 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   function closeSearchPopover(clearText = false) {
+    cancelActiveSearch();
     ++searchRequestSequence;
     clearTimeout(searchDebounceTimer);
     if (sInput) {
@@ -3437,6 +3525,7 @@ function setupOfficeHeaderInteractions(map) {
 
   function executeJumpToResult(item) {
     if (!item || !item.coords || item.coords.length < 2) return;
+    cancelActiveSearch();
     ++searchRequestSequence;
     clearTimeout(searchDebounceTimer);
     const lng = Number(item.coords[0]);
@@ -3515,6 +3604,7 @@ function setupOfficeHeaderInteractions(map) {
   // 搜索输入交互 (输入文字实时防抖检索；清空或聚焦时展示搜索历史；再次搜索自动清除上一次地点标签)
   if (sInput) {
     sInput.addEventListener('input', () => {
+      cancelActiveSearch();
       clearLandingMarker();
       const val = sInput.value.trim();
       clearTimeout(searchDebounceTimer);
@@ -3524,6 +3614,14 @@ function setupOfficeHeaderInteractions(map) {
       const requestSequence = ++searchRequestSequence;
       if (!val) {
         renderSearchHistory();
+        return;
+      }
+
+      // 0ms 内存缓存瞬时直出
+      const cached = getCachedSearchResults(val);
+      if (cached && cached.length > 0) {
+        currentSearchResults = cached;
+        renderSearchResults(cached);
         return;
       }
 
@@ -10021,52 +10119,56 @@ function sampleRouteElevationData(map, sampledCoords) {
 
   if (knownIndices.length === n) {
     // 全部点均具备真实 DEM 高程 (100% 精确)
+    sampleRouteElevationData.lastSampleAllKnown = true;
     for (let i = 0; i < n; i++) finalEle[i] = rawEle[i];
-  } else if (knownIndices.length > 0) {
-    // 部分点具备真实 DEM (例如起终点或视口内路段)：在线段已知锚点之间按距离线性平滑过渡
-    const dists = new Array(n).fill(0);
-    for (let i = 1; i < n; i++) {
-      dists[i] = dists[i - 1] + calculateDistanceKm(sampledCoords[i - 1], sampledCoords[i]);
-    }
-
-    // 填充第一个已知点之前的点
-    const firstKnown = knownIndices[0];
-    const firstEle = rawEle[firstKnown];
-    const startGeo = getGeoBaseEle(sampledCoords[0][0], sampledCoords[0][1]);
-    for (let i = 0; i < firstKnown; i++) {
-      const ratio = dists[firstKnown] > 0 ? (dists[i] / dists[firstKnown]) : 0;
-      finalEle[i] = startGeo + ratio * (firstEle - startGeo);
-    }
-    finalEle[firstKnown] = firstEle;
-
-    // 填充已知点之间的点 (在已知真实高程之间按真实里程线性插值)
-    for (let k = 0; k < knownIndices.length - 1; k++) {
-      const idxA = knownIndices[k];
-      const idxB = knownIndices[k + 1];
-      const eleA = rawEle[idxA];
-      const eleB = rawEle[idxB];
-      finalEle[idxA] = eleA;
-      finalEle[idxB] = eleB;
-      const spanDist = dists[idxB] - dists[idxA];
-      for (let i = idxA + 1; i < idxB; i++) {
-        const ratio = spanDist > 0 ? (dists[i] - dists[idxA]) / spanDist : 0;
-        finalEle[i] = eleA + ratio * (eleB - eleA);
-      }
-    }
-
-    // 填充最后一个已知点之后的点
-    const lastKnown = knownIndices[knownIndices.length - 1];
-    const lastEle = rawEle[lastKnown];
-    const endGeo = getGeoBaseEle(sampledCoords[n - 1][0], sampledCoords[n - 1][1]);
-    const remDist = dists[n - 1] - dists[lastKnown];
-    for (let i = lastKnown + 1; i < n; i++) {
-      const ratio = remDist > 0 ? (dists[i] - dists[lastKnown]) / remDist : 1;
-      finalEle[i] = lastEle + ratio * (endGeo - lastEle);
-    }
   } else {
-    // 尚未载入任何视口切片：根据路线途经地理坐标宏观模型平滑解算 (杜绝假山峰)
-    for (let i = 0; i < n; i++) {
-      finalEle[i] = getGeoBaseEle(sampledCoords[i][0], sampledCoords[i][1]);
+    sampleRouteElevationData.lastSampleAllKnown = false;
+    if (knownIndices.length > 0) {
+      // 部分点具备真实 DEM (例如起终点或视口内路段)：在线段已知锚点之间按距离线性平滑过渡
+      const dists = new Array(n).fill(0);
+      for (let i = 1; i < n; i++) {
+        dists[i] = dists[i - 1] + calculateDistanceKm(sampledCoords[i - 1], sampledCoords[i]);
+      }
+
+      // 填充第一个已知点之前的点
+      const firstKnown = knownIndices[0];
+      const firstEle = rawEle[firstKnown];
+      const startGeo = getGeoBaseEle(sampledCoords[0][0], sampledCoords[0][1]);
+      for (let i = 0; i < firstKnown; i++) {
+        const ratio = dists[firstKnown] > 0 ? (dists[i] / dists[firstKnown]) : 0;
+        finalEle[i] = startGeo + ratio * (firstEle - startGeo);
+      }
+      finalEle[firstKnown] = firstEle;
+
+      // 填充已知点之间的点 (在已知真实高程之间按真实里程线性插值)
+      for (let k = 0; k < knownIndices.length - 1; k++) {
+        const idxA = knownIndices[k];
+        const idxB = knownIndices[k + 1];
+        const eleA = rawEle[idxA];
+        const eleB = rawEle[idxB];
+        finalEle[idxA] = eleA;
+        finalEle[idxB] = eleB;
+        const spanDist = dists[idxB] - dists[idxA];
+        for (let i = idxA + 1; i < idxB; i++) {
+          const ratio = spanDist > 0 ? (dists[i] - dists[idxA]) / spanDist : 0;
+          finalEle[i] = eleA + ratio * (eleB - eleA);
+        }
+      }
+
+      // 填充最后一个已知点之后的点
+      const lastKnown = knownIndices[knownIndices.length - 1];
+      const lastEle = rawEle[lastKnown];
+      const endGeo = getGeoBaseEle(sampledCoords[n - 1][0], sampledCoords[n - 1][1]);
+      const remDist = dists[n - 1] - dists[lastKnown];
+      for (let i = lastKnown + 1; i < n; i++) {
+        const ratio = remDist > 0 ? (dists[i] - dists[lastKnown]) / remDist : 1;
+        finalEle[i] = lastEle + ratio * (endGeo - lastEle);
+      }
+    } else {
+      // 尚未载入任何视口切片：根据路线途经地理坐标宏观模型平滑解算 (杜绝假山峰)
+      for (let i = 0; i < n; i++) {
+        finalEle[i] = getGeoBaseEle(sampledCoords[i][0], sampledCoords[i][1]);
+      }
     }
   }
 
@@ -10074,6 +10176,8 @@ function sampleRouteElevationData(map, sampledCoords) {
 }
 
 function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSec, isRealRoad, shouldFitBounds) {
+  const currentFingerprint = computeRouteElevationFingerprint(pathCoords);
+  lastElevationProfileFingerprint = currentFingerprint;
   const statsBox = document.getElementById('route-stats-box');
   const chartSection = document.getElementById('route-chart-section');
   const distEl = document.getElementById('stat-route-dist');
@@ -10166,6 +10270,7 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
     isRealRoad,
     durationSec: roadDurationSec
   };
+  lastElevationProfileAllKnown = Boolean(sampleRouteElevationData.lastSampleAllKnown);
 
   // 海拔剖面图默认隐藏 (桌面与浏览器端均遵循，点击详情内海拔信息时才滑出)
   if (chartSection && chartSection.style.display !== 'none') {
@@ -10236,6 +10341,8 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     currentProfileData = [];
     currentPlannedRouteCoords = [];
     currentRouteMetrics = null;
+    lastElevationProfileFingerprint = '';
+    lastElevationProfileAllKnown = false;
     return;
   }
 

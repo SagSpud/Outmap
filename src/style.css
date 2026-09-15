@@ -25,10 +25,10 @@
   --cursor-pointer: pointer;
   --cursor-default: default;
   --cursor-move: default;
-  --glass-surface: rgba(255, 255, 255, 0.91);
-  --glass-surface-solid: rgba(255, 255, 255, 0.96);
-  --glass-blur: 20px;
-  --glass-saturation: 160%;
+  --glass-surface: rgba(255, 255, 255, 0.93);
+  --glass-surface-solid: rgba(255, 255, 255, 0.97);
+  --glass-blur: 8px;
+  --glass-saturation: 125%;
   --glass-border: rgba(255, 255, 255, 0.78);
   --motion-enter: 220ms;
   --motion-exit: 160ms;
@@ -224,8 +224,8 @@ button:active,
   position: relative;
   height: 44px;
   background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   z-index: 1100;
@@ -780,8 +780,8 @@ body.web-mode #manage-modal {
   width: 560px;
   max-width: 92vw;
   background: rgba(255, 255, 255, 0.89) !important;
-  backdrop-filter: blur(28px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
   border: 1px solid rgba(255, 255, 255, 0.78) !important;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.7) inset !important;
@@ -1327,8 +1327,8 @@ body.web-mode #manage-modal {
   width: 380px;
   max-height: 480px;
   background: rgba(255, 255, 255, 0.89) !important;
-  backdrop-filter: blur(28px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) !important;
   border: 1px solid rgba(255, 255, 255, 0.78) !important;
   border-radius: 10px;
   box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.7) inset !important;
@@ -1819,8 +1819,8 @@ body.web-mode #manage-modal {
 #status-bar {
   height: 26px;
   background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   border-top: 1px solid rgba(226, 232, 240, 0.8);
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.03);
   display: flex;
@@ -6218,8 +6218,8 @@ body.map-is-moving .layers-popover-panel {
 
 @media (max-width: 768px), (pointer: coarse) {
   :root {
-    --glass-blur: 10px;
-    --glass-saturation: 140%;
+    --glass-blur: 8px;
+    --glass-saturation: 120%;
     --motion-enter: 200ms;
   }
 

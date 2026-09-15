@@ -173,6 +173,34 @@ function setCachedTile(key, buf) {
   trimMemoryTileCacheOnPressure();
 }
 
+function generateTileEtag(cacheKey, length) {
+  return `"${cacheKey.replace(/[^a-zA-Z0-9_\-]/g, '_')}_${length.toString(16)}"`;
+}
+
+function respondWithBuffer(req, res, cacheKey, buf, contentType, extraHeaders = {}) {
+  const len = Buffer.isBuffer(buf) ? buf.length : Buffer.byteLength(buf);
+  const etag = generateTileEtag(cacheKey, len);
+  const clientEtag = req.headers['if-none-match'];
+  if (clientEtag && clientEtag === etag) {
+    res.writeHead(304, {
+      'ETag': etag,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      ...extraHeaders
+    });
+    res.end();
+    return true;
+  }
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': len,
+    'ETag': etag,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    ...extraHeaders
+  });
+  res.end(buf);
+  return true;
+}
+
 function trimMemoryTileCache(targetBytes) {
   const boundedTarget = Math.max(0, Math.min(MAX_MEMORY_TILE_BYTES, Number(targetBytes) || 0));
   const beforeBytes = memoryTileCacheBytes;
@@ -488,15 +516,15 @@ function startLocalTileServer() {
           if (req.method === 'GET') {
             const memory = getCachedTile(contourKey);
             if (memory) {
-              res.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': memory.length, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Tile-Source': 'memory-cache' });
-              res.end(memory); return;
+              respondWithBuffer(req, res, contourKey, memory, 'application/vnd.mapbox-vector-tile', { 'X-Tile-Source': 'memory-cache' });
+              return;
             }
             try {
               const data = await fs.promises.readFile(contourPath);
               if (data.length > 0) {
                 setCachedTile(contourKey, data);
-                res.writeHead(200, { 'Content-Type': 'application/vnd.mapbox-vector-tile', 'Content-Length': data.length, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Tile-Source': 'local-contour' });
-                res.end(data); return;
+                respondWithBuffer(req, res, contourKey, data, 'application/vnd.mapbox-vector-tile', { 'X-Tile-Source': 'local-contour' });
+                return;
               }
             } catch (error) {
               if (error.code !== 'ENOENT') throw error;
@@ -538,13 +566,7 @@ function startLocalTileServer() {
 
           const cached = getCachedTile(cacheKey);
           if (cached) {
-            res.writeHead(200, {
-              'Content-Type': 'application/x-protobuf',
-              'Content-Length': cached.length,
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'X-Tile-Source': 'memory-cache'
-            });
-            res.end(cached);
+            respondWithBuffer(req, res, cacheKey, cached, 'application/x-protobuf', { 'X-Tile-Source': 'memory-cache' });
             return;
           }
 
@@ -556,13 +578,7 @@ function startLocalTileServer() {
             if (stat.size > 0) {
               const buf = await fs.promises.readFile(localPath);
               setCachedTile(cacheKey, buf);
-              res.writeHead(200, {
-                'Content-Type': 'application/x-protobuf',
-                'Content-Length': buf.length,
-                'Cache-Control': 'public, max-age=31536000, immutable',
-                'X-Tile-Source': 'local-font'
-              });
-              res.end(buf);
+              respondWithBuffer(req, res, cacheKey, buf, 'application/x-protobuf', { 'X-Tile-Source': 'local-font' });
               return;
             }
           } catch (error) {
@@ -579,13 +595,7 @@ function startLocalTileServer() {
                 await fs.promises.writeFile(localPath, buf);
               } catch (e) {}
               setCachedTile(cacheKey, buf);
-              res.writeHead(200, {
-                'Content-Type': 'application/x-protobuf',
-                'Content-Length': buf.length,
-                'Cache-Control': 'public, max-age=31536000, immutable',
-                'X-Tile-Source': 'online-font'
-              });
-              res.end(buf);
+              respondWithBuffer(req, res, cacheKey, buf, 'application/x-protobuf', { 'X-Tile-Source': 'online-font' });
               return;
             }
           } catch (e) {}
@@ -605,12 +615,7 @@ function startLocalTileServer() {
               buf = await fs.promises.readFile(boundaryPath);
               setCachedTile(cachedKey, buf);
             }
-            res.writeHead(200, {
-              'Content-Type': 'application/json; charset=utf-8',
-              'Content-Length': buf.length,
-              'Cache-Control': 'public, max-age=31536000, immutable'
-            });
-            res.end(buf);
+            respondWithBuffer(req, res, cachedKey, buf, 'application/json; charset=utf-8');
             return;
           }
         }
@@ -637,12 +642,25 @@ function startLocalTileServer() {
             return;
           }
 
+          const upstreamSearchController = new AbortController();
+          req.once('aborted', () => upstreamSearchController.abort());
+          res.once('close', () => {
+            if (!res.writableEnded) upstreamSearchController.abort();
+          });
+
           try {
+            const timeoutSignal = AbortSignal.timeout(6500);
+            const combinedSearchSignal = typeof AbortSignal.any === 'function'
+              ? AbortSignal.any([upstreamSearchController.signal, timeoutSignal])
+              : upstreamSearchController.signal;
+
             const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&bbox=73.5,18.0,135.1,53.6&limit=10`;
             const photonResp = await fetch(photonUrl, {
-              signal: AbortSignal.timeout(6500),
+              signal: combinedSearchSignal,
               headers: { 'User-Agent': 'Outmap/1.4.1' }
             });
+
+            if (upstreamSearchController.signal.aborted || res.destroyed) return;
 
             if (photonResp.ok) {
               const text = await photonResp.text();
@@ -843,13 +861,7 @@ function startLocalTileServer() {
           // 1. 优先内存 LRU 零拷贝响应 (耗时 ~0.02ms)
           const cached = getCachedTile(cacheKey);
           if (cached) {
-            res.writeHead(200, {
-              'Content-Type': contentType,
-              'Content-Length': cached.length,
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'X-Tile-Source': 'memory-cache'
-            });
-            res.end(cached);
+            respondWithBuffer(req, res, cacheKey, cached, contentType, { 'X-Tile-Source': 'memory-cache' });
             return;
           }
 
@@ -861,13 +873,7 @@ function startLocalTileServer() {
             const minTileBytes = type === 'vector' ? 0 : 20;
             if (type === 'vector' ? buf.length >= minTileBytes : buf.length > minTileBytes) {
               setCachedTile(cacheKey, buf);
-              res.writeHead(200, {
-                'Content-Type': contentType,
-                'Content-Length': buf.length,
-                'Cache-Control': 'public, max-age=31536000, immutable',
-                'X-Tile-Source': 'local-offline'
-              });
-              res.end(buf);
+              respondWithBuffer(req, res, cacheKey, buf, contentType, { 'X-Tile-Source': 'local-offline' });
               return;
             } else {
               // 仅清理真正为空/过小的文件；小尺寸矢量 PBF 可能是合法瓦片。
@@ -907,13 +913,7 @@ function startLocalTileServer() {
 
           if (buf && buf.length > 0) {
             setCachedTile(cacheKey, buf);
-            res.writeHead(200, {
-              'Content-Type': contentType,
-              'Content-Length': buf.length,
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'X-Tile-Source': 'online-cached'
-            });
-            res.end(buf);
+            respondWithBuffer(req, res, cacheKey, buf, contentType, { 'X-Tile-Source': 'online-cached' });
             return;
           }
         }
@@ -1362,8 +1362,13 @@ app.whenReady().then(async () => {
     return { success: false };
   });
 
-  // 在线中国专属高精地理编码检索 (IPC 直通，免除渲染进程网络限制与端口依赖)
+  // 在线中国专属高精地理编码检索 (IPC 直通，支持即时 Abort 消除网络与 IPC 竞态)
+  let activeIpcSearchController = null;
   ipcMain.handle('search-location', async (event, query) => {
+    if (activeIpcSearchController) {
+      try { activeIpcSearchController.abort(); } catch (_) {}
+      activeIpcSearchController = null;
+    }
     const q = (query || '').trim();
     if (!q) return { type: 'FeatureCollection', features: [] };
 
@@ -1375,21 +1380,43 @@ app.whenReady().then(async () => {
       } catch (e) {}
     }
 
+    const ctrl = new AbortController();
+    activeIpcSearchController = ctrl;
+    const timeoutSignal = AbortSignal.timeout(6500);
+    const combinedSignal = typeof AbortSignal.any === 'function'
+      ? AbortSignal.any([ctrl.signal, timeoutSignal])
+      : ctrl.signal;
+
     try {
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
       const resp = await fetch(photonUrl, {
-        signal: AbortSignal.timeout(6500),
+        signal: combinedSignal,
         headers: { 'User-Agent': 'Outmap/1.4.1' }
       });
 
+      if (ctrl.signal.aborted) return { type: 'FeatureCollection', features: [] };
+
       if (resp.ok) {
         const data = await resp.json();
+        if (ctrl.signal.aborted) return { type: 'FeatureCollection', features: [] };
         setCachedTile(cacheKey, Buffer.from(JSON.stringify(data), 'utf8'));
         return data;
       }
-    } catch (e) {}
+    } catch (e) {} finally {
+      if (activeIpcSearchController === ctrl) {
+        activeIpcSearchController = null;
+      }
+    }
 
     return { type: 'FeatureCollection', features: [] };
+  });
+
+  ipcMain.handle('cancel-search-location', () => {
+    if (activeIpcSearchController) {
+      try { activeIpcSearchController.abort(); } catch (_) {}
+      activeIpcSearchController = null;
+    }
+    return { success: true };
   });
 
 
