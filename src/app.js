@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.13';
+const APP_VERSION = '2.0.14';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2788,18 +2788,28 @@ window.refreshRouteElevationProfile = refreshRouteElevationProfile;
 // 完美支持 2D/3D 模式：自适应消除卡片偏上、根除跨层级缩放飞行出界，落地零跳动
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const flyOpts = { centered: false, ...options };
-  if (!map || !targetCoords || targetCoords.length < 2) return;
-  const lng = Number(targetCoords[0]);
-  const lat = Number(targetCoords[1]);
+  if (!map || !targetCoords) return;
+  let lng = 0, lat = 0;
+  if (Array.isArray(targetCoords) && targetCoords.length >= 2) {
+    lng = Number(targetCoords[0]);
+    lat = Number(targetCoords[1]);
+  } else if (typeof targetCoords === 'object') {
+    lng = Number(targetCoords.lng ?? targetCoords.lon);
+    lat = Number(targetCoords.lat);
+  } else {
+    return;
+  }
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+
+  const webMode = typeof window !== 'undefined' && !window.electronAPI;
 
   if (window.OutmapLocationCamera?.fly) {
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
       prepareTerrain: flyOpts.prepareTerrain || window.OutmapPrepareTerrainAt,
       resolveTerrainElevation: flyOpts.resolveTerrainElevation || window.OutmapResolvePreparedTerrainElevation,
-      coldDuration: flyOpts.coldDuration || (isWebMode ? 2300 : 1500),
-      instantTerrainTimeout: flyOpts.instantTerrainTimeout || (isWebMode ? 2500 : 1200),
+      coldDuration: flyOpts.coldDuration || (webMode ? 2300 : 1500),
+      instantTerrainTimeout: flyOpts.instantTerrainTimeout || (webMode ? 2500 : 1200),
       onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
         // Route point symbols are terrain-projected natively by MapLibre 6;

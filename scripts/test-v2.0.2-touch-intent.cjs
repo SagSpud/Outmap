@@ -111,6 +111,10 @@ app.whenReady().then(async () => {
       check(flightCount === 2 && favoriteMenuCount === 0 && locationMenuCount === 0,
         'Mobile favorite tap must only fly once and keep menus closed');
 
+      // Verify that the real flyToLocationPrecisely executes cleanly without reference errors
+      originalFly(map, [118, 35], { zoom: 12, duration: 0 });
+      originalFly(map, { lng: 118, lat: 35 }, { zoom: 12, duration: 0 });
+
       map.fire('contextmenu', {
         point: { x: 210, y: 210 },
         lngLat: { lng: 118, lat: 35 },
