@@ -465,15 +465,18 @@ async function fetchTileWithDedupe(cacheKey, onlineUrl, localPath, localDir, z, 
         const resp = await fetch(onlineUrl, { signal: AbortSignal.timeout(12000) });
         if (resp.ok) {
           const buf = Buffer.from(await resp.arrayBuffer());
-          let tempPath = null;
-          try {
-            await fs.promises.mkdir(path.join(localDir, `${z}`, `${x}`), { recursive: true });
-            tempPath = `${localPath}.${process.pid}.${Date.now()}.tmp`;
-            await fs.promises.writeFile(tempPath, buf);
-            await fs.promises.rename(tempPath, localPath);
-          } catch (e) {
-            if (tempPath) fs.promises.rm(tempPath, { force: true }).catch(() => {});
-          }
+          // 零延迟直出：Buffer 立即响应并进入内存池，持久化写盘转入后台异步非阻塞执行
+          (async () => {
+            let tempPath = null;
+            try {
+              await fs.promises.mkdir(path.join(localDir, `${z}`, `${x}`), { recursive: true });
+              tempPath = `${localPath}.${process.pid}.${Date.now()}.tmp`;
+              await fs.promises.writeFile(tempPath, buf);
+              await fs.promises.rename(tempPath, localPath);
+            } catch (e) {
+              if (tempPath) fs.promises.rm(tempPath, { force: true }).catch(() => {});
+            }
+          })().catch(() => {});
           return buf;
         }
       } catch (e) {

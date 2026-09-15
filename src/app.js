@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.19';
+const APP_VERSION = '2.0.20';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1922,11 +1922,12 @@ async function initApplication() {
         Math.max(0, Math.min(levelN - 1, y))));
     }
     try {
-      // The flight itself never awaits this work, but keep the warm-up alive
-      // until every requested refinement has settled. Finishing after the
-      // first parent tile used to abort L8/L10/L12 immediately; MapLibre would
-      // then discover the finer terrain only after arrival and the projected
-      // location could visibly shift by several pixels.
+      // The flight itself never awaits this work, but prioritize the coarsest
+      // parent (L6) so the camera receives an immediate altitude baseline within
+      // the first milliseconds, while all finer levels settle concurrently.
+      if (requests.length > 0) {
+        await requests[0].catch(() => {});
+      }
       const results = await Promise.allSettled(requests);
       if (!results.some(result => result.status === 'fulfilled')) {
         throw new Error('Destination terrain is unavailable');
@@ -3800,6 +3801,7 @@ function setupOfficeHeaderInteractions(map) {
       pitch: targetPitch,
       centered: isProv,
       duration: flightDuration,
+      elevation: item.ele ?? item.elevation,
       onArrival: () => {
         ensureLandingMarker();
         if (currentLandingMarker) {
@@ -7020,7 +7022,8 @@ function setupWaypointAndFavoritesSystem(map) {
         zoom: 13.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
-        centered: false
+        centered: false,
+        elevation: wp.ele ?? wp.elevation
       });
       // 所有平台的普通单击/轻触都只负责定位。管理菜单严格由桌面右键或
       // 手机明确长按打开，飞掠完成不再改变用户的原始操作意图。
@@ -7641,7 +7644,8 @@ function setupWaypointAndFavoritesSystem(map) {
             zoom: 13.0,
             pitch: curPitch,
             duration: flightDuration,
-            centered: false
+            centered: false,
+            elevation: wp.ele ?? wp.elevation
           });
         };
         // 手机抽屉会遮挡大半地图；先完成原生式收起，再按稳定的完整
@@ -8932,7 +8936,8 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
         zoom: targetZoom,
         pitch: targetPitch,
         duration: 650,
-        centered: false
+        centered: false,
+        elevation: item.ele ?? item.elevation
       });
     }
   };
@@ -9445,7 +9450,8 @@ function bindRoutePointLayerEvents(map) {
         zoom: 13.0,
         pitch: map.getPitch() ?? 50,
         duration: 600,
-        centered: false
+        centered: false,
+        elevation: point.ele ?? point.elevation
       });
     });
     map.on('mousedown', layerId, handleRoutePointMouseDown);
@@ -9922,7 +9928,8 @@ function renderViaList(mapInstance) {
             zoom: 13.0,
             pitch: row._map.getPitch() ?? 50,
             duration: 600,
-            centered: false
+            centered: false,
+            elevation: row._via?.ele ?? row._via?.elevation
           });
         }
       });
@@ -11084,7 +11091,8 @@ function setupOutdoorRouteSystem(map) {
             zoom: lastVia.zoom || 13.0,
             pitch: map.getPitch() ?? 50,
             duration: 600,
-            centered: false
+            centered: false,
+            elevation: lastVia.ele ?? lastVia.elevation
           });
         }
       }
