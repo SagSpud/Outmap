@@ -51,7 +51,12 @@ app.whenReady().then(async () => {
       };
       const rawJson = JSON.stringify(rawRoute);
       const normalized = window.normalizeRoute(rawRoute);
+      const normalizedAgain = window.normalizeRoute(clone(rawRoute));
       check(normalized.id && normalized.id.startsWith('route_'), 'normalizeRoute must assign stable id');
+      check(normalized.id === normalizedAgain.id,
+        'legacy routes without an id must receive the same deterministic id after every reload');
+      check(normalized.timestamp === 0 && normalized.updatedAt === 0,
+        'legacy routes without timestamps must not become artificially newer whenever they are read');
       check(normalized.name === '原始长途路线', 'normalizeRoute must trim name');
       check(normalized.metrics.distKm === 125.46, 'normalizeRoute must format distKm');
       check(normalized.start?.coords?.[0] !== undefined, 'normalizeRoute must infer start coords from pathCoords');
@@ -124,6 +129,15 @@ app.whenReady().then(async () => {
       check(mergedNoId[0].name === '雨崩徒步神瀑线（新改名）',
         \`LWW must preserve newest rename! Found: \${mergedNoId[0].name}\`);
       check(Boolean(mergedNoId[0].id), 'Merged route must be assigned stable ID');
+
+      const unrelatedSameNameA = {
+        name: '晨练', start: { coords: [116.1, 39.8] }, end: { coords: [116.2, 39.9] }
+      };
+      const unrelatedSameNameB = {
+        name: '晨练', start: { coords: [104.0, 30.6] }, end: { coords: [104.1, 30.7] }
+      };
+      check(!window.routesRepresentSameRecord(unrelatedSameNameA, unrelatedSameNameB),
+        'unrelated routes with the same name and no distance must never be merged');
 
       // =========================================================================
       // Test 4: Full Cloud Sync Cycle - Renamed Route Never Reverts Under Load

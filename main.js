@@ -135,6 +135,7 @@ function saveOfflineManifest(data, replaceProvinces = false) {
 
 // 高频切片内存 LRU：同时限制数量和真实字节数，避免少量大瓦片把进程推入换页。
 const memoryTileCache = new Map();
+const memoryTileEtags = new WeakMap();
 // MapLibre/Chromium and Windows already maintain their own decoded/file caches.
 // Keep this server-side cache bounded so it cannot duplicate 2GB of tile data
 // and push the renderer into paging during long 3D sessions.
@@ -173,13 +174,27 @@ function setCachedTile(key, buf) {
   trimMemoryTileCacheOnPressure();
 }
 
-function generateTileEtag(cacheKey, length) {
-  return `"${cacheKey.replace(/[^a-zA-Z0-9_\-]/g, '_')}_${length.toString(16)}"`;
+function deleteCachedTile(key) {
+  const existing = memoryTileCache.get(key);
+  if (!existing) return;
+  memoryTileCache.delete(key);
+  memoryTileCacheBytes = Math.max(0, memoryTileCacheBytes - existing.length);
+}
+
+function generateTileEtag(cacheKey, buf) {
+  if (Buffer.isBuffer(buf) && memoryTileEtags.has(buf)) return memoryTileEtags.get(buf);
+  const data = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  // A path+length ETag returns an incorrect 304 when a tile is replaced by
+  // different content of the same size. Hash the bytes once per cached Buffer.
+  const digest = crypto.createHash('sha1').update(data).digest('base64url').slice(0, 16);
+  const etag = `"${data.length.toString(16)}-${digest}"`;
+  if (Buffer.isBuffer(buf)) memoryTileEtags.set(buf, etag);
+  return etag;
 }
 
 function respondWithBuffer(req, res, cacheKey, buf, contentType, extraHeaders = {}) {
   const len = Buffer.isBuffer(buf) ? buf.length : Buffer.byteLength(buf);
-  const etag = generateTileEtag(cacheKey, len);
+  const etag = generateTileEtag(cacheKey, buf);
   const clientEtag = req.headers['if-none-match'];
   if (clientEtag && clientEtag === etag) {
     res.writeHead(304, {
@@ -1839,6 +1854,9 @@ app.whenReady().then(async () => {
       if (dirFileSets.has(dirPath)) {
         (await dirFileSets.get(dirPath)).add(fileName);
       }
+      // A live map may have cached a previous missing/corrupt response under
+      // this key. Force its next request to read the newly committed file.
+      deleteCachedTile(`${task.type}/${task.z}/${task.x}/${fileName}`);
     }
 
     async function worker(workerIndex) {

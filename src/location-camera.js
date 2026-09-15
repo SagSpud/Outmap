@@ -3,6 +3,7 @@
   'use strict';
   const active = new WeakMap();
   const warmups = new WeakMap();
+  const zoomGuards = new WeakMap();
 
   function interactionSurfaceFor(map) {
     return [map.getContainer?.(), map.getCanvasContainer?.(), map.getCanvas?.()]
@@ -10,9 +11,99 @@
   }
 
   function install(map) {
-    // Native MapLibre 6.9 handles user zoom and 3D terrain collision natively.
-    if (!map) return;
-    try { map.setTransformCameraUpdate?.(null); } catch (_) {}
+    if (!map || zoomGuards.has(map)) return;
+    const surface = interactionSurfaceFor(map);
+    const state = {
+      direction: 0,
+      origin: 0,
+      min: -Infinity,
+      max: Infinity,
+      touchDistance: 0,
+      clearTimer: 0,
+      transform: null
+    };
+    const clearIntent = () => {
+      state.direction = 0;
+      state.min = -Infinity;
+      state.max = Infinity;
+      state.touchDistance = 0;
+    };
+    const setIntent = (direction, maxDelta) => {
+      if (!direction) return;
+      clearTimeout(state.clearTimer);
+      state.clearTimer = 0;
+      state.direction = direction;
+      state.origin = Number(map.getZoom()) || 0;
+      const delta = Math.max(0.15, Number(maxDelta) || 0.6);
+      state.min = direction > 0 ? state.origin - 0.002 : state.origin - delta;
+      state.max = direction > 0 ? state.origin + delta : state.origin + 0.002;
+    };
+    state.transform = transform => {
+      if (!state.direction || !Number.isFinite(Number(transform?.zoom))) return {};
+      const proposed = Number(transform.zoom);
+      const bounded = Math.max(state.min, Math.min(state.max, proposed));
+      return Math.abs(bounded - proposed) > 0.0001 ? { zoom: bounded } : {};
+    };
+    const onWheel = event => {
+      const direction = event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0;
+      const steps = Math.max(1, Math.min(3, Math.abs(Number(event.deltaY) || 0) / 120));
+      setIntent(direction, 0.6 * steps);
+    };
+    const onDoubleClick = event => setIntent(event.shiftKey ? -1 : 1, 1.1);
+    const onKeyDown = event => {
+      if (event.key === '+' || event.key === '=') setIntent(1, 1.1);
+      else if (event.key === '-' || event.key === '_') setIntent(-1, 1.1);
+    };
+    const touchDistance = touches => touches?.length >= 2
+      ? Math.hypot(touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY)
+      : 0;
+    const onTouchStart = event => { state.touchDistance = touchDistance(event.touches); };
+    const onTouchMove = event => {
+      const next = touchDistance(event.touches);
+      if (next > 0 && state.touchDistance > 0 && Math.abs(next - state.touchDistance) > 0.5) {
+        setIntent(next > state.touchDistance ? 1 : -1, 0.45);
+      }
+      state.touchDistance = next;
+    };
+    const onTouchEnd = event => {
+      if (!event.touches || event.touches.length < 2) state.touchDistance = 0;
+    };
+    const onZoomEnd = () => {
+      clearTimeout(state.clearTimer);
+      state.clearTimer = setTimeout(() => {
+        state.clearTimer = 0;
+        clearIntent();
+      }, 0);
+    };
+    const cleanup = () => {
+      clearTimeout(state.clearTimer);
+      surface?.removeEventListener('wheel', onWheel, true);
+      surface?.removeEventListener('dblclick', onDoubleClick, true);
+      surface?.removeEventListener('keydown', onKeyDown, true);
+      surface?.removeEventListener('touchstart', onTouchStart, true);
+      surface?.removeEventListener('touchmove', onTouchMove, true);
+      surface?.removeEventListener('touchend', onTouchEnd, true);
+      surface?.removeEventListener('touchcancel', onTouchEnd, true);
+      map.off('zoomend', onZoomEnd);
+      map.off('remove', cleanup);
+      zoomGuards.delete(map);
+    };
+    zoomGuards.set(map, state);
+    surface?.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    surface?.addEventListener('dblclick', onDoubleClick, { capture: true, passive: true });
+    surface?.addEventListener('keydown', onKeyDown, { capture: true, passive: true });
+    surface?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    surface?.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
+    surface?.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+    surface?.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
+    map.on('zoomend', onZoomEnd);
+    map.on('remove', cleanup);
+    try { map.setTransformCameraUpdate?.(state.transform); } catch (_) {}
+  }
+
+  function restoreZoomGuard(map) {
+    try { map.setTransformCameraUpdate?.(zoomGuards.get(map)?.transform || null); } catch (_) {}
   }
 
   function anchor(map, centered) {
@@ -53,6 +144,7 @@
     const coords = coordinates.slice(0, 2).map(Number);
     if (!coords.every(Number.isFinite) || Math.abs(coords[0]) > 180 || Math.abs(coords[1]) > 85) return;
 
+    install(map);
     cancel(map);
     map.stop();
 
@@ -91,7 +183,7 @@
         if (warmup?.cancel) warmup.cancel();
         else prepareController.abort();
       }
-      try { map.setTransformCameraUpdate?.(null); } catch (_) {}
+      restoreZoomGuard(map);
       setFlightLoadState(false);
       if (active.get(map)?.dispose === dispose) active.delete(map);
     };
@@ -110,6 +202,24 @@
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
     const desiredAnchor = anchor(map, options.centered);
+    let terrain;
+    try { terrain = map.getTerrain?.(); } catch (_) {}
+    const exaggeration = Number.isFinite(Number(terrain?.exaggeration))
+      ? Math.max(0, Number(terrain.exaggeration))
+      : 1;
+    let destinationElevation = null;
+    if (terrain?.source && typeof options.resolveTerrainElevation === 'function') {
+      try { destinationElevation = options.resolveTerrainElevation(coords, zoom); } catch (_) {}
+      if (!Number.isFinite(destinationElevation)) {
+        try { destinationElevation = map.queryTerrainElevation?.(coords); } catch (_) {}
+      }
+      if (!Number.isFinite(destinationElevation)) {
+        const supplied = Number(options.elevation);
+        if (Number.isFinite(supplied) && supplied >= -500 && supplied <= 9000) {
+          destinationElevation = supplied * exaggeration;
+        }
+      }
+    }
 
     const smoothStep = t => {
       easingProgress = Math.max(0, Math.min(1, t));
@@ -150,34 +260,24 @@
       internalMove = false;
     };
 
-    let terrain;
-    try { terrain = map.getTerrain?.(); } catch (_) {}
     if (terrain?.source && typeof options.resolveTerrainElevation === 'function') {
       let elevationStart = null;
       let elevationStartProgress = 0;
+      let anchorTargetElevation = null;
       map.setTransformCameraUpdate?.(transform => {
         if (disposed || !ownedMoveActive) return {};
-        let destElevation = null;
-        try {
-          destElevation = options.resolveTerrainElevation(coords, zoom);
-        } catch (_) {}
-        if (!Number.isFinite(destElevation)) {
-          try { destElevation = map.queryTerrainElevation?.(coords); } catch (_) {}
+        // A cold target may not have been available before take-off. Accept
+        // the first real sample once, then never replace it with a finer DEM
+        // level during this flight.
+        if (!Number.isFinite(destinationElevation)) {
+          let firstAvailable = null;
+          try { firstAvailable = options.resolveTerrainElevation(coords, zoom); } catch (_) {}
+          if (!Number.isFinite(firstAvailable)) {
+            try { firstAvailable = map.queryTerrainElevation?.(coords); } catch (_) {}
+          }
+          if (!Number.isFinite(firstAvailable)) return {};
+          destinationElevation = firstAvailable;
         }
-        if (!Number.isFinite(destElevation) && Number.isFinite(Number(options.elevation))) {
-          const exaggeration = Number.isFinite(Number(terrain?.exaggeration))
-            ? Math.max(0, Number(terrain.exaggeration))
-            : 1;
-          destElevation = Number(options.elevation) * exaggeration;
-        }
-
-        let sampled = destElevation;
-        if (!Number.isFinite(sampled)) {
-          try {
-            sampled = options.resolveTerrainElevation(transform.center, transform.zoom);
-          } catch (_) {}
-        }
-        if (!Number.isFinite(sampled)) return {};
         if (!Number.isFinite(elevationStart)) {
           elevationStart = Number.isFinite(Number(transform.elevation))
             ? Number(transform.elevation)
@@ -188,19 +288,28 @@
         const local = Math.max(0, Math.min(1,
           (easingProgress - elevationStartProgress) / remaining));
         const blend = local * local * (3 - 2 * local);
-        let elevation = elevationStart + (sampled - elevationStart) * blend;
+        const elevation = elevationStart
+          + (destinationElevation - elevationStart) * blend;
         const result = { elevation };
 
-        // Terrain collision may safely reduce pitch/zoom, which changes where
-        // an offset target projects. Converge only the geographic center in
-        // the final part of this same native flight; never override the native
-        // collision-safe zoom or pitch and never run after moveend.
+        // The public transform hook is used only to solve the requested screen
+        // anchor against 3D ground. The reference height is immutable and the
+        // correction converges once; there is no final resample or second move
+        // that can pull the camera after arrival.
         if (easingProgress > 0.72
           && typeof transform.setLocationAtPoint === 'function'
           && typeof transform.locationToScreenPoint === 'function') {
           try {
             const target = maplibregl.LngLat.convert(coords);
-            const targetElevation = options.resolveTerrainElevation(target, transform.zoom);
+            if (!Number.isFinite(anchorTargetElevation)) {
+              try {
+                const candidate = options.resolveTerrainElevation(target, transform.zoom);
+                if (Number.isFinite(candidate)) anchorTargetElevation = candidate;
+              } catch (_) {}
+              if (!Number.isFinite(anchorTargetElevation)) {
+                anchorTargetElevation = destinationElevation;
+              }
+            }
             transform.setElevation?.(elevation);
             const currentPoint = transform.locationToScreenPoint(target);
             const anchorProgress = Math.max(0, Math.min(1,
@@ -210,26 +319,25 @@
               currentPoint.x + (desiredAnchor.x - currentPoint.x) * anchorBlend,
               currentPoint.y + (desiredAnchor.y - currentPoint.y) * anchorBlend
             );
-            transform.setLocationAtPoint(target, point,
-              Number.isFinite(targetElevation) ? targetElevation : elevation);
-
-            // One final center resample prevents the next native user gesture
-            // from discovering a different center height and nudging the map.
+            transform.setLocationAtPoint(target, point, anchorTargetElevation);
             if (easingProgress >= 0.999) {
-              const corrected = options.resolveTerrainElevation(transform.center, transform.zoom);
-              if (Number.isFinite(corrected)) {
-                elevation = corrected;
-                transform.setElevation?.(corrected);
-                transform.setLocationAtPoint(target, desiredAnchor,
-                  Number.isFinite(targetElevation) ? targetElevation : corrected);
-                result.elevation = corrected;
+              let centerElevation = null;
+              try {
+                centerElevation = options.resolveTerrainElevation(transform.center, transform.zoom);
+              } catch (_) {}
+              if (Number.isFinite(centerElevation)) {
+                transform.setElevation?.(centerElevation);
+                result.elevation = centerElevation;
               }
+              transform.setLocationAtPoint(target, desiredAnchor, anchorTargetElevation);
             }
             result.center = transform.center;
           } catch (_) {}
         }
         return result;
       });
+    } else {
+      restoreZoomGuard(map);
     }
 
     listen('moveend', () => {

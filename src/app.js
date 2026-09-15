@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.17';
+const APP_VERSION = '2.0.18';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1079,14 +1079,60 @@ function routeCoords(route, side) {
   return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
 }
 
+function stableRouteHash(value) {
+  // FNV-1a is sufficient here: this is a stable local identity key, not a
+  // security token. Math.imul keeps the result identical in every renderer.
+  let hash = 0x811c9dc5;
+  const text = String(value || '');
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(7, '0');
+}
+
+function stableLegacyRouteId(route) {
+  const coordKey = value => {
+    const coords = Array.isArray(value) ? value : value?.coords;
+    if (!Array.isArray(coords) || coords.length < 2) return '';
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    return Number.isFinite(lng) && Number.isFinite(lat)
+      ? `${lng.toFixed(5)},${lat.toFixed(5)}` : '';
+  };
+  const rawPath = Array.isArray(route.pathCoords) ? route.pathCoords : [];
+  const samples = [];
+  if (rawPath.length > 0) {
+    const count = Math.min(9, rawPath.length);
+    for (let i = 0; i < count; i++) {
+      samples.push(coordKey(rawPath[Math.round(i * (rawPath.length - 1) / Math.max(1, count - 1))]));
+    }
+  }
+  const start = coordKey(route.start) || coordKey(rawPath[0]);
+  const end = coordKey(route.end) || coordKey(rawPath[rawPath.length - 1]);
+  const vias = (Array.isArray(route.viaPoints) ? route.viaPoints : []).map(coordKey).filter(Boolean);
+  const rawDist = Number(route.metrics?.distKm ?? route.distKm ?? route.distance);
+  const hasGeometryIdentity = Boolean(start || end || vias.length || samples.some(Boolean)
+    || (Number.isFinite(rawDist) && rawDist > 0));
+  const identity = [
+    route.mode || 'drive', start, end, vias.join(';'),
+    rawPath.length, samples.join(';'), Number.isFinite(rawDist) ? rawDist.toFixed(2) : '',
+    hasGeometryIdentity ? '' : String(route.name || '未命名路线').trim()
+  ].join('|');
+  return `route_legacy_${stableRouteHash(identity)}`;
+}
+
 function normalizeRoute(route) {
   if (!route || typeof route !== 'object') return null;
-  const id = route.id ? String(route.id) : ('route_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+  const id = route.id ? String(route.id) : stableLegacyRouteId(route);
   const name = String(route.name || '未命名路线').trim();
   const mode = ['drive', 'cycle', 'hike'].includes(route.mode) ? route.mode : 'drive';
-  const createdAt = route.createdAt || new Date().toLocaleDateString('zh-CN');
-  const timestamp = Number(route.timestamp) || Number(route.updatedAt) || Date.now();
+  const parsedCreatedAt = route.createdAt ? Date.parse(route.createdAt) : 0;
+  const timestamp = Number(route.timestamp) || Number(route.updatedAt)
+    || (Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : 0) || 0;
   const updatedAt = Number(route.updatedAt) || timestamp;
+  const createdAt = route.createdAt || (timestamp > 0
+    ? new Date(timestamp).toLocaleDateString('zh-CN') : '');
 
   // 提取起终点坐标，必要时以 pathCoords 首尾兜底
   const startCoord = routeCoords(route, 'start');
@@ -1169,21 +1215,22 @@ function routesRepresentSameRecord(a, b) {
 
   const aDist = Number(a.metrics?.distKm ?? a.distKm ?? a.distance);
   const bDist = Number(b.metrics?.distKm ?? b.distKm ?? b.distance);
-  const distClose = !Number.isFinite(aDist) || !Number.isFinite(bDist) || Math.abs(aDist - bDist) < 0.2;
+  const bothHaveDistance = Number.isFinite(aDist) && aDist > 0 && Number.isFinite(bDist) && bDist > 0;
+  const distClose = bothHaveDistance && Math.abs(aDist - bDist) < 0.2;
+  const endpointsMatch = Boolean(aStart && bStart && aEnd && bEnd
+    && close(aStart, bStart) && close(aEnd, bEnd));
 
   // 起终点均吻合且总里程接近 -> 判定为同一路线（即使用户改名也能精准关联同一路线）
-  if (aStart && bStart && aEnd && bEnd && close(aStart, bStart) && close(aEnd, bEnd) && distClose) {
+  if (endpointsMatch && (!bothHaveDistance || distClose)) {
     return true;
   }
 
-  // 相同名称且起终点之一或里程匹配（用于无明确 ID 的历史旧数据迁移与去重）
+  // Historical records may share a title. A title or distance alone is not
+  // identity: require the paired endpoints so unrelated same-name routes can
+  // never delete, rename or merge one another.
   const aName = String(a.name || '').trim();
   const bName = String(b.name || '').trim();
-  if (aName && bName && aName === bName) {
-    if ((aStart && bStart && close(aStart, bStart)) || (aEnd && bEnd && close(aEnd, bEnd)) || distClose) {
-      return true;
-    }
-  }
+  if (aName && bName && aName === bName && endpointsMatch) return !bothHaveDistance || distClose;
 
   return false;
 }
@@ -2656,15 +2703,25 @@ function parseCoordinates(str) {
 // 0. 搜索请求内存极速 LRU 缓存与主动取消
 const searchMemoryCache = new Map();
 const MAX_SEARCH_MEMORY_CACHE = 60;
+const SEARCH_MEMORY_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function invalidateSearchMemoryCache() {
+  searchMemoryCache.clear();
+}
+if (typeof window !== 'undefined') window.invalidateSearchMemoryCache = invalidateSearchMemoryCache;
 
 function getCachedSearchResults(key) {
   if (!key || typeof key !== 'string') return null;
   const k = key.trim().toLowerCase();
   if (!searchMemoryCache.has(k)) return null;
-  const val = searchMemoryCache.get(k);
+  const entry = searchMemoryCache.get(k);
+  if (!entry || Date.now() - Number(entry.cachedAt || 0) > SEARCH_MEMORY_CACHE_TTL_MS) {
+    searchMemoryCache.delete(k);
+    return null;
+  }
   searchMemoryCache.delete(k);
-  searchMemoryCache.set(k, val);
-  return val;
+  searchMemoryCache.set(k, entry);
+  return entry.results;
 }
 
 function setCachedSearchResults(key, results) {
@@ -2678,7 +2735,7 @@ function setCachedSearchResults(key, results) {
     if (oldest === undefined) break;
     searchMemoryCache.delete(oldest);
   }
-  searchMemoryCache.set(k, results);
+  searchMemoryCache.set(k, { results, cachedAt: Date.now() });
 }
 
 function cancelActiveSearch(owner = window) {
@@ -7207,6 +7264,7 @@ function setupWaypointAndFavoritesSystem(map) {
     try {
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
     } catch (e) {}
+    invalidateSearchMemoryCache();
 
     renderWaypointMarkersOnMap({ add: [newWp] });
     closeWpModal();
@@ -7390,6 +7448,7 @@ function setupWaypointAndFavoritesSystem(map) {
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (err) {}
+          invalidateSearchMemoryCache();
           renderWaypointMarkersOnMap({ update: [wp] });
           renderFavoritesList();
           if (typeof window.triggerRealtimeCloudSync === 'function') {
@@ -7423,6 +7482,7 @@ function setupWaypointAndFavoritesSystem(map) {
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (err) {}
+          invalidateSearchMemoryCache();
           renderWaypointMarkersOnMap({ update: [wp] });
           renderFavoritesList();
           if (typeof window.triggerRealtimeCloudSync === 'function') {
@@ -7444,6 +7504,7 @@ function setupWaypointAndFavoritesSystem(map) {
       addDeletedWaypointTombstone(wp);
       savedWaypoints = savedWaypoints.filter(item => String(item.id) !== String(wp.id));
       try { localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints)); } catch (_) {}
+      invalidateSearchMemoryCache();
       renderWaypointMarkersOnMap({ remove: [wp.id] });
       renderFavoritesList();
       window.triggerRealtimeCloudSync?.('delete_waypoint', true);
@@ -7944,6 +8005,7 @@ function setupWaypointAndFavoritesSystem(map) {
             localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
           } catch (e) {}
+          invalidateSearchMemoryCache();
         }
 
         refreshFolderOptions(currentFolderFilter);
@@ -7986,6 +8048,7 @@ function setupWaypointAndFavoritesSystem(map) {
     try {
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
     } catch (e) {}
+    invalidateSearchMemoryCache();
 
     // 从排序序列中移除
     const curOrder = getFolderTabOrder().filter(id => id !== folderId);
@@ -8476,6 +8539,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
   // 全量重载本地/云端同步数据并刷新界面元素
   const reloadFavoritesData = () => {
+    invalidateSearchMemoryCache();
     try {
       const raw = localStorage.getItem('outmap_saved_waypoints');
       savedWaypoints = raw ? JSON.parse(raw) : [];
@@ -8561,6 +8625,7 @@ function importWaypointsIntoFavorites(waypoints, sourceName, mapInstance) {
   try {
     localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
   } catch (e) {}
+  invalidateSearchMemoryCache();
 
   // 4. 重绘地图图钉
   renderWaypointMarkersOnMap();

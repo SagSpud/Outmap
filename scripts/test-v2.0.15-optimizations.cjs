@@ -15,7 +15,7 @@ const mapBootstrapJs = fs.readFileSync(path.join(root, 'src/map-bootstrap.js'), 
 
 // 1. Version consistency check
 const curVer = pkg.version;
-assert(['2.0.15', '2.0.16', '2.0.17'].includes(curVer), `package.json version must be 2.0.15, 2.0.16 or 2.0.17, found: ${curVer}`);
+assert(['2.0.15', '2.0.16', '2.0.17', '2.0.18'].includes(curVer), `package.json version must be 2.0.15 through 2.0.18, found: ${curVer}`);
 assert(indexHtml.includes(`style.css?v=${curVer}`), `index.html must reference style.css?v=${curVer}`);
 assert(indexHtml.includes(`id="brand-ver-badge-txt">v${curVer}</span>`), `index.html brand badge must show v${curVer}`);
 assert(indexHtml.includes(`map-bootstrap.js?v=${curVer}`), `index.html must reference map-bootstrap.js?v=${curVer}`);
@@ -48,11 +48,10 @@ assert(mainJs.includes('function respondWithBuffer'), 'main.js must implement re
 assert(mainJs.includes("if (clientEtag && clientEtag === etag)"), 'main.js respondWithBuffer must check client If-None-Match');
 assert(mainJs.includes("res.writeHead(304,"), 'main.js respondWithBuffer must write 304 Not Modified');
 
-// Functional test of ETag and 304 logic
-const testKey = 'dem/10/800/400.webp';
-const testBuf = Buffer.from('RIFF....WEBPVP8X....mock_dem_tile_data');
-const etagRegex = /"dem_10_800_400_webp_[0-9a-f]+"/;
-assert(etagRegex.test(`"dem_10_800_400_webp_${testBuf.length.toString(16)}"`), 'ETag pattern matches');
+assert(mainJs.includes("crypto.createHash('sha1').update(data)"),
+  'tile ETags must fingerprint content, not only path and byte length');
+assert(!mainJs.includes("cacheKey.replace(/[^a-zA-Z0-9_\\-]/g, '_')_${length.toString(16)}"),
+  'same-length tile replacements must not reuse the previous ETag');
 console.log('  [PASS] 4. Local HTTP tile server ETag & 304 Not Modified conditional caching verified');
 
 // 5. Light Acrylic Backdrop-Filter (8px blur & 125% saturation)

@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
       }, 20);
     })`);
     await win.webContents.executeJavaScript(`window.reliefFixtureUrl = 'http://127.0.0.1:${fixturePort}/{z}/{x}/{y}.png'`);
-    for (const file of ['src/vendor/maplibre-contour.js']) {
+    for (const file of ['src/vendor/maplibre-contour.js', 'src/location-camera.js']) {
       await win.webContents.executeJavaScript(fs.readFileSync(path.join(root, file), 'utf8'));
     }
     const result = await win.webContents.executeJavaScript(`(async () => {
@@ -85,6 +85,7 @@ app.whenReady().then(async () => {
           id: 'background', type: 'background', paint: { 'background-color': '#f2f1ec' }
         }] }
       });
+      window.OutmapLocationCamera.install(map);
       const errors = [];
       map.on('error', event => errors.push(String(event?.error?.stack || event?.error || event)));
       map.getCanvas().addEventListener('webglcontextlost', () => { contextLost = true; });
@@ -177,8 +178,11 @@ app.whenReady().then(async () => {
         const maxFrameDelta = zoomSamples.reduce((maximum, value, index) => index
           ? Math.max(maximum, Math.abs(value - zoomSamples[index - 1]))
           : maximum, 0);
-        if (pitch === 0 && !directionOk) {
+        if (!directionOk) {
           throw new Error('wheel direction reversed at ' + pitch + '° / L' + startZoom + ': ' + actualStartZoom + ' -> ' + endZoom);
+        }
+        if (Math.abs(endZoom - actualStartZoom) > 0.65) {
+          throw new Error('one wheel step changed too much at ' + pitch + '° / L' + startZoom + ': ' + actualStartZoom + ' -> ' + endZoom);
         }
         if (maxFrameDelta > 0.35) {
           throw new Error('terrain collision caused a visible zoom jump at ' + pitch + '° / L' + startZoom + ': frameDelta=' + maxFrameDelta);
@@ -187,7 +191,7 @@ app.whenReady().then(async () => {
           throw new Error('wheel moved after moveend at ' + pitch + '° / L' + startZoom + ': center=' + centerDrift + ', zoom=' + postEndZoomDrift);
         }
         wheelMatrix.push({ pitch, startZoom, deltaY, yRatio, endZoom,
-          collisionAdjusted: !directionOk, maxFrameDelta, centerDrift, postEndZoomDrift });
+          maxFrameDelta, centerDrift, postEndZoomDrift });
       };
       const wheelLevels = [3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 15.1, 16.0, 16.8];
       for (const pitch of [0, 50, 70]) {

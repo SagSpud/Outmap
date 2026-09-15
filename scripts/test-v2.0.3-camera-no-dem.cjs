@@ -76,8 +76,8 @@ windowObject.OutmapLocationCamera.fly(missingDemMap, target, {
   duration: 900,
   elevation: 4207
 });
-assert.strictEqual(missingDemMap.transformCallback, null,
-  'A location flight must not install a transform override');
+assert.strictEqual(typeof missingDemMap.transformCallback, 'function',
+  'A location flight must retain the installed user-zoom safety transform');
 assert(!Object.prototype.hasOwnProperty.call(missingDemMap.lastCameraOptions, 'elevation'),
   'Stored POI elevation must not be passed into a flight before DEM readiness');
 
@@ -88,8 +88,8 @@ windowObject.OutmapLocationCamera.fly(loadedDemMap, target, {
   duration: 900,
   elevation: 4207
 });
-assert.strictEqual(loadedDemMap.transformCallback, null,
-  'Loaded terrain must still use the native MapLibre transform');
+assert.strictEqual(typeof loadedDemMap.transformCallback, 'function',
+  'Loaded terrain must restore the user-zoom safety transform after flight');
 
 function createDelayedTerrainMap() {
   const listeners = new Map();
@@ -168,6 +168,8 @@ function createDelayedTerrainMap() {
   let resolveWarmup;
   let warmupStarted = 0;
   let warmupSignal = null;
+  windowObject.OutmapLocationCamera.install(delayedMap);
+  const delayedZoomGuard = delayedMap.transformCallback;
   windowObject.OutmapLocationCamera.fly(delayedMap, [101.586, 30.213], {
     zoom: 13,
     pitch: 50,
@@ -182,9 +184,11 @@ function createDelayedTerrainMap() {
   assert.strictEqual(delayedMap.flyCalls, 1,
     'DEM warm-up must never delay the first native flight call');
   assert.strictEqual(warmupStarted, 1, 'A cold distant terrain flight must start one shared warm-up');
-  assert(delayedMap.transformCallback == null,
-    'Terrain warm-up must not install a camera transform override');
+  assert(typeof delayedMap.transformCallback === 'function',
+    'Terrain flight must use one bounded transform for its 3D screen anchor');
   delayedMap.emit('moveend');
+  assert.strictEqual(delayedMap.transformCallback, delayedZoomGuard,
+    'Terrain arrival must restore the persistent user-zoom safety transform');
   assert.strictEqual(delayedMap.easeCalls, 0, 'Primary moveend must not start a second camera animation');
   assert.strictEqual(arrivalCount, 1, 'Native moveend must report arrival exactly once');
   const landedZoom = delayedMap.getZoom();
