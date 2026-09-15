@@ -157,10 +157,26 @@
       let elevationStartProgress = 0;
       map.setTransformCameraUpdate?.(transform => {
         if (disposed || !ownedMoveActive) return {};
-        let sampled = null;
+        let destElevation = null;
         try {
-          sampled = options.resolveTerrainElevation(transform.center, transform.zoom);
+          destElevation = options.resolveTerrainElevation(coords, zoom);
         } catch (_) {}
+        if (!Number.isFinite(destElevation)) {
+          try { destElevation = map.queryTerrainElevation?.(coords); } catch (_) {}
+        }
+        if (!Number.isFinite(destElevation) && Number.isFinite(Number(options.elevation))) {
+          const exaggeration = Number.isFinite(Number(terrain?.exaggeration))
+            ? Math.max(0, Number(terrain.exaggeration))
+            : 1;
+          destElevation = Number(options.elevation) * exaggeration;
+        }
+
+        let sampled = destElevation;
+        if (!Number.isFinite(sampled)) {
+          try {
+            sampled = options.resolveTerrainElevation(transform.center, transform.zoom);
+          } catch (_) {}
+        }
         if (!Number.isFinite(sampled)) return {};
         if (!Number.isFinite(elevationStart)) {
           elevationStart = Number.isFinite(Number(transform.elevation))
