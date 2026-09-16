@@ -75,17 +75,23 @@ const OFFLINE_VEC_DIR = path.join(OFFLINE_BASE_DIR, 'vector');
 const OFFLINE_FONT_DIR = path.join(OFFLINE_BASE_DIR, 'fonts');
 const OFFLINE_ROUTE_DIR = path.join(OFFLINE_BASE_DIR, 'routes');
 const OFFLINE_CONTOUR_DIR = path.join(OFFLINE_BASE_DIR, 'contour');
+const OFFLINE_ARCHIVES_DIR = path.join(OFFLINE_BASE_DIR, 'archives');
 
 let localServerPort = 28795;
 let ofmTileTemplate = 'https://tiles.openfreemap.org/planet/20260830_080001_pt/{z}/{x}/{y}.pbf';
 
-[OFFLINE_DEM_DIR, OFFLINE_VEC_DIR, OFFLINE_FONT_DIR, OFFLINE_ROUTE_DIR, OFFLINE_CONTOUR_DIR].forEach(dir => {
+[OFFLINE_DEM_DIR, OFFLINE_VEC_DIR, OFFLINE_FONT_DIR, OFFLINE_ROUTE_DIR, OFFLINE_CONTOUR_DIR, OFFLINE_ARCHIVES_DIR].forEach(dir => {
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (e) {
     console.warn('[Offline Dir Warning]', dir, e.message);
   }
 });
+
+// 单文件切片归档管理器 (PMTiles): 优先直接从单文件切片毫秒级读取，杜绝海量散列小文件开销
+const { TileArchiveManager } = require('./src/tile-archive.cjs');
+const tileArchiveManager = new TileArchiveManager({ baseDir: OFFLINE_BASE_DIR });
+tileArchiveManager.init().catch(err => console.warn('[TileArchiveManager Init Warning]', err.message));
 
 // 旧图层仍属于用户离线数据，启动和更新均不自动删除。
 
@@ -537,6 +543,21 @@ function startLocalTileServer() {
               respondWithBuffer(req, res, contourKey, memory, 'application/vnd.mapbox-vector-tile', { 'X-Tile-Source': 'memory-cache' });
               return;
             }
+
+            // 1. 优先从单文件归档 (PMTiles) 读取等高线 (毫秒直出，免除 DEM 实时运算)
+            try {
+              const archiveTile = await tileArchiveManager.getTile('contour', z, x, y);
+              if (archiveTile && archiveTile.data && archiveTile.data.length > 0) {
+                setCachedTile(contourKey, archiveTile.data);
+                respondWithBuffer(req, res, contourKey, archiveTile.data, 'application/vnd.mapbox-vector-tile', {
+                  'X-Tile-Source': 'archive-pmtiles',
+                  'X-Archive-Name': archiveTile.archiveName || 'contour'
+                });
+                return;
+              }
+            } catch (_) {}
+
+            // 2. 回退到本地散列等高线目录
             try {
               const data = await fs.promises.readFile(contourPath);
               if (data.length > 0) {
@@ -883,7 +904,20 @@ function startLocalTileServer() {
             return;
           }
 
-          // 2. 本地独立存储目录文件读取
+          // 2. 优先单文件归档 (PMTiles) 毫秒级零目录随机读取
+          try {
+            const archiveTile = await tileArchiveManager.getTile(type, z, x, y);
+            if (archiveTile && archiveTile.data && archiveTile.data.length > 0) {
+              setCachedTile(cacheKey, archiveTile.data);
+              respondWithBuffer(req, res, cacheKey, archiveTile.data, contentType, {
+                'X-Tile-Source': 'archive-pmtiles',
+                'X-Archive-Name': archiveTile.archiveName || type
+              });
+              return;
+            }
+          } catch (_) {}
+
+          // 3. 本地独立存储散列目录读取 (无缝兼容既有目录)
           const localPath = path.join(localDir, `${z}`, `${x}`, yFile);
 
           try {
@@ -966,6 +1000,7 @@ let memoryTileStats = null;
 let inventoryScan = null;
 let offlineDownloadRunning = false;
 let mapInteractionActive = false;
+let framePressureActive = false;
 let mapInteractionReleaseTimer = null;
 const MAP_INTERACTION_COOLDOWN_MS = 650;
 const OFFLINE_INVENTORY_VERSION = 4;
@@ -1266,6 +1301,11 @@ app.whenReady().then(async () => {
   // 只保留少量下载 worker，不暂停任务；结束拖动/缩放后自动恢复满速。
   ipcMain.on('map-interaction-state', (_event, active) => {
     setMapInteractionActive(Boolean(active));
+  });
+
+  // 主线程按帧耗时动态让路：当 GPU 上传、DEM 解码或落地时产生高帧压，主进程动态暂停写盘与压低并发
+  ipcMain.on('map-frame-pressure', (_event, active) => {
+    framePressureActive = Boolean(active);
   });
 
   ipcMain.handle('get-offline-manifest', async () => {
@@ -1738,7 +1778,7 @@ app.whenReady().then(async () => {
     let rangeWaiters = [];
     let planningError = null;
     const discoveryFlow = require('./src/download-flow.cjs').createDownloadFlow({
-      signal, shouldYield: () => mapInteractionActive, limit: 256
+      signal, shouldYield: () => (mapInteractionActive || framePressureActive), limit: 256
     });
 
     function wakeRangeWaiters() {
@@ -1823,6 +1863,9 @@ app.whenReady().then(async () => {
     if (normalResume) sendPlanningProgress(true);
 
     async function writeDownloadedTile(task, dirPath, localPath, fileName, buf) {
+      if ((mapInteractionActive || framePressureActive) && !signal.aborted) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
       const dirKey = `${task.type}/${task.z}/${task.x}`;
       let dirReady = createdDirs.get(dirKey);
       if (!dirReady) {
@@ -1867,7 +1910,7 @@ app.whenReady().then(async () => {
         // Disk writes, decompression and network callbacks from dozens of
         // workers can contend with MapLibre. Keep four lanes alive so progress
         // remains continuous while reserving the machine for the active map.
-        while (mapInteractionActive && workerIndex >= interactiveConcurrency && !signal.aborted) {
+        while ((mapInteractionActive || framePressureActive) && workerIndex >= interactiveConcurrency && !signal.aborted) {
           await new Promise(resolve => setTimeout(resolve, 80));
         }
         if (signal.aborted) break;

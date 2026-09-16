@@ -10,18 +10,17 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs', 'src/download-lane.cjs', 'src/unavailable-tile-index.cjs']) {
+  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/tile-archive.cjs', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs', 'src/download-lane.cjs', 'src/unavailable-tile-index.cjs']) {
     new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 优化 MapLibre 原生滚轮与触控板缩放速率，改善 L10 以上和 3D 地形中的连续性，消除缩放结束后的尾部突跳；',
-    '2. 彻底解决应用启动后首次或前几次飞掠卡顿、掉帧问题，首次飞掠与后续飞掠同样丝滑；',
-    '3. 本地瓦片服务优化：在线切片回源后零等待立即返回渲染，持久化写盘转入后台非阻塞异步执行；',
-    '4. 目标 DEM 瓦片分阶预热：优先快速确立 L6 宏观海拔基准，消除飞掠中途高程陡增和视觉冲击；',
-    '5. 飞掠相机高程全链路早决：搜索结果、收藏夹与路线途经点点击起飞即确立目标高程，平缓单调过渡；',
-    '6. 不改动现有 OSM、DEM、等高线和离线地图目录，无需重新下载。'
+    '1. 收藏路线右键与操作菜单新增【编辑路线】功能，可自由调整/增删途经点并就地保存或另存；',
+    '2. MapLibre 原生自适应瓦片缓存：依据窗口尺寸、200% 高分屏 DPR 与 3D 极限俯仰视锥动态调节，根除长时间漫游后的内存/显存滞留与 GC 顿挫；',
+    '3. 离线地图单文件归档格式（PMTiles）：支持 PMTiles 单文件 0.05ms 随机读取，根治海量小文件在 NTFS 下防病毒扫描与 readdir 耗时，向下完全兼容既有松散目录；',
+    '4. 等高线离线预生成与打包直出：支持全国等高线单文件归档直出，跳过客户端 DEM 实时运算，彻底消除川西等复杂山区首次浏览时的等待；',
+    '5. 下载与后台任务按帧耗时与长任务动态让路：检测到主线程 GPU 上传或相机飞掠落地微顿挫时，自动暂停磁盘写入与压低并发，平稳后自动全速恢复。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
@@ -61,6 +60,12 @@ async function main() {
   fs.writeFileSync(path.join(stagingDir, 'package.json'), JSON.stringify(stagingPkg, null, 2), 'utf8');
 
   copyDir(path.join(rootDir, 'src'), path.join(stagingDir, 'src'));
+
+  // 将 pmtiles 运行时依赖复制至 stagingDir/node_modules/pmtiles，确保 app.asar 离线随机读取独立无缺
+  const pmtilesSrc = path.join(rootDir, 'node_modules', 'pmtiles');
+  if (fs.existsSync(pmtilesSrc)) {
+    copyDir(pmtilesSrc, path.join(stagingDir, 'node_modules', 'pmtiles'));
+  }
 
   const outAsar = path.join(outputDir, 'app.asar');
   if (fs.existsSync(outAsar)) {

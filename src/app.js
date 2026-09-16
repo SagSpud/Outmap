@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.21';
+const APP_VERSION = '2.0.22';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1789,11 +1789,64 @@ async function initApplication() {
   const deviceMemory = navigator.deviceMemory || 4;
   const compactDevice = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches;
   const constrainedWeb = isWebMode && (compactDevice || deviceMemory <= 4);
+
+  // MapLibre 原生自适应瓦片缓存计算器
+  // 依据当前视口像素、高分屏 DPR (含 200% 缩放) 与 3D 俯仰角视锥展开深度自适应计算缓存上限
+  function computeAdaptiveTileCache({ isWeb, isConstrained, dpr, width, height } = {}) {
+    const effectiveDpr = Math.min(3, Math.max(1, Number(dpr) || (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1));
+    const viewW = Math.max(360, Number(width) || (typeof window !== 'undefined' ? window.innerWidth : 1920) || 1920);
+    const viewH = Math.max(360, Number(height) || (typeof window !== 'undefined' ? window.innerHeight : 1080) || 1080);
+    const screenPixels = (viewW * effectiveDpr) * (viewH * effectiveDpr);
+    // 单张 512px 瓦片覆盖的屏幕像素面积
+    const baseVisibleTiles = Math.ceil(screenPixels / (512 * 512));
+    // 3D 俯仰展开（最高 85° 极限视锥）+ 缩放 LOD 金字塔过渡 + 快速飞掠缓冲
+    const idealCache = Math.round(baseVisibleTiles * 4.5);
+
+    if (isConstrained) return Math.min(256, Math.max(128, idealCache));
+    if (isWeb) return Math.min(512, Math.max(256, idealCache));
+    // 桌面端：在 480 到 1024 之间平滑动态伸缩，既根治长时间漫游的内存滞留，又保障 200% 高分屏缩放流畅
+    return Math.min(1024, Math.max(480, idealCache));
+  }
+
+  function updateMapAdaptiveTileCache(mapInstance) {
+    if (!mapInstance) return;
+    const newSize = computeAdaptiveTileCache({
+      isWeb: isWebMode,
+      isConstrained: constrainedWeb,
+      dpr: window.devicePixelRatio,
+      width: window.innerWidth,
+      height: window.innerHeight
+    });
+    mapInstance._maxTileCacheSize = newSize;
+    const style = mapInstance.style;
+    if (style && style._sourceCaches) {
+      for (const id in style._sourceCaches) {
+        const sc = style._sourceCaches[id];
+        if (sc) {
+          sc._maxTileCacheSize = newSize;
+          if (typeof sc._updateCacheSize === 'function') {
+            sc._updateCacheSize();
+          } else if (sc._outOfViewCache?.setMaxSize) {
+            sc._outOfViewCache.setMaxSize(newSize);
+          }
+        }
+      }
+    }
+  }
+
+  const adaptiveTileCache = computeAdaptiveTileCache({
+    isWeb: isWebMode,
+    isConstrained: constrainedWeb,
+    dpr: window.devicePixelRatio,
+    width: window.innerWidth,
+    height: window.innerHeight
+  });
+
   const mapPerformance = constrainedWeb
-    ? { workers: 2, demCache: 96, tileCache: 256 }
+    ? { workers: 2, demCache: 96, tileCache: adaptiveTileCache }
     : isWebMode
-      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 192, tileCache: 512 }
-      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 384, tileCache: 1024 };
+      ? { workers: Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) - 1)), demCache: 192, tileCache: adaptiveTileCache }
+      : { workers: Math.min(6, Math.max(4, (navigator.hardwareConcurrency || 4))), demCache: 384, tileCache: adaptiveTileCache };
   // MapLibre 6 uses an explicit setter; assigning an ESM namespace property is
   // ignored by browsers and silently leaves the default worker count active.
   maplibregl.setWorkerCount(mapPerformance.workers);
@@ -2014,7 +2067,78 @@ async function initApplication() {
     window.electronAPI?.setMapInteractionState?.(false);
   });
 
+  // 主线程高精帧预算与长任务监视器 (按帧耗时与卡顿动态向后台下载与写盘让路)
+  function initFramePressureMonitor() {
+    let isPressure = false;
+    let slowStreak = 0;
+    let normalStreak = 0;
+    let lastTime = performance.now();
+    let rafId = null;
+
+    const setPressure = (active) => {
+      if (isPressure === active) return;
+      isPressure = active;
+      if (typeof window.electronAPI?.setFramePressureState === 'function') {
+        window.electronAPI.setFramePressureState(active);
+      }
+    };
+
+    // 1. LongTask 监视器：捕获超过 48ms 的主线程阻塞事件（GPU 上传、复杂 GeoJSON 反序列化等）
+    if (typeof PerformanceObserver !== 'undefined') {
+      try {
+        const observer = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.duration > 48) {
+              setPressure(true);
+              normalStreak = 0;
+            }
+          }
+        });
+        observer.observe({ entryTypes: ['longtask'] });
+      } catch (_) {}
+    }
+
+    // 2. 连续逐帧耗时评估：单帧耗时持续 > 28ms（低于 35fps）判定为高压，连续 4 帧平稳（< 18ms）自动恢复
+    const tick = (now) => {
+      const delta = now - lastTime;
+      lastTime = now;
+      if (delta > 28) {
+        slowStreak++;
+        normalStreak = 0;
+        if (slowStreak >= 2) {
+          setPressure(true);
+        }
+      } else {
+        slowStreak = 0;
+        normalStreak++;
+        if (normalStreak >= 4) {
+          setPressure(false);
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }
+
+  // 窗口尺寸/DPR 变化自适应重算瓦片缓存上限
+  let resizeCacheTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeCacheTimer);
+    resizeCacheTimer = setTimeout(() => {
+      updateMapAdaptiveTileCache(map);
+    }, 250);
+  }, { passive: true });
+
+  window.computeAdaptiveTileCache = computeAdaptiveTileCache;
+  window.updateMapAdaptiveTileCache = () => updateMapAdaptiveTileCache(map);
+  window.initFramePressureMonitor = initFramePressureMonitor;
+
   map.on('load', () => {
+    initFramePressureMonitor();
     // `isStyleLoaded()` can temporarily turn false again while this handler adds
     // terrain/vector sources.  Keep a monotonic readiness flag for Outmap's own
     // runtime layers so they cannot miss the one-time load event.
@@ -6653,6 +6777,7 @@ function setupStatusBar(map) {
 // =========================================================
 let savedWaypoints = [];
 let savedRoutes = []; // 本地持久化收藏路线列表
+let currentEditingSavedRouteId = null; // 当前正在编辑的收藏路线 ID（若有，保存时就地更新原路线）
 let currentPlannedRouteCoords = []; // 当前规划的完整经纬度坐标
 let currentRouteMetrics = null; // 当前规划的核心指标 (距离、爬升等)
 let renderSavedRoutesListFn = null;
@@ -7757,6 +7882,10 @@ function setupWaypointAndFavoritesSystem(map) {
             <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
             <span class="ctx-text">重命名</span>
           </button>
+          <button type="button" class="ctx-item fav-route-context-item btn-ctx-edit">
+            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('route', { size: 15 }) || ''}</span>
+            <span class="ctx-text">编辑路线</span>
+          </button>
           <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
             <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('export', { size: 15 }) || ''}</span>
             <span class="ctx-text">导出路线</span>
@@ -7875,6 +8004,19 @@ function setupWaypointAndFavoritesSystem(map) {
         renameBtn?.addEventListener('click', triggerRouteRename);
         renameBtn?.addEventListener('touchend', triggerRouteRename);
 
+        const triggerRouteEdit = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          closeMenu();
+          const favDrawer = document.getElementById('favorites-drawer');
+          if (favDrawer) smoothClosePanel(favDrawer);
+          loadSavedRoute(route.id, map);
+          showToast(`正在编辑路线“${route.name}”`);
+        };
+        const editBtn = menu.querySelector('.btn-ctx-edit');
+        editBtn?.addEventListener('click', triggerRouteEdit);
+        editBtn?.addEventListener('touchend', triggerRouteEdit);
+
         const triggerRouteExport = (e) => {
           e.stopPropagation();
           e.preventDefault();
@@ -7891,6 +8033,9 @@ function setupWaypointAndFavoritesSystem(map) {
           closeMenu();
           if (await showFluentConfirm({ title: '删除收藏路线', message: `确定删除“${route.name}”？`, confirmText: '删除', danger: true })) {
             addDeletedRouteTombstone(route);
+            if (currentEditingSavedRouteId && (currentEditingSavedRouteId === route.id || routesRepresentSameRecord(route, { id: currentEditingSavedRouteId }))) {
+              currentEditingSavedRouteId = null;
+            }
             const nextRoutes = savedRoutes.filter(r => (
               r !== route
               && (!route.id || !r.id || String(r.id) !== String(route.id))
@@ -11447,6 +11592,7 @@ function setupOutdoorRouteSystem(map) {
     currentPlannedRouteCoords = [];
     currentProfileData = [];
     currentRouteMetrics = null;
+    currentEditingSavedRouteId = null;
 
     // 清空后自动顺滑收起路线规划面板
     smoothClosePanel(routePanel);
@@ -11460,6 +11606,13 @@ function setupOutdoorRouteSystem(map) {
   const saveRouteNameInput = document.getElementById('save-route-name-input');
   const saveRouteDistText = document.getElementById('save-route-dist-text');
   const saveRouteAscentText = document.getElementById('save-route-ascent-text');
+
+  saveRouteNameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnConfirmSaveRoute?.click();
+    }
+  });
 
   // 点击【收藏】路线按钮 (在下方顺滑展开/收起保存路线卡片)
   btnSaveRouteTrigger?.addEventListener('click', () => {
@@ -11477,7 +11630,19 @@ function setupOutdoorRouteSystem(map) {
     }
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
     const defaultName = `${routeStartName || '起点'} 至 ${effectiveEndName || '终点'} (${modeNames[activeRouteMode] || '户外'})`;
-    if (saveRouteNameInput) saveRouteNameInput.value = defaultName;
+    const editingRoute = currentEditingSavedRouteId
+      ? savedRoutes.find(r => r.id === currentEditingSavedRouteId || routesRepresentSameRecord(r, { id: currentEditingSavedRouteId }))
+      : null;
+    const modalTitleEl = saveRouteModal?.querySelector('.save-route-title');
+    if (modalTitleEl) {
+      modalTitleEl.innerText = editingRoute ? '编辑保存路线' : '保存路线';
+    }
+    if (btnConfirmSaveRoute) {
+      btnConfirmSaveRoute.innerText = editingRoute ? '保存修改' : '保存路线';
+    }
+    if (saveRouteNameInput) {
+      saveRouteNameInput.value = (editingRoute && editingRoute.name) ? editingRoute.name : defaultName;
+    }
     if (saveRouteDistText && currentRouteMetrics) {
       saveRouteDistText.innerText = `${currentRouteMetrics.totalDistKm.toFixed(1)} km`;
     }
@@ -11505,30 +11670,65 @@ function setupOutdoorRouteSystem(map) {
     const effectiveViaPoints = routeEndCoord ? routeViaPoints : routeViaPoints.slice(0, -1);
     const previousRoutes = savedRoutes;
     let nextRoutes;
+    let isUpdate = false;
 
     try {
-      const newRoute = normalizeRoute({
-        id: 'route_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-        name: routeName,
-        mode: activeRouteMode,
-        createdAt: new Date().toLocaleDateString('zh-CN'),
-        timestamp: Date.now(),
-        updatedAt: Date.now(),
-        start: { coords: routeStartCoord, name: routeStartName || '起点' },
-        end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
-        viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
-        pathCoords: currentPlannedRouteCoords,
-        metrics: {
-          distKm: currentRouteMetrics ? currentRouteMetrics.totalDistKm : 0,
-          timeStr: currentRouteMetrics ? currentRouteMetrics.timeStr : '',
-          ascent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalAscent) : 0,
-          descent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalDescent) : 0,
-          maxEle: currentRouteMetrics ? currentRouteMetrics.maxEle : 0,
-          minEle: currentRouteMetrics ? currentRouteMetrics.minEle : 0
-        }
-      });
-      // 先完成序列化和持久化，再切换内存状态，避免存储失败后界面误报成功。
-      nextRoutes = [newRoute, ...(Array.isArray(previousRoutes) ? previousRoutes : [])];
+      const editIdx = currentEditingSavedRouteId
+        ? previousRoutes.findIndex(candidate => (
+            candidate.id === currentEditingSavedRouteId
+            || routesRepresentSameRecord(candidate, { id: currentEditingSavedRouteId })
+          ))
+        : -1;
+
+      if (editIdx >= 0) {
+        isUpdate = true;
+        const currentRoute = previousRoutes[editIdx];
+        const updatedAt = Math.max(Date.now(), (Number(currentRoute.updatedAt) || 0) + 1);
+        const updatedRoute = normalizeRoute({
+          ...currentRoute,
+          id: currentRoute.id,
+          name: routeName,
+          mode: activeRouteMode,
+          updatedAt,
+          start: { coords: routeStartCoord, name: routeStartName || '起点' },
+          end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
+          viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
+          pathCoords: currentPlannedRouteCoords,
+          metrics: {
+            distKm: currentRouteMetrics ? currentRouteMetrics.totalDistKm : (currentRoute.metrics?.distKm || 0),
+            timeStr: currentRouteMetrics ? currentRouteMetrics.timeStr : (currentRoute.metrics?.timeStr || ''),
+            ascent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalAscent) : (currentRoute.metrics?.ascent || 0),
+            descent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalDescent) : (currentRoute.metrics?.descent || 0),
+            maxEle: currentRouteMetrics ? currentRouteMetrics.maxEle : (currentRoute.metrics?.maxEle || 0),
+            minEle: currentRouteMetrics ? currentRouteMetrics.minEle : (currentRoute.metrics?.minEle || 0)
+          }
+        });
+        nextRoutes = previousRoutes.slice();
+        nextRoutes[editIdx] = updatedRoute;
+      } else {
+        const newRoute = normalizeRoute({
+          id: 'route_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          name: routeName,
+          mode: activeRouteMode,
+          createdAt: new Date().toLocaleDateString('zh-CN'),
+          timestamp: Date.now(),
+          updatedAt: Date.now(),
+          start: { coords: routeStartCoord, name: routeStartName || '起点' },
+          end: { coords: effectiveEndCoord, name: effectiveEndName || '终点' },
+          viaPoints: effectiveViaPoints.map(v => ({ coords: v.coords, name: v.name })),
+          pathCoords: currentPlannedRouteCoords,
+          metrics: {
+            distKm: currentRouteMetrics ? currentRouteMetrics.totalDistKm : 0,
+            timeStr: currentRouteMetrics ? currentRouteMetrics.timeStr : '',
+            ascent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalAscent) : 0,
+            descent: currentRouteMetrics ? Math.round(currentRouteMetrics.totalDescent) : 0,
+            maxEle: currentRouteMetrics ? currentRouteMetrics.maxEle : 0,
+            minEle: currentRouteMetrics ? currentRouteMetrics.minEle : 0
+          }
+        });
+        // 先完成序列化和持久化，再切换内存状态，避免存储失败后界面误报成功。
+        nextRoutes = [newRoute, ...(Array.isArray(previousRoutes) ? previousRoutes : [])];
+      }
       localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
     } catch (error) {
       const rawReason = String(error?.message || error || '').trim();
@@ -11550,6 +11750,11 @@ function setupOutdoorRouteSystem(map) {
     }
     if (typeof window.triggerRealtimeCloudSync === 'function') {
       window.triggerRealtimeCloudSync('save_route', true);
+    }
+    if (isUpdate) {
+      showToast(`已更新路线“${routeName}”`);
+    } else {
+      showToast(`已收藏路线“${routeName}”`);
     }
   });
 
@@ -11773,6 +11978,9 @@ function loadSavedRoute(routeId, map) {
   const btnClear = document.getElementById('btn-clear-route');
   if (btnClear) btnClear.click();
 
+  // 标定当前正在编辑的收藏路线 ID
+  currentEditingSavedRouteId = route.id;
+
   // 还原出行模式
   activeRouteMode = route.mode || 'drive';
   document.querySelectorAll('.route-mode-btn').forEach(btn => {
@@ -11820,6 +12028,10 @@ function loadSavedRoute(routeId, map) {
   closeConflictingBottomPanels('route-panel');
   const routePanel = document.getElementById('route-panel');
   showElement(routePanel, 'flex');
+}
+if (typeof window !== 'undefined') {
+  window.loadSavedRoute = loadSavedRoute;
+  window.getCurrentEditingSavedRouteId = () => currentEditingSavedRouteId;
 }
 
 // 绘制精美流畅的高清 Canvas 海拔剖面图 (完美适配 Retina 高分屏，iOS 级细腻质感)
@@ -12257,6 +12469,7 @@ function parseTrackFile(content, fileName) {
 }
 
 function displayImportedTrack(map, trackData) {
+  currentEditingSavedRouteId = null;
   const { name, coords, start, end, viaPoints } = trackData;
   const pathCoords = coords.map(c => [c[0], c[1]]);
 
