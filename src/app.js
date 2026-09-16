@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.20';
+const APP_VERSION = '2.0.21';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1984,6 +1984,12 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
+  // Slightly lower the public MapLibre wheel/trackpad rates so terrain
+  // collision and high-zoom tile hand-offs remain visually continuous. This
+  // keeps the native 200 ms easing curve rather than layering another camera
+  // animation on top of it.
+  map.scrollZoom?.setWheelZoomRate?.(1 / 600);
+  map.scrollZoom?.setZoomRate?.(1 / 120);
   window.OutmapLocationCamera?.install?.(map);
 
 

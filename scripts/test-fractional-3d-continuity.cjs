@@ -86,6 +86,8 @@ app.whenReady().then(async () => {
           id: 'background', type: 'background', paint: { 'background-color': '#f2f1ec' }
         }] }
       });
+      map.scrollZoom.setWheelZoomRate(1 / 600);
+      map.scrollZoom.setZoomRate(1 / 120);
       window.OutmapLocationCamera.install(map);
       const errors = [];
       map.on('error', event => errors.push(String(event?.error?.stack || event?.error || event)));
@@ -185,7 +187,7 @@ app.whenReady().then(async () => {
         if (Math.abs(endZoom - actualStartZoom) > 0.65) {
           throw new Error('one wheel step changed too much at ' + pitch + '° / L' + startZoom + ': ' + actualStartZoom + ' -> ' + endZoom);
         }
-        if (maxFrameDelta > 0.35) {
+        if (maxFrameDelta > 0.12) {
           throw new Error('terrain collision caused a visible zoom jump at ' + pitch + '° / L' + startZoom + ': frameDelta=' + maxFrameDelta);
         }
         if (centerDrift > 1e-8 || postEndZoomDrift > 0.002) {
