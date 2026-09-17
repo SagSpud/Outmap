@@ -15,7 +15,7 @@ const mapBootstrapJs = fs.readFileSync(path.join(root, 'src/map-bootstrap.js'), 
 
 // 1. Version consistency check
 const curVer = pkg.version;
-assert(['2.0.15', '2.0.16', '2.0.17', '2.0.18', '2.0.19', '2.0.20', '2.0.21', '2.0.22', '2.0.23'].includes(curVer), `package.json version must be 2.0.15 through 2.0.23, found: ${curVer}`);
+assert(/^2\.0\.\d+$/.test(curVer) && parseInt(curVer.split('.')[2], 10) >= 15, `package.json version must be 2.0.15+, found: ${curVer}`);
 assert(indexHtml.includes(`style.css?v=${curVer}`), `index.html must reference style.css?v=${curVer}`);
 assert(indexHtml.includes(`id="brand-ver-badge-txt">v${curVer}</span>`), `index.html brand badge must show v${curVer}`);
 assert(indexHtml.includes(`map-bootstrap.js?v=${curVer}`), `index.html must reference map-bootstrap.js?v=${curVer}`);
