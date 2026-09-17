@@ -21,7 +21,8 @@ async function main() {
     'src/download-lane.cjs',
     'src/unavailable-tile-index.cjs',
     'src/convert-to-pmtiles.cjs',
-    'src/contour-generator.cjs'
+    'src/contour-generator.cjs',
+    'src/pmtiles-download-sink.cjs'
   ]) {
     const code = fs.readFileSync(path.join(rootDir, file), 'utf8');
     new vm.Script(require('module').wrap(code), { filename: file });
@@ -29,10 +30,11 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 彻底解决离线瓦片转 PMTiles 卡住/无响应/高 CPU 占用：重构为超低内存流式写入引擎（4MB 块流式 I/O，杜绝内存爆满与 GC 垃圾回收死锁，内存占用恒定 < 30MB）；',
-    '2. 新增独立 Fluent 实时打包进度窗口：双击批处理或外部调用时自动弹出优雅紧凑的深色进度窗，直观呈现扫描/打包百分比、瓦片计数与实时传输速率；',
-    '3. 瓦片空间索引与变长编码极速优化：基于 Hilbert 空间曲线排序与预分配直接缓冲区，几十万级大体量瓦片数秒内极速流式归档；',
-    '4. 强化跨机器同级外层目录智能探查：自动优先识别程序同级外层 offline-tiles，实现软件升级与几十 GB 离线瓦片资产彻底解耦。'
+    '1. 【全新离线架构】彻底废除散列小瓦片存储：下载离线瓦片直接流式归档为 PMTiles 单文件，零磁盘碎片、零假死；',
+    '2. 【全自动三维等高线】下载 DEM 高程切片自动流水线联动 Chromium 引擎无头解算，自动生成三维等高线单文件（contour_metric-v1.pmtiles），用户完全无需手动生成；',
+    '3. 【界面极简化】移除冗余的手动“转为 PMTiles”和“预生成等高线”按钮，下载完毕即全部就绪，开箱即用；',
+    '4. 【极速毫秒级盘点】离线清单盘点直接通过 PMTiles 空间索引极速解析，全国数十万切片毫秒级呈现绿灯就绪；',
+    '5. 【专属彻底卸载清理工具】附带《彻底清理与卸载Outmap.bat》，一键彻底清空旧环境残留与历史散列瓦片。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 

@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.27" />
+  <link rel="stylesheet" href="style.css?v=2.0.28" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.27</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.28</span>
                 </div>
               </div>
             </div>
@@ -651,20 +651,6 @@
           </div>
         </div>
 
-        <div class="form-row form-row-inline offline-tools-row" style="margin-top: 6px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08);">
-          <label class="form-lbl">单文件维护:</label>
-          <div class="check-group inline-checks" style="gap: 8px;">
-            <button type="button" class="btn-check-tile-update" id="btn-convert-pmtiles" title="将已下载的散列瓦片快速合并为 PMTiles 单文件，提升读取速度并减少磁盘碎片">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-              <span>转为 PMTiles 单文件</span>
-            </button>
-            <button type="button" class="btn-check-tile-update" id="btn-gui-generate-contours" title="利用已下载的 DEM 高程离线批量预生成等高线 PMTiles 单文件">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>
-              <span>预生成等高线 PMTiles</span>
-            </button>
-          </div>
-        </div>
-
         <div class="stat-summary-box dl-unified-box">
           <div class="stat-info-col">
             <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
@@ -868,6 +854,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.27"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.28"></script>
 </body>
 </html>

@@ -80,6 +80,89 @@ function serializeDirectory(entries) {
   return zlib.gzipSync(buf.subarray(0, offset));
 }
 
+function deserializeDirectory(compressedBuf) {
+  const buf = zlib.gunzipSync(compressedBuf);
+  let pos = 0;
+  function readVarint() {
+    let res = 0n;
+    let shift = 0n;
+    while (pos < buf.length) {
+      const b = BigInt(buf[pos++]);
+      res |= (b & 0x7Fn) << shift;
+      if (!(b & 0x80n)) break;
+      shift += 7n;
+    }
+    return res;
+  }
+
+  const numEntries = Number(readVarint());
+  const entries = new Array(numEntries);
+  let lastId = 0n;
+  for (let i = 0; i < numEntries; i++) {
+    const diff = readVarint();
+    lastId += diff;
+    entries[i] = { tileId: Number(lastId) };
+  }
+  for (let i = 0; i < numEntries; i++) {
+    entries[i].runLength = Number(readVarint());
+  }
+  for (let i = 0; i < numEntries; i++) {
+    entries[i].length = Number(readVarint());
+  }
+  for (let i = 0; i < numEntries; i++) {
+    const off = readVarint();
+    if (off === 0n) {
+      entries[i].offset = entries[i - 1].offset + entries[i - 1].length;
+    } else {
+      entries[i].offset = Number(off - 1n);
+    }
+  }
+  return entries;
+}
+
+function readPmtilesInfo(filePath) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const headerBuf = Buffer.alloc(127);
+    fs.readSync(fd, headerBuf, 0, 127, 0);
+    if (headerBuf.toString('utf8', 0, 2) !== 'PM') {
+      throw new Error('Not a PMTiles file: ' + filePath);
+    }
+    const rootDirOffset = Number(headerBuf.readBigUInt64LE(8));
+    const rootDirLength = Number(headerBuf.readBigUInt64LE(16));
+    const jsonOffset = Number(headerBuf.readBigUInt64LE(24));
+    const jsonLength = Number(headerBuf.readBigUInt64LE(32));
+    const dataOffset = Number(headerBuf.readBigUInt64LE(56));
+    const dataLength = Number(headerBuf.readBigUInt64LE(64));
+    const numTiles = Number(headerBuf.readBigUInt64LE(72));
+    const numEntries = Number(headerBuf.readBigUInt64LE(80));
+    const tileType = headerBuf.readUInt8(99);
+    const minZoom = headerBuf.readUInt8(100);
+    const maxZoom = headerBuf.readUInt8(101);
+
+    const rootDirCompressed = Buffer.alloc(rootDirLength);
+    fs.readSync(fd, rootDirCompressed, 0, rootDirLength, rootDirOffset);
+    const entries = deserializeDirectory(rootDirCompressed);
+
+    let metadata = {};
+    if (jsonLength > 0) {
+      try {
+        const jsonCompressed = Buffer.alloc(jsonLength);
+        fs.readSync(fd, jsonCompressed, 0, jsonLength, jsonOffset);
+        metadata = JSON.parse(zlib.gunzipSync(jsonCompressed).toString('utf8'));
+      } catch (_) {}
+    }
+
+    return {
+      header: { rootDirOffset, rootDirLength, jsonOffset, jsonLength, dataOffset, dataLength, numTiles, numEntries, tileType, minZoom, maxZoom },
+      metadata,
+      entries
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function buildPmtilesHeader({
   rootDirOffset,
   rootDirLength,
@@ -297,6 +380,8 @@ module.exports = {
   buildPmtilesBuffer,
   buildPmtilesHeader,
   serializeDirectory,
+  deserializeDirectory,
+  readPmtilesInfo,
   TileArchiveManager,
   zxyToTileId
 };

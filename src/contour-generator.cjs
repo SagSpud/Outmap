@@ -6,7 +6,9 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
-const { buildPmtilesBuffer } = require('./tile-archive.cjs');
+const { buildPmtilesBuffer, NodeFileSource, readPmtilesInfo } = require('./tile-archive.cjs');
+const { PmtilesDownloadSink } = require('./pmtiles-download-sink.cjs');
+const { PMTiles, tileIdToZxy } = require('pmtiles');
 
 // 创建 Terrarium 格式 0 米海拔（海平面平地）回退切片 (RGBA 128, 0, 0, 255)
 function createFlatTerrariumPng(width = 256, height = 256) {
@@ -58,8 +60,11 @@ function lonLatToTile(lon, lat, zoom) {
   return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
 }
 
-// 扫描本地 DEM 目录或根据 bbox 收集需要生成的瓦片清单
+// 扫描本地 DEM 目录或根据 bbox / PMTiles 收集需要生成的瓦片清单
 function scanTilesToGenerate(options) {
+  if (Array.isArray(options.tiles) && options.tiles.length > 0) {
+    return options.tiles;
+  }
   const { demDir, levels = '6-12', bbox } = options;
   let [minZ, maxZ] = levels.split('-').map(s => parseInt(s.trim(), 10));
   if (isNaN(minZ)) minZ = 6;
@@ -87,6 +92,35 @@ function scanTilesToGenerate(options) {
       }
       return tiles;
     }
+  }
+
+  // 优先扫描 dem.pmtiles 单文件归档
+  const demPmtilesCandidates = [
+    options.demArchive,
+    demDir ? path.join(path.dirname(demDir), 'archives', 'dem.pmtiles') : null,
+    demDir ? path.join(demDir, 'archives', 'dem.pmtiles') : null,
+    demDir ? path.join(demDir, 'dem.pmtiles') : null,
+    'offline-tiles/archives/dem.pmtiles',
+    '../offline-tiles/archives/dem.pmtiles'
+  ].filter(p => p && fs.existsSync(p));
+
+  if (demPmtilesCandidates.length > 0) {
+    try {
+      const info = readPmtilesInfo(demPmtilesCandidates[0]);
+      if (info && Array.isArray(info.entries)) {
+        for (const entry of info.entries) {
+          const [z, x, y] = tileIdToZxy(entry.tileId);
+          if (z >= minZ && z <= maxZ) {
+            const key = `${z}/${x}/${y}`;
+            if (!tileSet.has(key)) {
+              tileSet.add(key);
+              tiles.push({ z, x, y });
+            }
+          }
+        }
+        if (tiles.length > 0) return tiles;
+      }
+    } catch (_) {}
   }
 
   // 默认模式：自动扫描 DEM 目录现有的切片
@@ -205,6 +239,15 @@ async function runContourGeneration(options = {}, onProgress = () => {}) {
   console.log(`📊  检测到待生成切片: ${tiles.length} 张`);
   console.log('------------------------------------------------------------');
 
+  let demSource = null;
+  let demPmtiles = null;
+  if (demPmtilesCandidates && demPmtilesCandidates.length > 0) {
+    try {
+      demSource = new NodeFileSource(demPmtilesCandidates[0]);
+      demPmtiles = new PMTiles(demSource);
+    } catch (_) {}
+  }
+
   let downloadedCount = 0;
   const server = http.createServer(async (req, res) => {
     const match = /^\/dem\/(\d+)\/(\d+)\/(\d+)\.(webp|png)/.exec(req.url);
@@ -213,7 +256,20 @@ async function runContourGeneration(options = {}, onProgress = () => {}) {
     }
     const [, tz, tx, ty] = match;
 
-    // 优先匹配本地 webp
+    // 优先从 DEM PMTiles 读取
+    if (demPmtiles) {
+      try {
+        const pmt = await demPmtiles.getZxy(Number(tz), Number(tx), Number(ty));
+        if (pmt && pmt.data) {
+          const pmtBuf = Buffer.from(pmt.data);
+          res.writeHead(200, { 'Content-Type': 'image/webp', 'Content-Length': pmtBuf.length });
+          res.end(pmtBuf);
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 匹配本地 webp
     const localWebp = path.join(opts.demDir, tz, tx, `${ty}.webp`);
     if (fs.existsSync(localWebp)) {
       const data = fs.readFileSync(localWebp);
@@ -346,21 +402,25 @@ async function runContourGeneration(options = {}, onProgress = () => {}) {
   }
 
   server.close();
+  if (demSource) {
+    try { demSource.close(); } catch (_) {}
+  }
   try { win.destroy(); } catch (_) {}
 
+  let finalTileCount = generatedTiles.length;
   if (opts.outputType === 'pmtiles') {
     console.log(`📦  正在封装并建立空间单文件索引 (PMTiles v3)... ${opts.output}`);
     fs.mkdirSync(path.dirname(opts.output), { recursive: true });
 
-    const pmtilesBuf = buildPmtilesBuffer(generatedTiles, {
-      type: 'contour',
-      tileType: 'mvt',
-      name: 'Outmap Metric Contours Archive'
-    });
-
-    fs.writeFileSync(opts.output, pmtilesBuf);
-    const sizeMb = (pmtilesBuf.length / (1024 * 1024)).toFixed(2);
-    console.log(`✅  PMTiles 归档成功生成！大小: ${sizeMb} MB, 包含瓦片: ${generatedTiles.length}`);
+    const sink = new PmtilesDownloadSink({ archivesDir: path.dirname(opts.output) });
+    await sink.init(['contour']);
+    for (const t of generatedTiles) {
+      sink.appendTile('contour', t.z, t.x, t.y, t.data);
+    }
+    const finalizeRes = await sink.finalizeLayer('contour');
+    finalTileCount = finalizeRes?.tileCount || generatedTiles.length;
+    const sizeMb = ((finalizeRes?.fileSize || 0) / (1024 * 1024)).toFixed(2);
+    console.log(`✅  等高线 PMTiles 归档成功生成！大小: ${sizeMb} MB, 包含瓦片: ${finalTileCount}`);
   } else {
     console.log(`✅  散列瓦片已全部输出至目录: ${opts.output}`);
   }

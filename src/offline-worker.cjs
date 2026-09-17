@@ -139,6 +139,58 @@ function scan({ baseDir, provinces, boxes, unavailableFile, unavailableSources }
     stats[layerCfg.statKey + 'Bytes'] += layerTotalBytes;
   }
 
+  // 1.5 扫描 PMTiles 单文件归档 (dem.pmtiles, vector.pmtiles, contour_metric-v1.pmtiles)
+  const archivesDir = path.join(baseDir, 'archives');
+  const archiveFiles = entries(archivesDir).filter(f => f.isFile() && f.name.toLowerCase().endsWith('.pmtiles'));
+  if (archiveFiles.length > 0) {
+    const { readPmtilesInfo } = require('./tile-archive.cjs');
+    const { tileIdToZxy } = require('pmtiles');
+    for (const af of archiveFiles) {
+      const lower = af.name.toLowerCase();
+      let layerType = 'vector';
+      if (lower.includes('dem') || lower.includes('terrain')) layerType = 'dem';
+      else if (lower.includes('contour')) layerType = 'contour';
+      else if (lower.includes('sat') || lower.includes('imagery')) layerType = 'sat';
+      else if (lower.includes('vector') || lower.includes('osm')) layerType = 'vector';
+
+      const fullPath = path.join(archivesDir, af.name);
+      try {
+        const fileStat = fs.statSync(fullPath);
+        const info = readPmtilesInfo(fullPath);
+        if (info && Array.isArray(info.entries)) {
+          if (layerType === 'dem') {
+            stats.demCount += info.entries.length;
+            stats.demBytes += fileStat.size;
+          } else if (layerType === 'vector') {
+            stats.vectorCount += info.entries.length;
+            stats.vectorBytes += fileStat.size;
+          } else if (layerType === 'sat') {
+            stats.satCount += info.entries.length;
+            stats.satBytes += fileStat.size;
+          }
+
+          if (['dem', 'vector'].includes(layerType)) {
+            for (let i = 0; i < info.entries.length; i++) {
+              const [z, x, y] = tileIdToZxy(info.entries[i].tileId);
+              if (z > 14 || (layerType === 'dem' && z > 12)) continue;
+              const candidates = (ranges[z] || []).filter(r => x >= r.b[0] && x <= r.b[1]);
+              if (candidates.length > 0 && inChina(z, x, y, boxes)) {
+                for (const r of candidates) {
+                  if (y >= r.b[2] && y <= r.b[3]) {
+                    const provLevel = result[r.key]?.layers?.[layerType]?.levels?.[z];
+                    if (provLevel) provLevel.present++;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Offline Scan] Warning reading pmtiles ' + af.name + ':', err.message);
+      }
+    }
+  }
+
   // Confirmed 404/410 gaps are legitimate coverage terminals. Keep them in a
   // compact index outside the tile folders so scans remain compatible with
   // existing OSM/DEM data and never create millions of marker files.

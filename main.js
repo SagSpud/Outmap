@@ -1708,6 +1708,7 @@ app.whenReady().then(async () => {
     let finalInventoryUpdated = false;
     let downloadLanes = null;
     let unavailableTileIndex = null;
+    let downloadSink = null;
     try {
     if (activeDownloadAbort) {
       activeDownloadAbort.abort();
@@ -1754,7 +1755,10 @@ app.whenReady().then(async () => {
       }
       return pending;
     }
-    async function checkTileExistsFast(dirPath, fileName, verifySize = false) {
+    async function checkTileExistsFast(task, dirPath, fileName, verifySize = false) {
+      if (downloadSink && task && downloadSink.hasTile(task.type, task.z, task.x, task.y)) {
+        return true;
+      }
       const names = await checkDirectoryFiles(dirPath);
       if (!names.has(fileName)) return false;
       if (!verifySize) return true;
@@ -1767,9 +1771,12 @@ app.whenReady().then(async () => {
     }
 
     const { enumerateTiles, enumerateMissingTileRanges } = require('./src/offline-worker.cjs');
+    const { PmtilesDownloadSink } = require('./src/pmtiles-download-sink.cjs');
     const safeMinZ = Math.max(0, minZ || 0);
     const safeMaxZ = Math.min(14, maxZ);
     const requestedTypes = [downloadDem ? 'dem' : null, downloadVec ? 'vector' : null].filter(Boolean);
+    downloadSink = new PmtilesDownloadSink({ archivesDir: OFFLINE_ARCHIVES_DIR });
+    await downloadSink.init(requestedTypes);
     const manifestTargetKeys = new Set();
     const missingTargetKeys = new Set();
     let estimatedMissing = 0;
@@ -2025,7 +2032,13 @@ app.whenReady().then(async () => {
                 await discoveryFlow.yieldForInteraction();
                 if (signal.aborted) return new Set();
                 const root = type === 'dem' ? OFFLINE_DEM_DIR : OFFLINE_VEC_DIR;
-                return checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
+                const legacyFiles = await checkDirectoryFiles(path.join(root, `${z}`, `${x}`));
+                const pmtilesY = downloadSink ? downloadSink.getColumnExistingY(type, z, x) : null;
+                if (!pmtilesY || pmtilesY.size === 0) return legacyFiles;
+                const ext = type === 'dem' ? 'webp' : 'pbf';
+                const combined = new Set(legacyFiles);
+                for (const y of pmtilesY) combined.add(`${y}.${ext}`);
+                return combined;
               },
               isUnavailable: (type, z, x, y) => unavailableTileIndex.has(type, z, x, y),
               onProgress: progress => {
@@ -2056,43 +2069,11 @@ app.whenReady().then(async () => {
       if ((mapInteractionActive || framePressureActive) && !signal.aborted) {
         await new Promise(resolve => setTimeout(resolve, 25));
       }
-      const dirKey = `${task.type}/${task.z}/${task.x}`;
-      let dirReady = createdDirs.get(dirKey);
-      if (!dirReady) {
-        dirReady = fs.promises.mkdir(dirPath, { recursive: true });
-        createdDirs.set(dirKey, dirReady);
+      if (downloadSink) {
+        downloadSink.appendTile(task.type, task.z, task.x, task.y, buf);
       }
-      try {
-        await dirReady;
-      } catch (error) {
-        createdDirs.delete(dirKey);
-        throw error;
-      }
-      const tempPath = `${localPath}.${process.pid}.${++atomicWriteSerial}.tmp`;
-      try {
-        await fs.promises.writeFile(tempPath, buf);
-        await fs.promises.rename(tempPath, localPath);
-      } catch (error) {
-        // The live map may have cached the same missing tile while the batch
-        // request was in flight. Keep that valid winner and discard our temp.
-        try {
-          if ((error.code === 'EEXIST' || error.code === 'EPERM')
-            && (await fs.promises.stat(localPath)).size > (task.type === 'vector' ? 0 : 20)) {
-            await fs.promises.rm(tempPath, { force: true });
-          } else {
-            throw error;
-          }
-        } catch (recoveryError) {
-          await fs.promises.rm(tempPath, { force: true }).catch(() => {});
-          throw recoveryError;
-        }
-      }
-      if (dirFileSets.has(dirPath)) {
-        (await dirFileSets.get(dirPath)).add(fileName);
-      }
-      // A live map may have cached a previous missing/corrupt response under
-      // this key. Force its next request to read the newly committed file.
       deleteCachedTile(`${task.type}/${task.z}/${task.x}/${fileName}`);
+      setCachedTile(`${task.type}/${task.z}/${task.x}/${fileName}`, buf);
     }
 
     async function worker(workerIndex) {
@@ -2119,7 +2100,7 @@ app.whenReady().then(async () => {
         // granularity. Only explicit verify/update modes need a per-task check.
         const existsLocally = normalResume
           ? false
-          : await checkTileExistsFast(dirPath, fileName, Boolean(isVerify || isIncrementalUpdate));
+          : await checkTileExistsFast(task, dirPath, fileName, Boolean(isVerify || isIncrementalUpdate));
         if (existsLocally) unavailableTileIndex.remove(type, z, x, y);
 
         if (isIncrementalUpdate) {
@@ -2327,6 +2308,66 @@ app.whenReady().then(async () => {
       discoveryFlow.dispose();
     }
     if (planningError) throw planningError;
+
+    // PMTiles 单文件流式归档与等高线协同解算流水线
+    if (downloadSink) {
+      const hasNewTiles = downloadSink.getNewTileCount('dem') > 0 || downloadSink.getNewTileCount('vector') > 0;
+      if (hasNewTiles) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('download-progress', {
+            completed,
+            total,
+            percent: 98,
+            currentProvince: activeProvName || '离线切片',
+            currentZ: activeZ,
+            phase: 'assembling',
+            failureReason: '正在极速组装 PMTiles 单文件...'
+          });
+        }
+        await downloadSink.finalizeAll();
+        await tileArchiveManager.init();
+
+        // 若本次任务下载了 DEM 高程切片，流水线自动联动 Chromium 无头引擎解算生成等高线 PMTiles
+        const newDemTiles = downloadSink.getNewTiles('dem');
+        if (downloadDem && newDemTiles.length > 0 && !signal.aborted) {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('download-progress', {
+              completed: 0,
+              total: newDemTiles.length,
+              percent: 0,
+              currentProvince: activeProvName || '等高线',
+              currentZ: 12,
+              phase: 'contour',
+              failureReason: '正在自动解算三维等高线单文件...'
+            });
+          }
+          try {
+            const { runContourGeneration } = require('./src/contour-generator.cjs');
+            await runContourGeneration({
+              tiles: newDemTiles.map(t => ({ z: t.z, x: t.x, y: t.y })),
+              output: path.join(OFFLINE_ARCHIVES_DIR, 'contour_metric-v1.pmtiles'),
+              outputType: 'pmtiles'
+            }, (p) => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('download-progress', {
+                  completed: p.current,
+                  total: p.total,
+                  percent: p.percent,
+                  currentProvince: activeProvName || '等高线',
+                  currentZ: 12,
+                  phase: 'contour',
+                  failureReason: `正在解算三维等高线 (${p.current}/${p.total})...`
+                });
+              }
+            });
+            await tileArchiveManager.init();
+          } catch (err) {
+            console.warn('[Auto Contour Generation Warning]', err.message);
+          }
+        }
+      }
+    }
+
     // The normal iterator contains missing files only; its final discovered
     // count is the exact denominator and never includes ready local tiles.
     if (!isVerify && !isIncrementalUpdate) total = completed;
@@ -2377,6 +2418,9 @@ app.whenReady().then(async () => {
       }
       offlineDownloadRunning = false;
       activeDownloadAbort = null;
+      if (downloadSink) {
+        downloadSink.dispose();
+      }
       if (downloadLanes) {
         for (const lane of Object.values(downloadLanes)) lane.dispose();
       }

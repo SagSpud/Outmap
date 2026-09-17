@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.27';
+const APP_VERSION = '2.0.28';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -5169,51 +5169,6 @@ function setupPyramidModal(map) {
     }
   });
 
-  const btnConvertPmtiles = document.getElementById('btn-convert-pmtiles');
-  const btnGuiContours = document.getElementById('btn-gui-generate-contours');
-
-  btnConvertPmtiles?.addEventListener('click', async () => {
-    if (!window.electronAPI?.convertOfflineTilesToPmtiles) {
-      showFluentAlert('当前环境不支持本地切片打包（需要桌面端运行）。', '操作提示');
-      return;
-    }
-    const origHtml = btnConvertPmtiles.innerHTML;
-    btnConvertPmtiles.disabled = true;
-    btnConvertPmtiles.innerHTML = '<span>打包中...</span>';
-    try {
-      const results = await window.electronAPI.convertOfflineTilesToPmtiles();
-      showFluentAlert(`🎉 PMTiles 转换完成！已处理 ${results?.length || 0} 项瓦片归档。\n\n单文件已保存在 offline-tiles/archives/ 目录下，Outmap 将自动秒级优先直读！`, 'PMTiles 转换成功');
-    } catch (err) {
-      showFluentAlert(`转换失败: ${err.message}`, '错误');
-    } finally {
-      btnConvertPmtiles.disabled = false;
-      btnConvertPmtiles.innerHTML = origHtml;
-    }
-  });
-
-  btnGuiContours?.addEventListener('click', async () => {
-    if (!window.electronAPI?.generateContourPmtiles) {
-      showFluentAlert('当前环境不支持等高线生成（需要桌面端运行）。', '操作提示');
-      return;
-    }
-    const origHtml = btnGuiContours.innerHTML;
-    btnGuiContours.disabled = true;
-    btnGuiContours.innerHTML = '<span>预生成中...</span>';
-    try {
-      const res = await window.electronAPI.generateContourPmtiles();
-      if (res && res.success) {
-        showFluentAlert(`🎉 离线等高线 PMTiles 生成成功！\n\n共提取 ${res.count} 张矢量瓦片，文件已存入:\n${res.outputFile}\n\nOutmap 启动时将自动秒级挂载！`, '等高线生成成功');
-      } else {
-        showFluentAlert(res?.error || '未发现可用的 DEM 切片或未生成瓦片', '生成提示');
-      }
-    } catch (err) {
-      showFluentAlert(`生成失败: ${err.message}`, '错误');
-    } finally {
-      btnGuiContours.disabled = false;
-      btnGuiContours.innerHTML = origHtml;
-    }
-  });
-
   // 中止下载
   btnCancel.addEventListener('click', async () => {
     document.body.classList.remove('is-downloading');
@@ -5270,7 +5225,11 @@ function setupPyramidModal(map) {
         const curKeys = getSelectedKeys();
         const isMatched = curKeys.length === 1 && PROVINCES_DATA[curKeys[0]]?.name === provName;
         const taskPrefix = isMatched ? '正在下载' : '后台正在下载';
-        if (data.isIncrementalUpdate) {
+        if (data.phase === 'assembling') {
+          progressTask.innerText = `📦 正在生成 PMTiles: ${provName}`;
+        } else if (data.phase === 'contour') {
+          progressTask.innerText = `🏔️ 正在自动解算三维等高线: ${provName}`;
+        } else if (data.isIncrementalUpdate) {
           progressTask.innerText = `增量更新: ${provName}${zStr}`;
         } else if (data.isVerify) {
           progressTask.innerText = `正在校验: ${provName}${zStr}`;
@@ -5286,7 +5245,13 @@ function setupPyramidModal(map) {
       let mainText = countPart;
       let subText = '';
       const readyCount = data.existingCount || data.skippedCount || 0;
-      if (isLocating) {
+      if (data.phase === 'assembling') {
+        mainText = '正在极速合并空间索引为 PMTiles 单文件...';
+        subText = '消除海量散列小文件与磁盘碎片';
+      } else if (data.phase === 'contour') {
+        mainText = countPart;
+        subText = 'Chromium 离线引擎正在高速提取三维等高线单文件';
+      } else if (isLocating) {
         const found = Number(data.foundMissing || data.total || 0);
         const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
         const failed = Number(data.failedCount || 0);
