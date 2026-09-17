@@ -19,6 +19,10 @@
   },
   "author": "Outmap Outdoor GIS Team",
   "license": "MIT",
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "pmtiles": "^4.5.0"
+  },
   "devDependencies": {
     "@mapbox/vector-tile": "^3.0.0",
     "electron": "^35.7.5",

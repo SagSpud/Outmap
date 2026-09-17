@@ -61,10 +61,16 @@ async function main() {
 
   copyDir(path.join(rootDir, 'src'), path.join(stagingDir, 'src'));
 
-  // 将 pmtiles 运行时依赖复制至 stagingDir/node_modules/pmtiles，确保 app.asar 离线随机读取独立无缺
-  const pmtilesSrc = path.join(rootDir, 'node_modules', 'pmtiles');
-  if (fs.existsSync(pmtilesSrc)) {
-    copyDir(pmtilesSrc, path.join(stagingDir, 'node_modules', 'pmtiles'));
+  // 将 pmtiles 及其必需的 fflate 运行时依赖完整打包至 stagingDir/node_modules
+  const runtimeDeps = ['pmtiles', 'fflate'];
+  for (const dep of runtimeDeps) {
+    const depSrc = path.join(rootDir, 'node_modules', dep);
+    if (fs.existsSync(depSrc)) {
+      copyDir(depSrc, path.join(stagingDir, 'node_modules', dep));
+      console.log(`   - 📦 已打包独立运行时依赖: ${dep}`);
+    } else {
+      throw new Error(`缺少关键运行时依赖: ${dep}，请先执行 npm install`);
+    }
   }
 
   const outAsar = path.join(outputDir, 'app.asar');
@@ -75,6 +81,38 @@ async function main() {
   console.log('📦 正在压缩构建 app.asar ...');
   await asar.createPackage(stagingDir, outAsar);
   fs.rmSync(stagingDir, { recursive: true, force: true });
+
+  // 关键自检：在纯隔离独立环境中运行，确保在没有宿主全局 node_modules 的用户电脑上能 100% 独立启动
+  console.log('🔍 正在纯隔离独立环境中严格校验 app.asar 完整性...');
+  const isolatedDir = path.join(rootDir, 'dist', 'temp_asar_isolated_verify');
+  if (fs.existsSync(isolatedDir)) fs.rmSync(isolatedDir, { recursive: true, force: true });
+  fs.mkdirSync(isolatedDir, { recursive: true });
+  fs.copyFileSync(outAsar, path.join(isolatedDir, 'app.asar'));
+
+  const verifyScript = `
+    try {
+      require('./app.asar/src/tile-archive.cjs');
+      console.log('[ISOLATED_VERIFY_OK]');
+      process.exit(0);
+    } catch (err) {
+      console.error('[ISOLATED_VERIFY_FAIL]', err.message);
+      process.exit(1);
+    }
+  `;
+  fs.writeFileSync(path.join(isolatedDir, 'verify.cjs'), verifyScript, 'utf8');
+
+  const electronCli = path.resolve(rootDir, 'node_modules', 'electron', 'cli.js');
+  const verifyRes = require('child_process').spawnSync(process.execPath, [electronCli, 'verify.cjs'], {
+    cwd: isolatedDir,
+    env: { ...process.env, NODE_PATH: '' }
+  });
+
+  fs.rmSync(isolatedDir, { recursive: true, force: true });
+
+  if (verifyRes.status !== 0) {
+    throw new Error(`app.asar 独立环境自检失败: ${verifyRes.stderr.toString().trim() || verifyRes.stdout.toString().trim()}`);
+  }
+  console.log('   - 🛡️  app.asar 纯独立运行环境自检 100% 通过（pmtiles 与 fflate 均可离线解析）！');
 
   // 自动同步更新本地便携包，方便本机测试与手动拷贝
   const localPortableAsar = path.join(rootDir, 'dist', 'Outmap', 'resources', 'app.asar');
