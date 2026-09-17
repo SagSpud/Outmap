@@ -76,12 +76,89 @@ const isConvertPmtiles = process.argv.includes('--convert-pmtiles');
 if (isGenerateContours || isConvertPmtiles) {
   app.whenReady().then(async () => {
     if (isConvertPmtiles) {
+      const progWin = new BrowserWindow({
+        width: 520,
+        height: 260,
+        resizable: false,
+        center: true,
+        title: 'Outmap 离线瓦片转 PMTiles 单文件',
+        autoHideMenuBar: true,
+        backgroundColor: '#0f172a',
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+      });
+
+      const progressHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { margin: 0; padding: 24px; font-family: -apple-system, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; user-select: none; }
+            h2 { font-size: 16px; margin: 0 0 8px 0; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+            .desc { font-size: 12px; color: #94a3b8; margin-bottom: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .bar-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+            .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #38bdf8, #0284c7); transition: width 0.15s ease; }
+            .stats { display: flex; justify-content: space-between; font-size: 12px; color: #cbd5e1; margin-top: 10px; }
+          </style>
+        </head>
+        <body>
+          <h2>📦 正在流式合并离线切片为 PMTiles</h2>
+          <div class="desc" id="desc">正在扫描离线瓦片并构建流式索引...</div>
+          <div class="bar-bg"><div class="bar-fill" id="fill"></div></div>
+          <div class="stats">
+            <span id="detail">准备中...</span>
+            <span id="pct">0%</span>
+          </div>
+          <script>
+            window.update = (desc, pct, detail) => {
+              if (desc) document.getElementById('desc').innerText = desc;
+              if (pct !== undefined) {
+                document.getElementById('fill').style.width = pct + '%';
+                document.getElementById('pct').innerText = Math.round(pct) + '%';
+              }
+              if (detail) document.getElementById('detail').innerText = detail;
+            };
+            window.finish = (msg) => {
+              document.getElementById('desc').innerText = msg;
+              document.getElementById('fill').style.width = '100%';
+              document.getElementById('fill').style.background = '#10b981';
+              document.getElementById('pct').innerText = '100%';
+            };
+          </script>
+        </body>
+        </html>
+      `;
+
+      progWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(progressHtml));
+
       try {
         const { convertAllOfflineTiles } = require('./src/convert-to-pmtiles.cjs');
-        await convertAllOfflineTiles(OFFLINE_BASE_DIR);
+        const results = await convertAllOfflineTiles(OFFLINE_BASE_DIR, (progress) => {
+          if (progWin.isDestroyed()) return;
+          if (progress.stage === 'scan') {
+            progWin.webContents.executeJavaScript(
+              `window.update("正在扫描 ${progress.taskName || '瓦片'}: Z${progress.currentZ}", 0, "已发现 ${progress.scannedTiles} 切片")`
+            ).catch(() => {});
+          } else if (progress.stage === 'write') {
+            progWin.webContents.executeJavaScript(
+              `window.update("正在写入 ${progress.taskName || '瓦片'}", ${progress.percent}, "${progress.written} / ${progress.total} (${progress.speed || 0} 瓦片/秒)")`
+            ).catch(() => {});
+          }
+        });
+
+        if (!progWin.isDestroyed()) {
+          await progWin.webContents.executeJavaScript(`window.finish("🎉 成功转换 ${results.length} 项 PMTiles 单文件！")`).catch(() => {});
+          await new Promise(r => setTimeout(r, 2000));
+          progWin.destroy();
+        }
         app.exit(0);
       } catch (err) {
         console.error('PMTiles conversion failed:', err);
+        if (!progWin.isDestroyed()) {
+          await progWin.webContents.executeJavaScript(`window.finish("⚠️ 转换失败: ${err.message}")`).catch(() => {});
+          await new Promise(r => setTimeout(r, 3000));
+          progWin.destroy();
+        }
         app.exit(1);
       }
       return;

@@ -2,37 +2,49 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const { zxyToTileId, TileType } = require('pmtiles');
 
-let buildPmtilesBuffer;
+let tileArchive;
 try {
-  buildPmtilesBuffer = require('./tile-archive.cjs').buildPmtilesBuffer;
+  tileArchive = require('./tile-archive.cjs');
 } catch (_) {
-  buildPmtilesBuffer = require('../src/tile-archive.cjs').buildPmtilesBuffer;
+  tileArchive = require('../src/tile-archive.cjs');
 }
+const { serializeDirectory, buildPmtilesHeader, buildPmtilesBuffer } = tileArchive;
 
 async function convertDirectoryToPmtiles(options = {}) {
   const inputDir = path.resolve(options.inputDir);
   const outputFile = path.resolve(options.outputFile);
   const type = options.type || 'vector'; // vector, dem, contour, sat
+  const taskName = options.taskName || type;
   const onProgress = options.onProgress || (() => {});
 
   if (!fs.existsSync(inputDir)) {
     throw new Error(`Input directory does not exist: ${inputDir}`);
   }
 
-  console.log(`[PMTiles Converter] Scanning tiles in ${inputDir}...`);
-  const tiles = [];
-
-  // Directory structure: inputDir/{z}/{x}/{y}.ext or inputDir/metric-v1/{z}/{x}/{y}.ext
+  // 1. Scan directory structure for files (Metadata only, NO memory buffer allocations)
   let scanDir = inputDir;
   if (fs.existsSync(path.join(inputDir, 'metric-v1')) && fs.statSync(path.join(inputDir, 'metric-v1')).isDirectory()) {
     scanDir = path.join(inputDir, 'metric-v1');
   }
   const zDirs = fs.readdirSync(scanDir, { withFileTypes: true }).filter(d => d.isDirectory());
 
+  const tiles = [];
+  let totalBytes = 0;
+  let minZoom = 255;
+  let maxZoom = 0;
+  let lastLogTime = Date.now();
+
+  console.log(`[PMTiles 转换器] 正在高速扫描瓦片索引: ${inputDir}...`);
+
   for (const zDir of zDirs) {
     const z = parseInt(zDir.name, 10);
     if (isNaN(z)) continue;
+    if (z < minZoom) minZoom = z;
+    if (z > maxZoom) maxZoom = z;
+
     const zPath = path.join(scanDir, zDir.name);
     const xDirs = fs.readdirSync(zPath, { withFileTypes: true }).filter(d => d.isDirectory());
 
@@ -49,34 +61,161 @@ async function convertDirectoryToPmtiles(options = {}) {
 
         const tilePath = path.join(xPath, file.name);
         try {
-          const data = fs.readFileSync(tilePath);
-          if (data.length > 0) {
-            tiles.push({ z, x, y, data });
+          const stat = fs.statSync(tilePath);
+          if (stat.size > 0) {
+            tiles.push({
+              z,
+              x,
+              y,
+              tileId: zxyToTileId(z, x, y),
+              filePath: tilePath,
+              size: stat.size
+            });
+            totalBytes += stat.size;
           }
         } catch (_) {}
       }
     }
-    onProgress({ scannedTiles: tiles.length, currentZ: z });
+
+    const now = Date.now();
+    if (now - lastLogTime > 150) {
+      lastLogTime = now;
+      process.stdout.write(`\r🔍 [扫描索引] 已发现 ${tiles.length.toLocaleString()} 个切片 (当前层级: Z${z})...`);
+      onProgress({ stage: 'scan', scannedTiles: tiles.length, currentZ: z, taskName });
+    }
   }
 
-  console.log(`[PMTiles Converter] Found ${tiles.length} valid tiles. Building PMTiles archive...`);
+  process.stdout.write(`\r🔍 [扫描索引] 扫描完成: 共 ${tiles.length.toLocaleString()} 个有效切片，总大小 ${(totalBytes / 1024 / 1024).toFixed(2)} MB    \n`);
+
   if (tiles.length === 0) {
-    throw new Error(`No valid tiles found in ${inputDir}`);
+    throw new Error(`未在 ${inputDir} 发现任何有效瓦片切片`);
+  }
+  if (minZoom === 255) minZoom = 0;
+
+  // 2. Sort by PMTiles tileId (Hilbert ordering)
+  console.log(`⚡ 正在构建空间瓦片索引 (Hilbert Sort)...`);
+  tiles.sort((a, b) => (a.tileId < b.tileId ? -1 : a.tileId > b.tileId ? 1 : 0));
+
+  // 3. Build Directory Entries & Offsets
+  const entries = [];
+  let currentOffset = 0;
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
+    entries.push({
+      tileId: t.tileId,
+      offset: currentOffset,
+      length: t.size,
+      runLength: 1
+    });
+    currentOffset += t.size;
   }
 
-  const pmtilesBuffer = buildPmtilesBuffer(tiles, {
-    type,
-    name: path.basename(outputFile, '.pmtiles'),
-    attribution: 'Outmap Offline Archive'
+  const rootDirBuffer = serializeDirectory(entries);
+
+  const metaObj = {
+    name: options.name || path.basename(outputFile, '.pmtiles'),
+    attribution: 'Outmap Offline Archive',
+    type: type || 'overlay',
+    version: '1.0.0',
+    minzoom: minZoom,
+    maxzoom: maxZoom,
+    ...(options.metadata || {})
+  };
+  const jsonMetaGz = zlib.gzipSync(Buffer.from(JSON.stringify(metaObj)));
+
+  const rootDirOffset = 127;
+  const rootDirLength = rootDirBuffer.length;
+  const jsonOffset = rootDirOffset + rootDirLength;
+  const jsonLength = jsonMetaGz.length;
+  const dataOffset = jsonOffset + jsonLength;
+  const dataLength = totalBytes;
+
+  let pmtilesTileType = TileType.Mvt;
+  if (type === 'dem') pmtilesTileType = TileType.Webp;
+  else if (type === 'sat') pmtilesTileType = TileType.Jpeg;
+
+  const header = buildPmtilesHeader({
+    rootDirOffset,
+    rootDirLength,
+    jsonOffset,
+    jsonLength,
+    dataOffset,
+    dataLength,
+    numTiles: tiles.length,
+    numEntries: entries.length,
+    minZoom,
+    maxZoom,
+    tileType: pmtilesTileType
   });
 
+  // 4. Stream Direct-to-Disk Writing with 4MB Chunk Buffer
   const outDir = path.dirname(outputFile);
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
   }
 
   const tempFile = `${outputFile}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tempFile, pmtilesBuffer);
+  const outFd = fs.openSync(tempFile, 'w');
+
+  // Write header + directory + metadata
+  fs.writeSync(outFd, header);
+  fs.writeSync(outFd, rootDirBuffer);
+  fs.writeSync(outFd, jsonMetaGz);
+
+  const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB write buffer
+  const chunkBuf = Buffer.allocUnsafe(CHUNK_SIZE);
+  let chunkPos = 0;
+
+  const startTime = Date.now();
+  lastLogTime = startTime;
+
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
+    const fileBuf = fs.readFileSync(t.filePath);
+
+    if (chunkPos + fileBuf.length > CHUNK_SIZE) {
+      fs.writeSync(outFd, chunkBuf, 0, chunkPos);
+      chunkPos = 0;
+    }
+
+    if (fileBuf.length > CHUNK_SIZE) {
+      fs.writeSync(outFd, fileBuf);
+    } else {
+      fileBuf.copy(chunkBuf, chunkPos);
+      chunkPos += fileBuf.length;
+    }
+
+    const now = Date.now();
+    if (now - lastLogTime > 200 || i === tiles.length - 1) {
+      lastLogTime = now;
+      const pct = (((i + 1) / tiles.length) * 100).toFixed(1);
+      const elapsedSec = Math.max(0.1, (now - startTime) / 1000);
+      const speed = Math.round((i + 1) / elapsedSec);
+      const remainingSec = Math.max(0, Math.round((tiles.length - i - 1) / speed));
+
+      process.stdout.write(`\r💾 [流式写入] 进度: ${pct}% (${(i + 1).toLocaleString()} / ${tiles.length.toLocaleString()}) | 速度: ${speed.toLocaleString()} 瓦片/秒 | 预估剩余: ${remainingSec}s    `);
+
+      onProgress({
+        stage: 'write',
+        taskName,
+        written: i + 1,
+        total: tiles.length,
+        percent: parseFloat(pct),
+        speed,
+        remainingSec
+      });
+    }
+  }
+
+  if (chunkPos > 0) {
+    fs.writeSync(outFd, chunkBuf, 0, chunkPos);
+    chunkPos = 0;
+  }
+
+  fs.closeSync(outFd);
+  process.stdout.write('\n');
+
+  // Atomic file replace
   try {
     if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
     fs.renameSync(tempFile, outputFile);
@@ -86,7 +225,9 @@ async function convertDirectoryToPmtiles(options = {}) {
   }
 
   const stats = fs.statSync(outputFile);
-  console.log(`[PMTiles Converter] Successfully created: ${outputFile} (${(stats.size / 1024 / 1024).toFixed(2)} MB, ${tiles.length} tiles)`);
+  const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`✅ [PMTiles 转换器] 写入完成！总耗时: ${totalSec}s | 单文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB | 瓦片数: ${tiles.length.toLocaleString()}`);
+
   return {
     outputFile,
     tileCount: tiles.length,
@@ -129,7 +270,8 @@ async function convertAllOfflineTiles(baseDir, onProgress = () => {}) {
           inputDir: t.dir,
           outputFile: t.out,
           type: t.type,
-          onProgress: p => onProgress({ task: t.type, ...p })
+          taskName: t.name,
+          onProgress: p => onProgress({ task: t.type, taskName: t.name, ...p })
         });
         results.push(res);
       } catch (err) {

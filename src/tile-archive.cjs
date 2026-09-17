@@ -31,35 +31,89 @@ class NodeFileSource {
   }
 }
 
-function encodeVarint(val, out) {
-  let v = BigInt(val);
-  while (v > 0x7Fn) {
-    out.push(Number((v & 0x7Fn) | 0x80n));
-    v >>= 7n;
-  }
-  out.push(Number(v));
-}
-
 function serializeDirectory(entries) {
-  const bytes = [];
-  encodeVarint(entries.length, bytes);
+  let capacity = Math.max(1024, entries.length * 24 + 16);
+  let buf = Buffer.allocUnsafe(capacity);
+  let offset = 0;
+
+  function ensureCapacity(needed) {
+    if (offset + needed > capacity) {
+      capacity = Math.max(capacity * 2, offset + needed + 1024);
+      const newBuf = Buffer.allocUnsafe(capacity);
+      buf.copy(newBuf, 0, 0, offset);
+      buf = newBuf;
+    }
+  }
+
+  function writeVarint(val) {
+    let v = BigInt(val);
+    ensureCapacity(10);
+    while (v > 0x7Fn) {
+      buf[offset++] = Number((v & 0x7Fn) | 0x80n);
+      v >>= 7n;
+    }
+    buf[offset++] = Number(v);
+  }
+
+  writeVarint(entries.length);
   let lastId = 0n;
-  for (const e of entries) {
-    const id = BigInt(e.tileId);
-    encodeVarint(id - lastId, bytes);
+  for (let i = 0; i < entries.length; i++) {
+    const id = BigInt(entries[i].tileId);
+    writeVarint(id - lastId);
     lastId = id;
   }
-  for (const e of entries) encodeVarint(e.runLength, bytes);
-  for (const e of entries) encodeVarint(e.length, bytes);
+  for (let i = 0; i < entries.length; i++) {
+    writeVarint(entries[i].runLength);
+  }
+  for (let i = 0; i < entries.length; i++) {
+    writeVarint(entries[i].length);
+  }
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     if (i > 0 && e.offset === entries[i - 1].offset + entries[i - 1].length) {
-      encodeVarint(0, bytes);
+      writeVarint(0);
     } else {
-      encodeVarint(e.offset + 1, bytes);
+      writeVarint(e.offset + 1);
     }
   }
-  return zlib.gzipSync(Buffer.from(bytes));
+
+  return zlib.gzipSync(buf.subarray(0, offset));
+}
+
+function buildPmtilesHeader({
+  rootDirOffset,
+  rootDirLength,
+  jsonOffset,
+  jsonLength,
+  dataOffset,
+  dataLength,
+  numTiles,
+  numEntries,
+  minZoom,
+  maxZoom,
+  tileType
+}) {
+  const header = Buffer.alloc(127);
+  header.write('PM', 0);
+  header.writeUInt8(3, 7); // PMTiles v3 spec
+  header.writeBigUInt64LE(BigInt(rootDirOffset), 8);
+  header.writeBigUInt64LE(BigInt(rootDirLength), 16);
+  header.writeBigUInt64LE(BigInt(jsonOffset), 24);
+  header.writeBigUInt64LE(BigInt(jsonLength), 32);
+  header.writeBigUInt64LE(0n, 40); // leafDirsOffset
+  header.writeBigUInt64LE(0n, 48); // leafDirsLength
+  header.writeBigUInt64LE(BigInt(dataOffset), 56);
+  header.writeBigUInt64LE(BigInt(dataLength), 64);
+  header.writeBigUInt64LE(BigInt(numTiles), 72);
+  header.writeBigUInt64LE(BigInt(numEntries || numTiles), 80);
+  header.writeBigUInt64LE(BigInt(numTiles), 88);
+  header.writeUInt8(1, 96); // clustered
+  header.writeUInt8(Compression.Gzip, 97); // internalCompression = gzip
+  header.writeUInt8(Compression.None, 98); // tileCompression = none
+  header.writeUInt8(tileType, 99);
+  header.writeUInt8(minZoom, 100);
+  header.writeUInt8(maxZoom, 101);
+  return header;
 }
 
 function buildPmtilesBuffer(tiles, options = {}) {
@@ -111,8 +165,6 @@ function buildPmtilesBuffer(tiles, options = {}) {
   const rootDirLength = rootDirBuffer.length;
   const jsonOffset = rootDirOffset + rootDirLength;
   const jsonLength = jsonMetaGz.length;
-  const leafDirsOffset = 0;
-  const leafDirsLength = 0;
   const dataOffset = jsonOffset + jsonLength;
   const dataLength = tileDataBuffer.length;
 
@@ -121,26 +173,19 @@ function buildPmtilesBuffer(tiles, options = {}) {
   else if (options.tileType === 'png') pmtilesTileType = TileType.Png;
   else if (options.tileType === 'jpeg' || options.type === 'sat') pmtilesTileType = TileType.Jpeg;
 
-  const header = Buffer.alloc(127);
-  header.write('PM', 0);
-  header.writeUInt8(3, 7); // PMTiles v3 spec
-  header.writeBigUInt64LE(BigInt(rootDirOffset), 8);
-  header.writeBigUInt64LE(BigInt(rootDirLength), 16);
-  header.writeBigUInt64LE(BigInt(jsonOffset), 24);
-  header.writeBigUInt64LE(BigInt(jsonLength), 32);
-  header.writeBigUInt64LE(BigInt(leafDirsOffset), 40);
-  header.writeBigUInt64LE(BigInt(leafDirsLength), 48);
-  header.writeBigUInt64LE(BigInt(dataOffset), 56);
-  header.writeBigUInt64LE(BigInt(dataLength), 64);
-  header.writeBigUInt64LE(BigInt(sortedTiles.length), 72);
-  header.writeBigUInt64LE(BigInt(entries.length), 80);
-  header.writeBigUInt64LE(BigInt(sortedTiles.length), 88);
-  header.writeUInt8(1, 96); // clustered
-  header.writeUInt8(Compression.Gzip, 97); // internalCompression = gzip
-  header.writeUInt8(Compression.None, 98); // tileCompression = none
-  header.writeUInt8(pmtilesTileType, 99);
-  header.writeUInt8(minZoom, 100);
-  header.writeUInt8(maxZoom, 101);
+  const header = buildPmtilesHeader({
+    rootDirOffset,
+    rootDirLength,
+    jsonOffset,
+    jsonLength,
+    dataOffset,
+    dataLength,
+    numTiles: sortedTiles.length,
+    numEntries: entries.length,
+    minZoom,
+    maxZoom,
+    tileType: pmtilesTileType
+  });
 
   return Buffer.concat([header, rootDirBuffer, jsonMetaGz, tileDataBuffer]);
 }
@@ -250,6 +295,8 @@ class TileArchiveManager {
 module.exports = {
   NodeFileSource,
   buildPmtilesBuffer,
+  buildPmtilesHeader,
+  serializeDirectory,
   TileArchiveManager,
   zxyToTileId
 };
