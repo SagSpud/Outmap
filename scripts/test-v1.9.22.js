@@ -25,19 +25,19 @@ assert(!app.includes('updateFps'), 'app.js must not contain updateFps');
 assert(!app.includes('fpsTimer'), 'app.js must not contain fpsTimer');
 assert(!app.includes('renderedFrames'), 'app.js must not contain renderedFrames');
 
-// 3. Location Camera anchoring and zoom cap 13.0
-assert(camera.includes('Number.isFinite(options.zoom) ? options.zoom : 13.0'), 'default flight zoom must be 13.0');
+// 3. Location Camera anchoring and zoom cap 12.0
+assert(/Number\.isFinite\(options\.zoom\)\s*\?\s*options\.zoom\s*:\s*12/.test(camera), 'default flight zoom must be 12');
 assert(camera.includes('(centered ? 0.5 : 0.68)'), 'visual anchor for uncentered points must be 0.68');
 assert(camera.includes('route-panel') && camera.includes('favorites-drawer'), 'camera anchor must discount right side panels');
 assert(camera.includes('options.elevation > 0'), 'camera endpoint must not let ele:0 override real 3D terrain elevation');
 assert(!camera.includes('suppressedLayers'), 'location camera must not hide route lines during flight to prevent blinking');
 
-// 4. Zoom levels capped at 13.0 across all interaction points
+// 4. Zoom levels capped at 12.0 across all interaction points
 assert(!app.includes('zoom: 14.8'), 'app.js must not contain zoom 14.8');
 assert(!app.includes('routeStartZoom = 14.5;'), 'app.js routeStartZoom must not be 14.5');
 assert(!app.includes('routeEndZoom = 14.5;'), 'app.js routeEndZoom must not be 14.5');
-assert(app.includes('let routeStartZoom = 13.0;'), 'routeStartZoom must default to 13.0');
-assert(app.includes('let routeEndZoom = 13.0;'), 'routeEndZoom must default to 13.0');
+assert(app.includes('let routeStartZoom = 12.0;'), 'routeStartZoom must default to 12.0');
+assert(app.includes('let routeEndZoom = 12.0;'), 'routeEndZoom must default to 12.0');
 
 // 5. Large zoom level layer optimizations
 assert(app.includes("id: 'osm-places-cities'") && app.includes('maxzoom: 14'), 'osm-places-cities must have maxzoom 14');

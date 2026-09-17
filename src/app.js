@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.23';
+const APP_VERSION = '2.0.24';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1998,7 +1998,7 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
-    maxZoom: 17, // 限制最大缩放层级为 17 级（已达建筑物与门牌商铺细节，杜绝深层切片拉伸与显存浪费，大幅提升流畅度）
+    maxZoom: 16, // 限制最大缩放层级为 16 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
     // MapLibre defaults wheel zoom to the pointer position, so a pointer on
     // the left/right intentionally pans the geographic center while zooming.
@@ -2917,7 +2917,7 @@ async function queryLocationCandidates(keyword, owner = window) {
       desc: 'GPS 经纬度绝对坐标',
       coords: [Number(coordMatch.coords[0]), Number(coordMatch.coords[1])],
       type: 'target',
-      zoom: 13.0
+      zoom: 12.0
     }];
     if (typeof setCachedSearchResults === 'function') {
       setCachedSearchResults(raw, coordResults);
@@ -3104,7 +3104,7 @@ async function queryLocationCandidates(keyword, owner = window) {
             desc,
             coords: [lng, lat],
             type,
-            zoom: 13.0
+            zoom: 12.0
           });
         }
       });
@@ -3262,7 +3262,7 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const cameraPadding = { top: 0, bottom: 0, left: 0, right: 0 };
   map.flyTo({
     center: [lng, lat],
-    zoom: flyOpts.zoom || 13.0,
+    zoom: flyOpts.zoom || 12.0,
     pitch: flyOpts.pitch !== undefined ? flyOpts.pitch : (map.getPitch() ?? 50),
     bearing: flyOpts.bearing !== undefined ? flyOpts.bearing : (map.getBearing() ?? 0),
     padding: cameraPadding,
@@ -3762,7 +3762,7 @@ function setupOfficeHeaderInteractions(map) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() ?? 50;
-        flyToLocationPrecisely(map, validCoords, { zoom: 13.0, pitch: curPitch, duration: 600, centered: false });
+        flyToLocationPrecisely(map, validCoords, { zoom: 12.0, pitch: curPitch, duration: 600, centered: false });
       });
     }
 
@@ -3897,16 +3897,16 @@ function setupOfficeHeaderInteractions(map) {
     });
 
     const isProv = item.type === 'province';
-    // 智能层级适配：省份 7.2，地级市 11.5，地点/地标/搜索 统一 13.0（避免过度放大导致图层加载反压与裁切）
-    let targetZoom = 13.0;
+    // 智能层级适配：省份 7.2，地级市 11.5，地点/地标/搜索 统一 12.0（避免过度放大导致图层加载反压与裁切）
+    let targetZoom = 12.0;
     if (isProv) {
       targetZoom = item.zoom || 7.2;
     } else if (item.type === 'city') {
       targetZoom = item.zoom || 11.5;
-    } else if (typeof item.zoom === 'number' && item.zoom < 13.0) {
+    } else if (typeof item.zoom === 'number' && item.zoom < 12.0) {
       targetZoom = item.zoom;
     } else {
-      targetZoom = 13.0;
+      targetZoom = 12.0;
     }
 
     const targetPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
@@ -7140,6 +7140,59 @@ function setupWaypointAndFavoritesSystem(map) {
     let hoveredId = null;
     let longPressTimer = null;
     let favoriteLongPressUntil = 0;
+    let favTooltipEl = null;
+
+    const ensureFavTooltip = () => {
+      if (!favTooltipEl || !favTooltipEl.isConnected) {
+        favTooltipEl = document.createElement('div');
+        favTooltipEl.id = 'fav-hover-tooltip';
+        favTooltipEl.className = 'fav-hover-tooltip';
+        favTooltipEl.style.display = 'none';
+        map.getContainer().appendChild(favTooltipEl);
+      }
+      return favTooltipEl;
+    };
+
+    const updateFavTooltipPos = (point) => {
+      if (!favTooltipEl || !point) return;
+      favTooltipEl.style.left = `${Math.round(point.x)}px`;
+      favTooltipEl.style.top = `${Math.round(point.y - 14)}px`;
+    };
+
+    const showFavoriteTooltip = (feature, point) => {
+      if (!feature || document.body.classList.contains('map-is-dragging') || document.body.classList.contains('route-point-is-dragging')) {
+        hideFavoriteTooltip();
+        return;
+      }
+      const el = ensureFavTooltip();
+      const wp = savedWaypoints.find(item => String(item.id) === String(feature.id));
+      const name = wp?.name || feature.properties?.name || '收藏点';
+      const type = wp?.type || feature.properties?.type || 'view';
+      const ele = wp?.ele ?? feature.properties?.ele;
+      const eleNum = Number(ele);
+      const eleText = (Number.isFinite(eleNum) && eleNum > 0) ? `${Math.round(eleNum)}m` : '';
+      const iconSvg = window.OutmapFavoriteInteractions?.svg ? window.OutmapFavoriteInteractions.svg(type, { size: 13, autoColor: true }) : '';
+
+      el.innerHTML = `
+        ${iconSvg ? `<span class="fav-tooltip-icon">${iconSvg}</span>` : ''}
+        <span class="fav-tooltip-name">${escapeHtml(name)}</span>
+        ${eleText ? `<span class="fav-tooltip-ele">${eleText}</span>` : ''}
+      `;
+      updateFavTooltipPos(point);
+      el.style.display = 'flex';
+      requestAnimationFrame(() => {
+        el.classList.add('visible');
+      });
+    };
+
+    const hideFavoriteTooltip = () => {
+      if (favTooltipEl) {
+        favTooltipEl.classList.remove('visible');
+        favTooltipEl.style.display = 'none';
+      }
+    };
+    window.showFavoriteTooltip = showFavoriteTooltip;
+    window.hideFavoriteTooltip = hideFavoriteTooltip;
 
     const favLayers = ['outmap-favorite-icons'];
     favLayers.forEach(layerId => {
@@ -7150,16 +7203,29 @@ function setupWaypointAndFavoritesSystem(map) {
         const id = e.features?.[0]?.id;
         if (hoveredId != null && hoveredId !== id) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
         hoveredId = id;
-        if (id != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id }, { hover: true });
+        if (id != null) {
+          map.setFeatureState({ source: FAVORITES_SOURCE_ID, id }, { hover: true });
+          if (e.features?.[0] && !activeRouteMapDrag) {
+            showFavoriteTooltip(e.features[0], e.point);
+          }
+        }
+      });
+      map.on('mousemove', layerId, e => {
+        if (hoveredId != null && e.features?.[0] && !activeRouteMapDrag) {
+          showFavoriteTooltip(e.features[0], e.point);
+        }
       });
       map.on('mouseleave', layerId, () => {
         if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
         hoveredId = null;
+        hideFavoriteTooltip();
         if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
           map.getCanvas().style.cursor = '';
         }
       });
     });
+
+    map.on('movestart', hideFavoriteTooltip);
 
     const favClusterLayers = ['outmap-favorite-clusters'];
     favClusterLayers.forEach(layerId => {
@@ -7186,6 +7252,7 @@ function setupWaypointAndFavoritesSystem(map) {
     });
     let favTouchStart = null;
     map.on('click', 'outmap-favorite-icons', e => {
+      hideFavoriteTooltip();
       if (Date.now() < favoriteLongPressUntil) return;
       if (isPickingPoint || pickingRoutePt) return;
       const feature = e.features?.[0];
@@ -7202,7 +7269,7 @@ function setupWaypointAndFavoritesSystem(map) {
         ? 450
         : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-        zoom: 13.0,
+        zoom: 12.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
         duration: flightDuration,
         centered: false,
@@ -7212,6 +7279,7 @@ function setupWaypointAndFavoritesSystem(map) {
       // 手机明确长按打开，飞掠完成不再改变用户的原始操作意图。
     });
     map.on('contextmenu', 'outmap-favorite-icons', e => {
+      hideFavoriteTooltip();
       const feature = e.features?.[0];
       const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
       if (!wp) return;
@@ -7220,6 +7288,7 @@ function setupWaypointAndFavoritesSystem(map) {
       window.showChangeWaypointTypeMenu?.(wp, e.originalEvent?.clientX ?? e.point.x, e.originalEvent?.clientY ?? e.point.y);
     });
     map.on('touchstart', 'outmap-favorite-icons', e => {
+      hideFavoriteTooltip();
       clearTimeout(longPressTimer);
       favoriteLongPressUntil = 0;
       if (e.originalEvent?.touches?.length !== 1) return;
@@ -7260,7 +7329,7 @@ function setupWaypointAndFavoritesSystem(map) {
         promoteId: 'id',
         cluster: true,
         // 聚合覆盖到接近最大视级，避免相同坐标的收藏点在中高缩放时堆叠成多个单点。
-        clusterMaxZoom: 16,
+        clusterMaxZoom: 15,
         clusterRadius: 42
       });
       map.addLayer({
@@ -7824,7 +7893,7 @@ function setupWaypointAndFavoritesSystem(map) {
             : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
           const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
           flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-            zoom: 13.0,
+            zoom: 12.0,
             pitch: curPitch,
             duration: flightDuration,
             centered: false,
@@ -8905,12 +8974,12 @@ window.importWaypointsIntoFavorites = importWaypointsIntoFavorites;
 let routeStartCoord = null;
 let routeStartName = '';
 let routeStartMarker = null;
-let routeStartZoom = 13.0;
+let routeStartZoom = 12.0;
 
 let routeEndCoord = null;
 let routeEndName = '';
 let routeEndMarker = null;
-let routeEndZoom = 13.0;
+let routeEndZoom = 12.0;
 let routeEndIsFromVia = false; // 标识终点是否由添加途径点顺延接替生成
 
 let routeViaPoints = []; // 存储途径点数组 [{ id, coords, name, marker, zoom }]
@@ -9112,16 +9181,16 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
     const map = getMap();
     if (!map) return;
 
-    // 智能层级适配：省份 7.2，地级市 11.5，地标/收藏点/选点 13.0
-    let targetZoom = 13.0;
+    // 智能层级适配：省份 7.2，地级市 11.5，地标/收藏点/选点 12.0
+    let targetZoom = 12.0;
     if (Number.isFinite(item.zoom)) {
-      targetZoom = Math.min(13.0, item.zoom);
+      targetZoom = Math.min(12.0, item.zoom);
     } else if (item.type === 'province') {
       targetZoom = 7.2;
     } else if (item.type === 'city') {
       targetZoom = 11.5;
     } else if (item.type === 'waypoint') {
-      targetZoom = 13.0;
+      targetZoom = 12.0;
     }
 
     if (pointType === 'start') {
@@ -9392,7 +9461,7 @@ function getRoutePointFeatures() {
     features.push({
       type: 'Feature', id,
       geometry: { type: 'Point', coordinates: [Number(coords[0]), Number(coords[1])] },
-      properties: { id, role, name: name || label, label, zoom: Number(zoom) || 13.0 }
+      properties: { id, role, name: name || label, label, zoom: Number(zoom) || 12.0 }
     });
   };
   add('route-start', 'start', routeStartCoord, routeStartName, '起', routeStartZoom);
@@ -9439,7 +9508,7 @@ function ensureRoutePointLayers(map) {
       data: getRoutePointFeatures(),
       promoteId: 'id',
       cluster: true,
-      clusterMaxZoom: 16,
+      clusterMaxZoom: 15,
       clusterRadius: 26
     });
     map.addLayer({
@@ -9660,7 +9729,7 @@ function bindRoutePointLayerEvents(map) {
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
       flyToLocationPrecisely(map, point.coords, {
-        zoom: 13.0,
+        zoom: 12.0,
         pitch: map.getPitch() ?? 50,
         duration: 600,
         centered: false,
@@ -9739,7 +9808,7 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
   if (stops.length === 1) {
     routeStartCoord = stops[0].coords;
     routeStartName = stops[0].name;
-    routeStartZoom = stops[0].zoom || 13.0;
+    routeStartZoom = stops[0].zoom || 12.0;
     routeStartMarker = stops[0].marker;
     routeViaPoints = [];
     routeEndCoord = null;
@@ -9749,14 +9818,14 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
     // 首位始终为绿 [起]
     routeStartCoord = stops[0].coords;
     routeStartName = stops[0].name;
-    routeStartZoom = stops[0].zoom || 13.0;
+    routeStartZoom = stops[0].zoom || 12.0;
     routeStartMarker = stops[0].marker;
 
     // 末位始终为红 [终]
     const endStop = stops[stops.length - 1];
     routeEndCoord = endStop.coords;
     routeEndName = endStop.name;
-    routeEndZoom = endStop.zoom || 13.0;
+    routeEndZoom = endStop.zoom || 12.0;
     routeEndMarker = endStop.marker;
 
     // 中间项始终为蓝 [1..N-2]
@@ -9764,7 +9833,7 @@ function reorderRouteStops(fromIndex, toIndex, mapInstance) {
       id: s.id || ('via_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
       coords: s.coords,
       name: s.name,
-      zoom: s.zoom || 13.0,
+      zoom: s.zoom || 12.0,
       marker: s.marker
     }));
     routeEndIsFromVia = false;
@@ -10138,7 +10207,7 @@ function renderViaList(mapInstance) {
       tagEl.addEventListener('click', () => {
         if (row._map && row._via.coords) {
           flyToLocationPrecisely(row._map, row._via.coords, {
-            zoom: 13.0,
+            zoom: 12.0,
             pitch: row._map.getPitch() ?? 50,
             duration: 600,
             centered: false,
@@ -10175,7 +10244,7 @@ function renderViaList(mapInstance) {
 function addViaPoint(map, coords, label, zoom = null) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
-  const targetZoom = Number.isFinite(zoom) ? Math.min(13.0, zoom) : 13.0;
+  const targetZoom = Number.isFinite(zoom) ? Math.min(12.0, zoom) : 12.0;
 
   // 1. 若起点尚未设定且传入了有效坐标，直接作为起点建立路线之首
   if (!routeStartCoord && coords) {
@@ -10357,7 +10426,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (first.marker) {
         try { first.marker.remove(); } catch (e) {}
       }
-      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 13.0, { schedule: false });
+      setRouteStartPoint(map, first.coords, first.name || '起点', first.zoom || 12.0, { schedule: false });
       changed = true;
     }
   }
@@ -10374,7 +10443,7 @@ function promoteMissingRouteEndpoints(mapInstance) {
       if (last.marker) {
         try { last.marker.remove(); } catch (e) {}
       }
-      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 13.0, true, { schedule: false });
+      setRouteEndPoint(map, last.coords, last.name || '终点', last.zoom || 12.0, true, { schedule: false });
       changed = true;
     }
   }
@@ -11270,14 +11339,14 @@ function setupOutdoorRouteSystem(map) {
 
   currentOutdoorMap = map;
 
-  // 起终点标签点击快速平滑定位 (13.0 黄金视级)
+  // 起终点标签点击快速平滑定位 (12.0 黄金视级)
   const staticStartTag = document.querySelector('.route-point-row .pt-tag.start');
   if (staticStartTag) {
     staticStartTag.style.cursor = 'pointer';
     staticStartTag.addEventListener('click', () => {
       if (routeStartCoord && map) {
         flyToLocationPrecisely(map, routeStartCoord, {
-          zoom: routeStartZoom || 13.0,
+          zoom: routeStartZoom || 12.0,
           pitch: map.getPitch() ?? 50,
           duration: 600,
           centered: false
@@ -11292,7 +11361,7 @@ function setupOutdoorRouteSystem(map) {
     staticEndTag.addEventListener('click', () => {
       if (routeEndCoord && map) {
         flyToLocationPrecisely(map, routeEndCoord, {
-          zoom: routeEndZoom || 13.0,
+          zoom: routeEndZoom || 12.0,
           pitch: map.getPitch() ?? 50,
           duration: 600,
           centered: false
@@ -11301,7 +11370,7 @@ function setupOutdoorRouteSystem(map) {
         const lastVia = routeViaPoints[routeViaPoints.length - 1];
         if (lastVia.coords) {
           flyToLocationPrecisely(map, lastVia.coords, {
-            zoom: lastVia.zoom || 13.0,
+            zoom: lastVia.zoom || 12.0,
             pitch: map.getPitch() ?? 50,
             duration: 600,
             centered: false,
@@ -11635,8 +11704,8 @@ function setupOutdoorRouteSystem(map) {
     routeEndCoord = null;
     routeEndName = '';
     routeEndMarker = null;
-    routeStartZoom = 13.0;
-    routeEndZoom = 13.0;
+    routeStartZoom = 12.0;
+    routeEndZoom = 12.0;
     routeEndIsFromVia = false;
 
     hideRouteFloatingDropdown();
@@ -12669,7 +12738,7 @@ function displayImportedTrack(map, trackData) {
       coords: vCoords,
       name: vName,
       marker: null,
-      zoom: 13.0
+      zoom: 12.0
     });
   });
 
@@ -13104,6 +13173,11 @@ function setupMapContextMenu(map) {
 
   map.on('contextmenu', e => {
     if (e.originalEvent?._outmapHandled) return;
+    // 收藏点有专属右键菜单，阻断普通地点菜单唤起，杜绝地点信息一闪而过
+    if (map.getLayer('outmap-favorite-icons') &&
+        map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-icons'] }).length) return;
+    if (map.getLayer('outmap-favorite-clusters') &&
+        map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-clusters'] }).length) return;
     if (typeof window.clearLandingMarker === 'function') {
       window.clearLandingMarker();
     } else if (typeof clearLandingMarker === 'function') {

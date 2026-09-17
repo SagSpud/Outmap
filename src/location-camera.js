@@ -196,7 +196,7 @@
     listen('remove', () => dispose(false));
     listen('movestart', () => { if (!internalMove) dispose(false); });
 
-    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 13));
+    const zoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), Number.isFinite(options.zoom) ? options.zoom : 12));
     const pitch = Math.max(map.getMinPitch(), Math.min(map.getMaxPitch(), Number.isFinite(options.pitch) ? options.pitch : map.getPitch()));
     const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
