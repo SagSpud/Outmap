@@ -140,8 +140,29 @@ function scan({ baseDir, provinces, boxes, unavailableFile, unavailableSources }
   }
 
   // 1.5 扫描 PMTiles 单文件归档 (dem.pmtiles, vector.pmtiles, contour_metric-v1.pmtiles)
-  const archivesDir = path.join(baseDir, 'archives');
-  const archiveFiles = entries(archivesDir).filter(f => f.isFile() && f.name.toLowerCase().endsWith('.pmtiles'));
+  const candidateParent = baseDir ? path.dirname(baseDir) : '';
+  const searchArchiveDirs = [
+    path.join(baseDir, 'archives'),
+    baseDir,
+    candidateParent ? path.join(candidateParent, 'archives') : '',
+    candidateParent ? path.join(candidateParent, 'offline-tiles', 'archives') : '',
+    candidateParent ? path.join(candidateParent, 'offline-tiles') : '',
+    candidateParent ? path.join(candidateParent, 'Outmap', 'offline-tiles', 'archives') : '',
+    candidateParent ? path.join(candidateParent, 'Outmap', 'archives') : ''
+  ].filter(Boolean);
+
+  const archiveFiles = [];
+  const scannedArchiveNames = new Set();
+  for (const sDir of searchArchiveDirs) {
+    if (!fs.existsSync(sDir)) continue;
+    for (const f of entries(sDir)) {
+      if (f.isFile() && f.name.toLowerCase().endsWith('.pmtiles') && !scannedArchiveNames.has(f.name.toLowerCase())) {
+        scannedArchiveNames.add(f.name.toLowerCase());
+        archiveFiles.push({ name: f.name, dir: sDir });
+      }
+    }
+  }
+
   if (archiveFiles.length > 0) {
     const { readPmtilesInfo } = require('./tile-archive.cjs');
     const { tileIdToZxy } = require('pmtiles');
@@ -153,7 +174,7 @@ function scan({ baseDir, provinces, boxes, unavailableFile, unavailableSources }
       else if (lower.includes('sat') || lower.includes('imagery')) layerType = 'sat';
       else if (lower.includes('vector') || lower.includes('osm')) layerType = 'vector';
 
-      const fullPath = path.join(archivesDir, af.name);
+      const fullPath = path.join(af.dir, af.name);
       try {
         const fileStat = fs.statSync(fullPath);
         const info = readPmtilesInfo(fullPath);

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -45,15 +45,28 @@ function getOfflineDataDir() {
   if (app.isPackaged) {
     const appDir = path.dirname(process.execPath);
     const parentDir = path.dirname(appDir);
-    const standaloneOuter = path.join(parentDir, 'offline-tiles');
-    if (fs.existsSync(standaloneOuter)) {
-      return standaloneOuter;
+
+    // 1. 优先检查已经存在离线数据或 PMTiles 单文件的目录
+    const candidates = [
+      path.join(parentDir, 'offline-tiles'),
+      path.join(appDir, 'offline-tiles'),
+      path.join(parentDir, 'archives'),
+      path.join(appDir, 'archives')
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) {
+        return c.endsWith('archives') ? path.dirname(c) : c;
+      }
     }
-    const innerDir = path.join(appDir, 'offline-tiles');
-    if (fs.existsSync(innerDir)) {
-      return innerDir;
+
+    // 2. 若均未创建（全新初始安装）：
+    //    若当前位于嵌套结构（如 Documents/Outmap/Outmap/Outmap.exe，父级名是 Outmap）：
+    //    默认统一存放在父级 Documents/Outmap/offline-tiles，保持程序与数据平级分离；
+    //    若当前直接是主程序目录（如 D:/Outmap/Outmap.exe），存放在当前程序目录的 offline-tiles，绝不污染外层无关系统目录。
+    if (path.basename(parentDir).toLowerCase() === 'outmap') {
+      return path.join(parentDir, 'offline-tiles');
     }
-    return standaloneOuter;
+    return path.join(appDir, 'offline-tiles');
   }
   const distOuter = path.join(process.cwd(), 'dist', 'offline-tiles');
   if (fs.existsSync(distOuter)) return distOuter;
@@ -1475,6 +1488,22 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('rescan-offline-tiles', () => {
     return refreshOfflineInventory();
+  });
+
+  ipcMain.handle('get-offline-data-dir', () => {
+    return {
+      baseDir: OFFLINE_BASE_DIR,
+      archivesDir: OFFLINE_ARCHIVES_DIR
+    };
+  });
+
+  ipcMain.handle('open-offline-data-dir', async () => {
+    const targetDir = fs.existsSync(OFFLINE_ARCHIVES_DIR) ? OFFLINE_ARCHIVES_DIR : OFFLINE_BASE_DIR;
+    if (!fs.existsSync(targetDir)) {
+      try { fs.mkdirSync(targetDir, { recursive: true }); } catch (_) {}
+    }
+    await shell.openPath(targetDir);
+    return { success: true, path: targetDir };
   });
 
   ipcMain.handle('offline:convert-all-pmtiles', async () => {

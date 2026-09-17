@@ -285,7 +285,17 @@ class TileArchiveManager {
     this.close();
     this.archives = [];
 
-    const searchDirs = [this.archivesDir, this.baseDir].filter(Boolean);
+    const candidateParent = this.baseDir ? path.dirname(this.baseDir) : '';
+    const searchDirs = [
+      this.archivesDir,
+      this.baseDir,
+      candidateParent ? path.join(candidateParent, 'archives') : '',
+      candidateParent ? path.join(candidateParent, 'offline-tiles', 'archives') : '',
+      candidateParent ? path.join(candidateParent, 'offline-tiles') : '',
+      candidateParent ? path.join(candidateParent, 'Outmap', 'offline-tiles', 'archives') : '',
+      candidateParent ? path.join(candidateParent, 'Outmap', 'offline-tiles') : '',
+      candidateParent ? path.join(candidateParent, 'Outmap', 'archives') : ''
+    ].filter(Boolean);
     const checkedPaths = new Set();
 
     for (const sDir of searchDirs) {

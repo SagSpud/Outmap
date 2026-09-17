@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.28';
+const APP_VERSION = '2.0.29';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4427,6 +4427,7 @@ function setupPyramidModal(map) {
   const chkVec = document.getElementById('chk-dl-vec');
   const statCount = document.getElementById('stat-tile-count');
   const statSize = document.getElementById('stat-tile-size');
+  const statStorageDir = document.getElementById('stat-storage-dir');
   const provStatusTag = document.getElementById('prov-offline-status-tag');
   const btnStart = document.getElementById('btn-start-dl');
   const btnCancel = document.getElementById('btn-cancel-dl');
@@ -4434,6 +4435,8 @@ function setupPyramidModal(map) {
   const btnUpdate = document.getElementById('btn-update-dl');
   const btnCheckUpdate = document.getElementById('btn-check-tile-update');
   const btnDone = document.getElementById('btn-done-dl');
+  const btnOpenOfflineDir = document.getElementById('btn-open-offline-dir');
+  const btnOpenOfflineLink = document.getElementById('btn-open-offline-link');
   const progressBox = document.getElementById('dl-progress-box');
   const progressFill = document.getElementById('dl-progress-fill');
   const progressTask = document.getElementById('dl-progress-task');
@@ -4443,6 +4446,32 @@ function setupPyramidModal(map) {
   const progressPct = document.getElementById('dl-progress-pct');
 
   if (!modal || !btnOpen) return;
+
+  const refreshStorageDirDisplay = async () => {
+    if (!window.electronAPI?.getOfflineDataDir) return;
+    try {
+      const res = await window.electronAPI.getOfflineDataDir();
+      if (res && statStorageDir) {
+        const displayPath = res.archivesDir || res.baseDir || '';
+        statStorageDir.innerText = displayPath;
+        statStorageDir.title = `点击在 Windows 资源管理器中打开:\n${displayPath}`;
+      }
+    } catch (_) {}
+  };
+
+  const handleOpenOfflineDir = async (e) => {
+    if (e) e.stopPropagation();
+    if (window.electronAPI?.openOfflineDataDir) {
+      try {
+        await window.electronAPI.openOfflineDataDir();
+      } catch (err) {
+        console.warn('[Open Offline Dir Error]:', err);
+      }
+    }
+  };
+
+  btnOpenOfflineDir?.addEventListener('click', handleOpenOfflineDir);
+  btnOpenOfflineLink?.addEventListener('click', handleOpenOfflineDir);
 
   const dlBlueDot = document.getElementById('dl-live-blue-dot');
   let downloadDotState = 'idle'; // 'idle' (无标注) | 'downloading' (正在下载，蓝点) | 'completed' (下载完成，绿点)
@@ -4610,6 +4639,10 @@ function setupPyramidModal(map) {
     } catch (e) {
       console.warn('[Offline Modal] updateEstimation error:', e);
     }
+
+    try {
+      refreshStorageDirDisplay();
+    } catch (_) {}
 
     showElement(modal, 'flex');
   };
@@ -5403,8 +5436,9 @@ function setupPyramidModal(map) {
     });
   }
 
-  // 启动时从持久化清单恢复绿点；仅读取现有清单，不发起扫描或常驻任务。
+  // 启动时从持久化清单恢复绿点与离线存储目录显示；仅读取现有清单，不发起扫描或常驻任务。
   syncOfflineManifest().then(refreshDownloadDotFromManifest).catch(refreshDownloadDotFromManifest);
+  refreshStorageDirDisplay();
 }
 
 // 软件版本在线微更新系统 (点击最左侧 Logo 原地 3D 翻转，底色为进度条，完成提示覆盖安装，0弹窗)

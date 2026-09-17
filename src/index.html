@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.28" />
+  <link rel="stylesheet" href="style.css?v=2.0.29" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.28</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.29</span>
                 </div>
               </div>
             </div>
@@ -656,6 +656,7 @@
             <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
             <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
             <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
+            <div class="stat-line" style="font-size: 11px; opacity: 0.85; cursor: pointer; margin-top: 4px; display: flex; align-items: center; gap: 4px;" id="btn-open-offline-link" title="点击在 Windows 资源管理器中打开此文件夹"><span>📁 存储目录:</span> <span id="stat-storage-dir" style="max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline;">加载中...</span></div>
           </div>
           <div class="stat-divider-line"></div>
           <div class="stat-status-col">
@@ -681,6 +682,10 @@
       </div>
 
       <div class="modal-footer">
+        <button class="modal-btn secondary" id="btn-open-offline-dir" title="在Windows资源管理器中查看PMTiles单文件与离线数据">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>打开离线目录</span>
+        </button>
         <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
         <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>
         <button class="modal-btn accent" id="btn-update-dl" style="display: none;">
@@ -854,6 +859,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.28"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.29"></script>
 </body>
 </html>

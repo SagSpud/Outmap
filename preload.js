@@ -38,5 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFileDialog: (params) => ipcRenderer.invoke('open-file-dialog', params),
   writeClipboardText: (text) => ipcRenderer.invoke('write-clipboard-text', text),
   convertOfflineTilesToPmtiles: () => ipcRenderer.invoke('offline:convert-all-pmtiles'),
-  generateContourPmtiles: (opts) => ipcRenderer.invoke('offline:generate-contours', opts)
+  generateContourPmtiles: (opts) => ipcRenderer.invoke('offline:generate-contours', opts),
+  getOfflineDataDir: () => ipcRenderer.invoke('get-offline-data-dir'),
+  openOfflineDataDir: () => ipcRenderer.invoke('open-offline-data-dir')
 });
