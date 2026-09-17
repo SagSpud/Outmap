@@ -7371,7 +7371,7 @@ function setupWaypointAndFavoritesSystem(map) {
       clearTimeout(longPressTimer);
       favoriteLongPressUntil = 0;
       if (e.originalEvent?.touches?.length !== 1) return;
-      const feature = e.features?.[0];
+      const feature = e.features?.[0] || (e.point && map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-icons'] })?.[0]);
       const wp = feature && savedWaypoints.find(item => String(item.id) === String(feature.id));
       if (!wp) return;
       const touch = e.originalEvent?.touches?.[0];

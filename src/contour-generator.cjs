@@ -315,10 +315,10 @@ async function runContourGeneration(options = {}, onProgress = () => {}) {
   const indexPath = path.join(__dirname, 'index.html');
   await win.loadFile(indexPath);
 
-  // 等待 mlcontour 与 map 初始化就绪
+  // 等待 mlcontour 初始化就绪 (无需等待主地图渲染，极速执行)
   await win.webContents.executeJavaScript(`(async () => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
-    for (let i = 0; i < 300 && (!window.mlcontour || !window.mapInstance?.__outmapStyleReady); i++) {
+    for (let i = 0; i < 300 && !window.mlcontour; i++) {
       await sleep(25);
     }
   })()`);

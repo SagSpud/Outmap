@@ -2324,6 +2324,8 @@ app.whenReady().then(async () => {
             failureReason: '正在极速组装 PMTiles 单文件...'
           });
         }
+        // 在 Windows 上替换或合并 PMTiles 单文件前，先关闭读取句柄，杜绝 EBUSY 锁定冲突
+        tileArchiveManager.close();
         await downloadSink.finalizeAll();
         await tileArchiveManager.init();
 
@@ -2342,6 +2344,7 @@ app.whenReady().then(async () => {
             });
           }
           try {
+            tileArchiveManager.close();
             const { runContourGeneration } = require('./src/contour-generator.cjs');
             await runContourGeneration({
               tiles: newDemTiles.map(t => ({ z: t.z, x: t.x, y: t.y })),
@@ -2363,6 +2366,7 @@ app.whenReady().then(async () => {
             await tileArchiveManager.init();
           } catch (err) {
             console.warn('[Auto Contour Generation Warning]', err.message);
+            await tileArchiveManager.init();
           }
         }
       }
