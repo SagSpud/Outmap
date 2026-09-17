@@ -28,7 +28,10 @@ echo   4. 若本地 DEM 完整则完全无需联网；若边缘有缺失可选�
 echo ============================================================
 echo.
 
-set "DEFAULT_DEM=offline-tiles\dem"
+set "DEFAULT_DEM=..\offline-tiles\dem"
+if not exist "%DEFAULT_DEM%" (
+    if exist "offline-tiles\dem" set "DEFAULT_DEM=offline-tiles\dem"
+)
 if not exist "%DEFAULT_DEM%" (
     if exist "dist\offline-tiles\dem" set "DEFAULT_DEM=dist\offline-tiles\dem"
 )

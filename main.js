@@ -26,6 +26,49 @@ let pendingUpdatePath = null;
 let pendingTargetAsarPath = null;
 let pendingUpdateMeta = null;
 
+// 离线数据存储目录独立策略 (程序与数据彻底分离，版本升级更新零负担)：
+// 0. 支持用户自定义环境变量 OUTMAP_DATA_DIR 指定任意盘符/目录
+// 1. 打包便携绿色版 (app.isPackaged)：
+//    - 优先检查 Outmap 程序文件夹同级的外层独立 offline-tiles (如 dist/offline-tiles 或 D:/Tools/offline-tiles)
+//    - 兼顾检查 Outmap 程序内部已存在的 offline-tiles (兼容旧版目录已存在的数据)
+//    - 若均未找到，默认在外层创建独立 offline-tiles，未来更新只需替换 Outmap 文件夹即可
+// 2. 开发模式：优先 dist/offline-tiles，其次工程根目录 offline-tiles
+function getOfflineDataDir() {
+  if (process.env.OUTMAP_DATA_DIR && fs.existsSync(process.env.OUTMAP_DATA_DIR)) {
+    return process.env.OUTMAP_DATA_DIR;
+  }
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    const outerDir = path.join(process.env.PORTABLE_EXECUTABLE_DIR, '..', 'offline-tiles');
+    if (fs.existsSync(outerDir)) return outerDir;
+    return path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'offline-tiles');
+  }
+  if (app.isPackaged) {
+    const appDir = path.dirname(process.execPath);
+    const parentDir = path.dirname(appDir);
+    const standaloneOuter = path.join(parentDir, 'offline-tiles');
+    if (fs.existsSync(standaloneOuter)) {
+      return standaloneOuter;
+    }
+    const innerDir = path.join(appDir, 'offline-tiles');
+    if (fs.existsSync(innerDir)) {
+      return innerDir;
+    }
+    return standaloneOuter;
+  }
+  const distOuter = path.join(process.cwd(), 'dist', 'offline-tiles');
+  if (fs.existsSync(distOuter)) return distOuter;
+  return path.join(process.cwd(), 'offline-tiles');
+}
+
+const OFFLINE_BASE_DIR = getOfflineDataDir();
+const OFFLINE_DEM_DIR = path.join(OFFLINE_BASE_DIR, 'dem');
+const OFFLINE_SAT_DIR = path.join(OFFLINE_BASE_DIR, 'sat');
+const OFFLINE_VEC_DIR = path.join(OFFLINE_BASE_DIR, 'vector');
+const OFFLINE_FONT_DIR = path.join(OFFLINE_BASE_DIR, 'fonts');
+const OFFLINE_ROUTE_DIR = path.join(OFFLINE_BASE_DIR, 'routes');
+const OFFLINE_CONTOUR_DIR = path.join(OFFLINE_BASE_DIR, 'contour');
+const OFFLINE_ARCHIVES_DIR = path.join(OFFLINE_BASE_DIR, 'archives');
+
 // CLI 独立离线工具拦截处理 (无需开启主界面)
 const isGenerateContours = process.argv.includes('--generate-contours');
 const isConvertPmtiles = process.argv.includes('--convert-pmtiles');
@@ -35,7 +78,7 @@ if (isGenerateContours || isConvertPmtiles) {
     if (isConvertPmtiles) {
       try {
         const { convertAllOfflineTiles } = require('./src/convert-to-pmtiles.cjs');
-        await convertAllOfflineTiles();
+        await convertAllOfflineTiles(OFFLINE_BASE_DIR);
         app.exit(0);
       } catch (err) {
         console.error('PMTiles conversion failed:', err);
@@ -56,6 +99,7 @@ if (isGenerateContours || isConvertPmtiles) {
           else if (args[i] === '--fetch-missing') options.fetchMissing = true;
           else if (args[i] === '--bbox' && i + 1 < args.length) options.bbox = args[++i];
         }
+        if (!options.demDir) options.demDir = OFFLINE_DEM_DIR;
 
         const progWin = new BrowserWindow({
           width: 500,
@@ -135,50 +179,6 @@ if (!gotTheLock) {
   app.quit();
   process.exit(0);
 }
-
-
-// 离线数据存储目录独立策略 (程序与数据彻底分离，版本升级更新零负担)：
-// 0. 支持用户自定义环境变量 OUTMAP_DATA_DIR 指定任意盘符/目录
-// 1. 打包便携绿色版 (app.isPackaged)：
-//    - 优先检查 Outmap 程序文件夹同级的外层独立 offline-tiles (如 dist/offline-tiles 或 D:/Tools/offline-tiles)
-//    - 兼顾检查 Outmap 程序内部已存在的 offline-tiles (兼容旧版目录已存在的数据)
-//    - 若均未找到，默认在外层创建独立 offline-tiles，未来更新只需替换 Outmap 文件夹即可
-// 2. 开发模式：优先 dist/offline-tiles，其次工程根目录 offline-tiles
-function getOfflineDataDir() {
-  if (process.env.OUTMAP_DATA_DIR && fs.existsSync(process.env.OUTMAP_DATA_DIR)) {
-    return process.env.OUTMAP_DATA_DIR;
-  }
-  if (process.env.PORTABLE_EXECUTABLE_DIR) {
-    const outerDir = path.join(process.env.PORTABLE_EXECUTABLE_DIR, '..', 'offline-tiles');
-    if (fs.existsSync(outerDir)) return outerDir;
-    return path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'offline-tiles');
-  }
-  if (app.isPackaged) {
-    const appDir = path.dirname(process.execPath);
-    const parentDir = path.dirname(appDir);
-    const standaloneOuter = path.join(parentDir, 'offline-tiles');
-    if (fs.existsSync(standaloneOuter)) {
-      return standaloneOuter;
-    }
-    const innerDir = path.join(appDir, 'offline-tiles');
-    if (fs.existsSync(innerDir)) {
-      return innerDir;
-    }
-    return standaloneOuter;
-  }
-  const distOuter = path.join(process.cwd(), 'dist', 'offline-tiles');
-  if (fs.existsSync(distOuter)) return distOuter;
-  return path.join(process.cwd(), 'offline-tiles');
-}
-
-const OFFLINE_BASE_DIR = getOfflineDataDir();
-const OFFLINE_DEM_DIR = path.join(OFFLINE_BASE_DIR, 'dem');
-const OFFLINE_SAT_DIR = path.join(OFFLINE_BASE_DIR, 'sat');
-const OFFLINE_VEC_DIR = path.join(OFFLINE_BASE_DIR, 'vector');
-const OFFLINE_FONT_DIR = path.join(OFFLINE_BASE_DIR, 'fonts');
-const OFFLINE_ROUTE_DIR = path.join(OFFLINE_BASE_DIR, 'routes');
-const OFFLINE_CONTOUR_DIR = path.join(OFFLINE_BASE_DIR, 'contour');
-const OFFLINE_ARCHIVES_DIR = path.join(OFFLINE_BASE_DIR, 'archives');
 
 let localServerPort = 28795;
 let ofmTileTemplate = 'https://tiles.openfreemap.org/planet/20260830_080001_pt/{z}/{x}/{y}.pbf';

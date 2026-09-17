@@ -152,14 +152,19 @@ function downloadDemTile(z, x, y, savePath) {
 }
 
 async function runContourGeneration(options = {}, onProgress = () => {}) {
-  // 自动探测 DEM 路径
+  // 自动探测 DEM 路径 (优先同级外层独立目录 ../offline-tiles/dem，其次内部目录)
   let demDir = options.demDir;
   if (!demDir) {
-    if (fs.existsSync('offline-tiles/dem')) demDir = path.resolve('offline-tiles/dem');
+    if (fs.existsSync('../offline-tiles/dem')) demDir = path.resolve('../offline-tiles/dem');
+    else if (fs.existsSync('offline-tiles/dem')) demDir = path.resolve('offline-tiles/dem');
     else if (fs.existsSync('dist/offline-tiles/dem')) demDir = path.resolve('dist/offline-tiles/dem');
-    else demDir = path.resolve('offline-tiles/dem');
+    else demDir = path.resolve('../offline-tiles/dem');
   } else {
-    demDir = path.resolve(demDir);
+    if (!fs.existsSync(demDir) && fs.existsSync(path.resolve('..', demDir))) {
+      demDir = path.resolve('..', demDir);
+    } else {
+      demDir = path.resolve(demDir);
+    }
   }
 
   // 自动探测输出路径

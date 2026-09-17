@@ -94,8 +94,20 @@ async function convertDirectoryToPmtiles(options = {}) {
   };
 }
 
+function resolveDefaultOfflineDir() {
+  const candidates = [
+    '../offline-tiles',
+    'offline-tiles',
+    'dist/offline-tiles'
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'offline-tiles';
+}
+
 async function convertAllOfflineTiles(baseDir, onProgress = () => {}) {
-  const targetBase = baseDir || (fs.existsSync('dist/offline-tiles') ? 'dist/offline-tiles' : 'offline-tiles');
+  const targetBase = baseDir || resolveDefaultOfflineDir();
   const archivesDir = path.join(targetBase, 'archives');
   if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true });
 
