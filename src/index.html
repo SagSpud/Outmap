@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.22" />
+  <link rel="stylesheet" href="style.css?v=2.0.23" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.22</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.23</span>
                 </div>
               </div>
             </div>
@@ -319,6 +319,15 @@
         </div>
 
         <div class="panel-body">
+          <!-- 正在编辑已有路线时的顶部提示条 -->
+          <div id="route-editing-banner" class="route-editing-banner" style="display: none;">
+            <div class="route-editing-info">
+              <span class="route-editing-badge">编辑中</span>
+              <span class="route-editing-name" id="route-editing-name-txt">--</span>
+            </div>
+            <button type="button" class="btn-exit-route-edit" id="btn-exit-route-edit" title="退出编辑原路线模式，后续保存将新建独立路线">退出编辑</button>
+          </div>
+
           <!-- 出行方式切换 -->
           <div class="route-mode-pills">
             <button class="route-mode-btn active" data-mode="drive">
@@ -396,6 +405,7 @@
             </div>
             <div class="save-route-footer">
               <button class="modal-btn secondary" id="btn-cancel-save-route" type="button">取消</button>
+              <button class="modal-btn secondary" id="btn-save-as-new-route" type="button" style="display: none;">另存为新路线</button>
               <button class="modal-btn primary" id="btn-confirm-save-route" type="button">保存路线</button>
             </div>
           </div>
@@ -844,6 +854,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.22"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.23"></script>
 </body>
 </html>

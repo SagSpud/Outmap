@@ -130,7 +130,7 @@ app.whenReady().then(async () => {
         lngLats: [{ lng: 118, lat: 35 }],
         originalEvent: { touches: [{ clientX: 210, clientY: 210 }] }
       });
-      await sleep(550);
+      await sleep(650);
       map.fire('touchend', {
         point: { x: 210, y: 210 },
         points: [], lngLat: { lng: 118, lat: 35 }, lngLats: [],
