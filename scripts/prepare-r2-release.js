@@ -136,13 +136,11 @@ async function main() {
     console.log('   - 🔄 已自动同步至本地便携版: ' + localPortableAsar);
   }
 
-  const bat1 = path.join(rootDir, '现有离线数据一键转PMTiles单文件.bat');
-  const bat2 = path.join(rootDir, '等高线离线预生成工具.bat');
+  const cleanBat = path.join(rootDir, '彻底清理与卸载Outmap.bat');
   const targetDir = path.join(rootDir, 'dist', 'Outmap');
   if (fs.existsSync(targetDir)) {
-    if (fs.existsSync(bat1)) fs.copyFileSync(bat1, path.join(targetDir, '现有离线数据一键转PMTiles单文件.bat'));
-    if (fs.existsSync(bat2)) fs.copyFileSync(bat2, path.join(targetDir, '等高线离线预生成工具.bat'));
-    console.log('   - 🔄 已自动同步两枚批处理脚本至本地便携版根目录');
+    if (fs.existsSync(cleanBat)) fs.copyFileSync(cleanBat, path.join(targetDir, '彻底清理与卸载Outmap.bat'));
+    console.log('   - 🔄 已自动同步彻底清理卸载脚本至本地便携版根目录');
   }
 
   const stats = fs.statSync(outAsar);
