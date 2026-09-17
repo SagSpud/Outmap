@@ -26,6 +26,109 @@ let pendingUpdatePath = null;
 let pendingTargetAsarPath = null;
 let pendingUpdateMeta = null;
 
+// CLI 独立离线工具拦截处理 (无需开启主界面)
+const isGenerateContours = process.argv.includes('--generate-contours');
+const isConvertPmtiles = process.argv.includes('--convert-pmtiles');
+
+if (isGenerateContours || isConvertPmtiles) {
+  app.whenReady().then(async () => {
+    if (isConvertPmtiles) {
+      try {
+        const { convertAllOfflineTiles } = require('./src/convert-to-pmtiles.cjs');
+        await convertAllOfflineTiles();
+        app.exit(0);
+      } catch (err) {
+        console.error('PMTiles conversion failed:', err);
+        app.exit(1);
+      }
+      return;
+    }
+
+    if (isGenerateContours) {
+      try {
+        const { runContourGeneration } = require('./src/contour-generator.cjs');
+        const args = process.argv;
+        const options = {};
+        for (let i = 0; i < args.length; i++) {
+          if (args[i] === '--dem' && i + 1 < args.length) options.demDir = args[++i];
+          else if (args[i] === '--output' && i + 1 < args.length) options.output = args[++i];
+          else if (args[i] === '--levels' && i + 1 < args.length) options.levels = args[++i];
+          else if (args[i] === '--fetch-missing') options.fetchMissing = true;
+          else if (args[i] === '--bbox' && i + 1 < args.length) options.bbox = args[++i];
+        }
+
+        const progWin = new BrowserWindow({
+          width: 500,
+          height: 250,
+          resizable: false,
+          center: true,
+          title: 'Outmap 等高线离线预生成',
+          autoHideMenuBar: true,
+          backgroundColor: '#0f172a',
+          webPreferences: { nodeIntegration: false, contextIsolation: true }
+        });
+
+        const progressHtml = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { margin: 0; padding: 24px; font-family: -apple-system, "Segoe UI", sans-serif; background: #0f172a; color: #f8fafc; user-select: none; }
+              h2 { font-size: 16px; margin: 0 0 8px 0; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+              .desc { font-size: 12px; color: #94a3b8; margin-bottom: 20px; }
+              .bar-bg { width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+              .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #38bdf8, #0284c7); transition: width 0.15s ease; }
+              .stats { display: flex; justify-content: space-between; font-size: 12px; color: #cbd5e1; margin-top: 10px; }
+            </style>
+          </head>
+          <body>
+            <h2>🏔️ 正在生成等高线 PMTiles 单文件</h2>
+            <div class="desc" id="desc">Chromium 矢量引擎正在高速解算 DEM 高程...</div>
+            <div class="bar-bg"><div class="bar-fill" id="fill"></div></div>
+            <div class="stats">
+              <span id="detail">0 / 0 瓦片</span>
+              <span id="pct">0%</span>
+            </div>
+            <script>
+              window.updateProgress = function(p) {
+                document.getElementById('fill').style.width = p.percent + '%';
+                document.getElementById('pct').innerText = p.percent + '% (' + p.speed + ' 张/秒)';
+                document.getElementById('detail').innerText = p.current + ' / ' + p.total + ' 瓦片';
+              };
+              window.finish = function(msg) {
+                document.getElementById('fill').style.width = '100%';
+                document.getElementById('desc').innerText = msg;
+                document.getElementById('desc').style.color = '#34d399';
+              };
+            </script>
+          </body>
+          </html>
+        `;
+        await progWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(progressHtml));
+
+        const res = await runContourGeneration(options, p => {
+          progWin.webContents.executeJavaScript(`window.updateProgress(${JSON.stringify(p)})`).catch(() => {});
+        });
+
+        if (res.success) {
+          await progWin.webContents.executeJavaScript(`window.finish("🎉 成功生成 ${res.count} 张等高线瓦片！")`).catch(() => {});
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          await progWin.webContents.executeJavaScript(`window.finish("⚠️ ${res.error || '未生成瓦片'}")`).catch(() => {});
+          await new Promise(r => setTimeout(r, 3000));
+        }
+        progWin.destroy();
+        app.exit(0);
+      } catch (err) {
+        console.error('Contour generation failed:', err);
+        app.exit(1);
+      }
+    }
+  });
+  return;
+}
+
 // 单实例锁控制，防止重复双击产生后台僵尸进程
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -1295,6 +1398,16 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('rescan-offline-tiles', () => {
     return refreshOfflineInventory();
+  });
+
+  ipcMain.handle('offline:convert-all-pmtiles', async () => {
+    const { convertAllOfflineTiles } = require('./src/convert-to-pmtiles.cjs');
+    return await convertAllOfflineTiles(OFFLINE_BASE_DIR);
+  });
+
+  ipcMain.handle('offline:generate-contours', async (event, opts) => {
+    const { runContourGeneration } = require('./src/contour-generator.cjs');
+    return await runContourGeneration(opts || { demDir: OFFLINE_DEM_DIR });
   });
 
   // 地图交互期间把后台下载主动让路给 WebGL 与本地切片服务。

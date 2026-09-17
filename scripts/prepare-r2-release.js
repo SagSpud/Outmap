@@ -10,16 +10,29 @@ async function main() {
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   // Never upload a release whose production scripts cannot even be parsed.
-  for (const file of ['main.js', 'preload.js', 'src/app.js', 'src/tile-archive.cjs', 'src/location-camera.js', 'src/favorite-interactions.js', 'src/download-flow.cjs', 'src/download-lane.cjs', 'src/unavailable-tile-index.cjs']) {
-    new vm.Script(fs.readFileSync(path.join(rootDir, file), 'utf8'), { filename: file });
+  for (const file of [
+    'main.js',
+    'preload.js',
+    'src/app.js',
+    'src/tile-archive.cjs',
+    'src/location-camera.js',
+    'src/favorite-interactions.js',
+    'src/download-flow.cjs',
+    'src/download-lane.cjs',
+    'src/unavailable-tile-index.cjs',
+    'src/convert-to-pmtiles.cjs',
+    'src/contour-generator.cjs'
+  ]) {
+    const code = fs.readFileSync(path.join(rootDir, file), 'utf8');
+    new vm.Script(require('module').wrap(code), { filename: file });
   }
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 飞掠默认着陆层级全面优化为 12.0 黄金视级：省去近 75% 瞬时深层瓦片与 DEM 网格解算等待，消除视锥反压，视野更开阔平滑；',
-    '2. 地图最大缩放层级上限优化调整为 16（配合聚合阈值 15）：杜绝深层切片过度超采样拉伸马赛克与显存浪费，最大层级下所有点位独立展开；',
-    '3. 收藏点悬停提示全面升级为 Fluent 白底高质感微徽章：半透明毛玻璃、柔和双层阴影、精致天蓝高程胶囊与深色排版，全面统一视觉美学并兼容深色模式；',
-    '4. 彻底根治鼠标悬停闪烁与右键残留：DOM 节点稳定复用杜绝重排闪烁，增加 90ms 边界防抖与 120ms 光晕过渡，右键菜单打开时彻底关闭悬停提示并严格互斥。'
+    '1. 离线工具引擎彻底内核化：无缝整合到 Outmap 自身可执行程序，批处理与内置工具直接调用 Outmap.exe 引擎，在任何无 Node.js 环境的普通电脑上解压即用；',
+    '2. 客户端原生单文件管理：在【离线下载】面板中新增快捷工具条，直接支持一键将本地 dem/vector/contour 小瓦片合并打包为 PMTiles 单文件；',
+    '3. Headless 等高线极速解算器：新增预生成等高线功能，基于本地高程 DEM 离线解算等高线矢量切片并自动归档，支持平滑海平面补底与在线智能补充；',
+    '4. 稳定性与跨机器便携性提升：优化 Windows 平台原子写入与批处理工作目录定位，彻底根治权限及环境缺失报错。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
@@ -91,6 +104,7 @@ async function main() {
   const verifyScript = `
     try {
       require('./app.asar/src/tile-archive.cjs');
+      require('./app.asar/src/convert-to-pmtiles.cjs');
       console.log('[ISOLATED_VERIFY_OK]');
       process.exit(0);
     } catch (err) {
@@ -111,13 +125,22 @@ async function main() {
   if (verifyRes.status !== 0) {
     throw new Error(`app.asar 独立环境自检失败: ${verifyRes.stderr.toString().trim() || verifyRes.stdout.toString().trim()}`);
   }
-  console.log('   - 🛡️  app.asar 纯独立运行环境自检 100% 通过（pmtiles 与 fflate 均可离线解析）！');
+  console.log('   - 🛡️  app.asar 纯独立运行环境自检 100% 通过（pmtiles、fflate 与离线转换引擎均可独立解析）！');
 
   // 自动同步更新本地便携包，方便本机测试与手动拷贝
   const localPortableAsar = path.join(rootDir, 'dist', 'Outmap', 'resources', 'app.asar');
   if (fs.existsSync(path.dirname(localPortableAsar))) {
     fs.copyFileSync(outAsar, localPortableAsar);
     console.log('   - 🔄 已自动同步至本地便携版: ' + localPortableAsar);
+  }
+
+  const bat1 = path.join(rootDir, '现有离线数据一键转PMTiles单文件.bat');
+  const bat2 = path.join(rootDir, '等高线离线预生成工具.bat');
+  const targetDir = path.join(rootDir, 'dist', 'Outmap');
+  if (fs.existsSync(targetDir)) {
+    if (fs.existsSync(bat1)) fs.copyFileSync(bat1, path.join(targetDir, '现有离线数据一键转PMTiles单文件.bat'));
+    if (fs.existsSync(bat2)) fs.copyFileSync(bat2, path.join(targetDir, '等高线离线预生成工具.bat'));
+    console.log('   - 🔄 已自动同步两枚批处理脚本至本地便携版根目录');
   }
 
   const stats = fs.statSync(outAsar);

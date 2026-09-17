@@ -36,5 +36,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showMapContextMenu: (params) => ipcRenderer.invoke('show-map-context-menu', params),
   saveFileDialog: (params) => ipcRenderer.invoke('save-file-dialog', params),
   openFileDialog: (params) => ipcRenderer.invoke('open-file-dialog', params),
-  writeClipboardText: (text) => ipcRenderer.invoke('write-clipboard-text', text)
+  writeClipboardText: (text) => ipcRenderer.invoke('write-clipboard-text', text),
+  convertOfflineTilesToPmtiles: () => ipcRenderer.invoke('offline:convert-all-pmtiles'),
+  generateContourPmtiles: (opts) => ipcRenderer.invoke('offline:generate-contours', opts)
 });

@@ -1,7 +1,7 @@
 {
   "name": "outmap",
   "productName": "Outmap",
-  "version": "2.0.25",
+  "version": "2.0.26",
   "description": "Outmap - High Performance 3D Outdoor Terrain GIS",
   "main": "main.js",
   "scripts": {
@@ -15,7 +15,9 @@
     "dist:x64": "electron-builder --win dir zip --x64",
     "dist:setup": "electron-builder --win nsis --x64",
     "dist:portable": "electron-builder --win portable --x64",
-    "dist:all": "electron-builder --win dir zip nsis --x64"
+    "dist:all": "electron-builder --win dir zip nsis --x64",
+    "release:r2": "node scripts/prepare-r2-release.js",
+    "release:zip": "node scripts/repack-and-upload-zip.cjs"
   },
   "author": "Outmap Outdoor GIS Team",
   "license": "MIT",
