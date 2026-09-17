@@ -3,107 +3,19 @@
   'use strict';
   const active = new WeakMap();
   const warmups = new WeakMap();
-  const zoomGuards = new WeakMap();
-
   function interactionSurfaceFor(map) {
     return [map.getContainer?.(), map.getCanvasContainer?.(), map.getCanvas?.()]
       .find(candidate => typeof candidate?.addEventListener === 'function') || null;
   }
 
   function install(map) {
-    if (!map || zoomGuards.has(map)) return;
-    const surface = interactionSurfaceFor(map);
-    const state = {
-      direction: 0,
-      origin: 0,
-      min: -Infinity,
-      max: Infinity,
-      touchDistance: 0,
-      clearTimer: 0,
-      transform: null
-    };
-    const clearIntent = () => {
-      state.direction = 0;
-      state.min = -Infinity;
-      state.max = Infinity;
-      state.touchDistance = 0;
-    };
-    const setIntent = (direction, maxDelta) => {
-      if (!direction) return;
-      clearTimeout(state.clearTimer);
-      state.clearTimer = 0;
-      state.direction = direction;
-      state.origin = Number(map.getZoom()) || 0;
-      const delta = Math.max(0.15, Number(maxDelta) || 0.6);
-      state.min = direction > 0 ? state.origin - 0.002 : state.origin - delta;
-      state.max = direction > 0 ? state.origin + delta : state.origin + 0.002;
-    };
-    state.transform = transform => {
-      if (!state.direction || !Number.isFinite(Number(transform?.zoom))) return {};
-      const proposed = Number(transform.zoom);
-      const bounded = Math.max(state.min, Math.min(state.max, proposed));
-      return Math.abs(bounded - proposed) > 0.0001 ? { zoom: bounded } : {};
-    };
-    const onWheel = event => {
-      const direction = event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0;
-      const steps = Math.max(1, Math.min(3, Math.abs(Number(event.deltaY) || 0) / 120));
-      setIntent(direction, 0.6 * steps);
-    };
-    const onDoubleClick = event => setIntent(event.shiftKey ? -1 : 1, 1.1);
-    const onKeyDown = event => {
-      if (event.key === '+' || event.key === '=') setIntent(1, 1.1);
-      else if (event.key === '-' || event.key === '_') setIntent(-1, 1.1);
-    };
-    const touchDistance = touches => touches?.length >= 2
-      ? Math.hypot(touches[0].clientX - touches[1].clientX,
-        touches[0].clientY - touches[1].clientY)
-      : 0;
-    const onTouchStart = event => { state.touchDistance = touchDistance(event.touches); };
-    const onTouchMove = event => {
-      const next = touchDistance(event.touches);
-      if (next > 0 && state.touchDistance > 0 && Math.abs(next - state.touchDistance) > 0.5) {
-        setIntent(next > state.touchDistance ? 1 : -1, 0.45);
-      }
-      state.touchDistance = next;
-    };
-    const onTouchEnd = event => {
-      if (!event.touches || event.touches.length < 2) state.touchDistance = 0;
-    };
-    const onZoomEnd = () => {
-      clearTimeout(state.clearTimer);
-      state.clearTimer = setTimeout(() => {
-        state.clearTimer = 0;
-        clearIntent();
-      }, 0);
-    };
-    const cleanup = () => {
-      clearTimeout(state.clearTimer);
-      surface?.removeEventListener('wheel', onWheel, true);
-      surface?.removeEventListener('dblclick', onDoubleClick, true);
-      surface?.removeEventListener('keydown', onKeyDown, true);
-      surface?.removeEventListener('touchstart', onTouchStart, true);
-      surface?.removeEventListener('touchmove', onTouchMove, true);
-      surface?.removeEventListener('touchend', onTouchEnd, true);
-      surface?.removeEventListener('touchcancel', onTouchEnd, true);
-      map.off('zoomend', onZoomEnd);
-      map.off('remove', cleanup);
-      zoomGuards.delete(map);
-    };
-    zoomGuards.set(map, state);
-    surface?.addEventListener('wheel', onWheel, { capture: true, passive: true });
-    surface?.addEventListener('dblclick', onDoubleClick, { capture: true, passive: true });
-    surface?.addEventListener('keydown', onKeyDown, { capture: true, passive: true });
-    surface?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
-    surface?.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
-    surface?.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
-    surface?.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
-    map.on('zoomend', onZoomEnd);
-    map.on('remove', cleanup);
-    try { map.setTransformCameraUpdate?.(state.transform); } catch (_) {}
+    // Native MapLibre 6.9 handles user zoom and 3D terrain collision natively.
+    if (!map) return;
+    try { map.setTransformCameraUpdate?.(null); } catch (_) {}
   }
 
   function restoreZoomGuard(map) {
-    try { map.setTransformCameraUpdate?.(zoomGuards.get(map)?.transform || null); } catch (_) {}
+    try { map.setTransformCameraUpdate?.(null); } catch (_) {}
   }
 
   function anchor(map, centered) {

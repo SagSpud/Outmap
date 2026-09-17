@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.29';
+const APP_VERSION = '2.0.30';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2000,11 +2000,8 @@ async function initApplication() {
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxZoom: 16, // 限制最大缩放层级为 16 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
     maxPitch: 85,
-    // MapLibre defaults wheel zoom to the pointer position, so a pointer on
-    // the left/right intentionally pans the geographic center while zooming.
-    // Outmap uses a fixed camera composition; keep wheel zoom native but make
-    // the viewport center its public, supported anchor.
-    scrollZoom: { around: 'center' },
+    // 鼠标滚轮缩放：完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉）
+    scrollZoom: true,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
@@ -2037,12 +2034,9 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
-  // Slightly lower the public MapLibre wheel/trackpad rates so terrain
-  // collision and high-zoom tile hand-offs remain visually continuous. This
-  // keeps the native 200 ms easing curve rather than layering another camera
-  // animation on top of it.
-  map.scrollZoom?.setWheelZoomRate?.(1 / 600);
-  map.scrollZoom?.setZoomRate?.(1 / 120);
+  // MapLibre 6.9 原生纯净 60FPS 顺滑手感，原生 200ms 缓动
+  map.scrollZoom?.setWheelZoomRate?.(1 / 450);
+  map.scrollZoom?.setZoomRate?.(1 / 100);
   window.OutmapLocationCamera?.install?.(map);
 
 

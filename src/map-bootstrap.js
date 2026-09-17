@@ -12,11 +12,11 @@ window.__OUTMAP_MAPLIBRE_VERSION__ = maplibregl.getVersion?.() || maplibregl.ver
 
 const scripts = [
   'vendor/maplibre-contour.js',
-  'terrain-contours.js?v=2.0.29',
-  'map-native-icons.js?v=2.0.29',
-  'location-camera.js?v=2.0.29',
-  'favorite-interactions.js?v=2.0.29',
-  'app.js?v=2.0.29'
+  'terrain-contours.js?v=2.0.30',
+  'map-native-icons.js?v=2.0.30',
+  'location-camera.js?v=2.0.30',
+  'favorite-interactions.js?v=2.0.30',
+  'app.js?v=2.0.30'
 ];
 
 function loadClassicScript(src) {
