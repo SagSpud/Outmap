@@ -95,10 +95,11 @@ app.whenReady().then(async () => {
           });
         }
 
-        // (3) Test Tooltip DOM generation and visibility
+        // (3.1) Test Tooltip DOM generation and visibility
         const testPoint = { x: 400, y: 300 };
         const testFeature = {
           id: testFav.id,
+          geometry: { type: 'Point', coordinates: [testFav.lng, testFav.lat] },
           properties: { id: testFav.id, name: testFav.name, type: testFav.type, ele: testFav.ele }
         };
 
@@ -112,6 +113,26 @@ app.whenReady().then(async () => {
         results.tooltipText = tooltipEl ? tooltipEl.textContent : '';
         results.tooltipHasEle = tooltipEl ? tooltipEl.textContent.includes('4350m') : false;
         results.tooltipHasName = tooltipEl ? tooltipEl.textContent.includes('四姑娘山大峰营地') : false;
+
+        // (3.2) Test Anti-Flicker DOM reuse (same feature should NOT destroy/recreate DOM child nodes)
+        const firstChildBefore = tooltipEl.firstElementChild;
+        window.showFavoriteTooltip(testFeature, { x: 405, y: 302 });
+        const firstChildAfter = tooltipEl.firstElementChild;
+        results.domReusedForSameFeature = (firstChildBefore === firstChildAfter);
+
+        // (3.3) Test Right Click Dismissal & Menu Mutex
+        // Show menu and verify tooltip is dismissed and blocked
+        window.showChangeWaypointTypeMenu(testFav, 400, 300);
+        await new Promise(r => setTimeout(r, 50));
+        results.tooltipClosedOnMenuOpen = tooltipEl.style.display === 'none' || !tooltipEl.classList.contains('visible');
+
+        // While menu is open, showFavoriteTooltip should refuse to show
+        window.showFavoriteTooltip(testFeature, testPoint);
+        await new Promise(r => setTimeout(r, 50));
+        results.tooltipRefusedWhileMenuOpen = tooltipEl.style.display === 'none';
+
+        // Close menu
+        document.querySelectorAll('.fav-point-type-menu').forEach(m => m.remove());
 
         // Test hideFavoriteTooltip
         window.hideFavoriteTooltip();
@@ -153,6 +174,9 @@ app.whenReady().then(async () => {
     assert.strictEqual(runtimeResults.tooltipExists, true, 'Hover tooltip element must exist in DOM');
     assert.strictEqual(runtimeResults.tooltipHasName, true, 'Tooltip must display favorite point name');
     assert.strictEqual(runtimeResults.tooltipHasEle, true, 'Tooltip must display elevation text');
+    assert.strictEqual(runtimeResults.domReusedForSameFeature, true, 'DOM nodes must be reused on mousemove to avoid flickering');
+    assert.strictEqual(runtimeResults.tooltipClosedOnMenuOpen, true, 'Tooltip must be closed when right-click menu opens');
+    assert.strictEqual(runtimeResults.tooltipRefusedWhileMenuOpen, true, 'Tooltip must not show while right-click menu is open');
     assert.strictEqual(runtimeResults.tooltipHiddenAfterLeave, true, 'Tooltip must hide on mouseleave');
     assert.strictEqual(runtimeResults.generalMenuBlocked, true, 'General context menu must be blocked on favorite points');
 

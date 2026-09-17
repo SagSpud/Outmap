@@ -7138,9 +7138,25 @@ function setupWaypointAndFavoritesSystem(map) {
     if (favoriteLayerEventsBound) return;
     favoriteLayerEventsBound = true;
     let hoveredId = null;
+    let hoverLeaveTimer = null;
     let longPressTimer = null;
     let favoriteLongPressUntil = 0;
     let favTooltipEl = null;
+    let currentTooltipWpId = null;
+
+    const isAnyMenuOpen = () => {
+      const ctxMenu = document.getElementById('map-context-menu');
+      if (ctxMenu && ctxMenu.style.display !== 'none' && !ctxMenu.classList.contains('ctx-closing')) return true;
+      if (document.querySelector('.fav-point-type-menu, .fav-route-context-menu')) return true;
+      const fluentMenus = document.querySelectorAll('.fluent-context-menu');
+      for (let i = 0; i < fluentMenus.length; i++) {
+        const m = fluentMenus[i];
+        if (m.id !== 'map-context-menu' && m.style.display !== 'none' && !m.classList.contains('ctx-closing')) {
+          return true;
+        }
+      }
+      return false;
+    };
 
     const ensureFavTooltip = () => {
       if (!favTooltipEl || !favTooltipEl.isConnected) {
@@ -7160,32 +7176,50 @@ function setupWaypointAndFavoritesSystem(map) {
     };
 
     const showFavoriteTooltip = (feature, point) => {
-      if (!feature || document.body.classList.contains('map-is-dragging') || document.body.classList.contains('route-point-is-dragging')) {
+      if (isAnyMenuOpen() || !feature || document.body.classList.contains('map-is-dragging') || document.body.classList.contains('route-point-is-dragging')) {
         hideFavoriteTooltip();
         return;
       }
       const el = ensureFavTooltip();
       const wp = savedWaypoints.find(item => String(item.id) === String(feature.id));
-      const name = wp?.name || feature.properties?.name || '收藏点';
-      const type = wp?.type || feature.properties?.type || 'view';
-      const ele = wp?.ele ?? feature.properties?.ele;
-      const eleNum = Number(ele);
-      const eleText = (Number.isFinite(eleNum) && eleNum > 0) ? `${Math.round(eleNum)}m` : '';
-      const iconSvg = window.OutmapFavoriteInteractions?.svg ? window.OutmapFavoriteInteractions.svg(type, { size: 13, autoColor: true }) : '';
+      const wpId = wp ? String(wp.id) : String(feature.id);
 
-      el.innerHTML = `
-        ${iconSvg ? `<span class="fav-tooltip-icon">${iconSvg}</span>` : ''}
-        <span class="fav-tooltip-name">${escapeHtml(name)}</span>
-        ${eleText ? `<span class="fav-tooltip-ele">${eleText}</span>` : ''}
-      `;
-      updateFavTooltipPos(point);
-      el.style.display = 'flex';
-      requestAnimationFrame(() => {
-        el.classList.add('visible');
-      });
+      // 仅在跨点移动时更新 innerHTML，杜绝 mousemove 60Hz 重建 DOM 导致的剧烈闪烁
+      if (currentTooltipWpId !== wpId) {
+        currentTooltipWpId = wpId;
+        const name = wp?.name || feature.properties?.name || '收藏点';
+        const type = wp?.type || feature.properties?.type || 'view';
+        const ele = wp?.ele ?? feature.properties?.ele;
+        const eleNum = Number(ele);
+        const eleText = (Number.isFinite(eleNum) && eleNum > 0) ? `${Math.round(eleNum)}m` : '';
+        const iconSvg = window.OutmapFavoriteInteractions?.svg ? window.OutmapFavoriteInteractions.svg(type, { size: 13, autoColor: true }) : '';
+
+        el.innerHTML = `
+          ${iconSvg ? `<span class="fav-tooltip-icon">${iconSvg}</span>` : ''}
+          <span class="fav-tooltip-name">${escapeHtml(name)}</span>
+          ${eleText ? `<span class="fav-tooltip-ele">${eleText}</span>` : ''}
+        `;
+      }
+
+      // 优先锚定在图钉实际投影点，保持悬浮位置稳定，不随光标抖动
+      let anchorPoint = point;
+      if (feature.geometry?.coordinates) {
+        try {
+          anchorPoint = map.project(feature.geometry.coordinates);
+        } catch (_) {}
+      }
+      updateFavTooltipPos(anchorPoint);
+
+      if (el.style.display !== 'flex') {
+        el.style.display = 'flex';
+        requestAnimationFrame(() => {
+          if (!isAnyMenuOpen()) el.classList.add('visible');
+        });
+      }
     };
 
     const hideFavoriteTooltip = () => {
+      currentTooltipWpId = null;
       if (favTooltipEl) {
         favTooltipEl.classList.remove('visible');
         favTooltipEl.style.display = 'none';
@@ -7197,6 +7231,14 @@ function setupWaypointAndFavoritesSystem(map) {
     const favLayers = ['outmap-favorite-icons'];
     favLayers.forEach(layerId => {
       map.on('mouseenter', layerId, e => {
+        if (hoverLeaveTimer) {
+          clearTimeout(hoverLeaveTimer);
+          hoverLeaveTimer = null;
+        }
+        if (isAnyMenuOpen()) {
+          hideFavoriteTooltip();
+          return;
+        }
         if (!document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
           map.getCanvas().style.cursor = 'pointer';
         }
@@ -7211,21 +7253,48 @@ function setupWaypointAndFavoritesSystem(map) {
         }
       });
       map.on('mousemove', layerId, e => {
+        if (hoverLeaveTimer) {
+          clearTimeout(hoverLeaveTimer);
+          hoverLeaveTimer = null;
+        }
+        if (isAnyMenuOpen()) {
+          hideFavoriteTooltip();
+          return;
+        }
+        const id = e.features?.[0]?.id;
+        if (id != null && hoveredId !== id) {
+          if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
+          hoveredId = id;
+          map.setFeatureState({ source: FAVORITES_SOURCE_ID, id }, { hover: true });
+        }
         if (hoveredId != null && e.features?.[0] && !activeRouteMapDrag) {
           showFavoriteTooltip(e.features[0], e.point);
         }
       });
       map.on('mouseleave', layerId, () => {
-        if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
-        hoveredId = null;
-        hideFavoriteTooltip();
-        if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
-          map.getCanvas().style.cursor = '';
-        }
+        if (hoverLeaveTimer) clearTimeout(hoverLeaveTimer);
+        // 90ms 防抖迟滞，彻底消除 MapLibre 3D 地形重绘与边界光标 hit-test 瞬时丢帧造成的乒乓抽搐闪烁
+        hoverLeaveTimer = setTimeout(() => {
+          hoverLeaveTimer = null;
+          if (hoveredId != null) map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: hoveredId }, { hover: false });
+          hoveredId = null;
+          hideFavoriteTooltip();
+          if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+            map.getCanvas().style.cursor = '';
+          }
+        }, 90);
       });
     });
 
     map.on('movestart', hideFavoriteTooltip);
+    map.on('dragstart', hideFavoriteTooltip);
+    map.on('zoomstart', hideFavoriteTooltip);
+
+    // 全局右键拦截：无论在 canvas 还是窗口触发右键，立即彻底关掉收藏点提示气泡
+    map.getCanvas().addEventListener('mousedown', e => {
+      if (e.button === 2) hideFavoriteTooltip();
+    }, { capture: true });
+    window.addEventListener('contextmenu', () => hideFavoriteTooltip(), { capture: true });
 
     const favClusterLayers = ['outmap-favorite-clusters'];
     favClusterLayers.forEach(layerId => {
@@ -7337,8 +7406,10 @@ function setupWaypointAndFavoritesSystem(map) {
         filter: ['!', ['has', 'point_count']],
         paint: {
           'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 18, ['boolean', ['feature-state', 'hover'], false], 16, 0],
+          'circle-radius-transition': { duration: 120 },
           'circle-color': '#38bdf8',
           'circle-opacity': ['case', ['any', ['boolean', ['feature-state', 'selected'], false], ['boolean', ['feature-state', 'hover'], false]], 0.24, 0],
+          'circle-opacity-transition': { duration: 120 },
           'circle-blur': 0.25,
           'circle-pitch-alignment': 'viewport',
           'circle-pitch-scale': 'viewport'
@@ -7353,7 +7424,8 @@ function setupWaypointAndFavoritesSystem(map) {
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
           'icon-pitch-alignment': 'viewport',
-          'icon-rotation-alignment': 'viewport'
+          'icon-rotation-alignment': 'viewport',
+          'icon-padding': 4
         }
       });
       map.addLayer({
@@ -7596,6 +7668,7 @@ function setupWaypointAndFavoritesSystem(map) {
   
   // 右键管理收藏点（修改类型 / 删除）
   const showChangeWaypointTypeMenu = (wp, x, y) => {
+    if (typeof hideFavoriteTooltip === 'function') hideFavoriteTooltip();
     // 桌面与网页统一采用地图右键菜单同款 Fluent 弹层。地图点仍由
     // MapLibre 原生渲染；交互菜单属于 UI，不应受系统 radio 菜单的
     // 固定留白、深色主题和平台尺寸差异影响。
