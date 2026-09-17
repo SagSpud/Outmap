@@ -17,13 +17,17 @@ async function convertDirectoryToPmtiles(options = {}) {
   console.log(`[PMTiles Converter] Scanning tiles in ${inputDir}...`);
   const tiles = [];
 
-  // Directory structure: inputDir/{z}/{x}/{y}.ext
-  const zDirs = fs.readdirSync(inputDir, { withFileTypes: true }).filter(d => d.isDirectory());
+  // Directory structure: inputDir/{z}/{x}/{y}.ext or inputDir/metric-v1/{z}/{x}/{y}.ext
+  let scanDir = inputDir;
+  if (fs.existsSync(path.join(inputDir, 'metric-v1')) && fs.statSync(path.join(inputDir, 'metric-v1')).isDirectory()) {
+    scanDir = path.join(inputDir, 'metric-v1');
+  }
+  const zDirs = fs.readdirSync(scanDir, { withFileTypes: true }).filter(d => d.isDirectory());
 
   for (const zDir of zDirs) {
     const z = parseInt(zDir.name, 10);
     if (isNaN(z)) continue;
-    const zPath = path.join(inputDir, zDir.name);
+    const zPath = path.join(scanDir, zDir.name);
     const xDirs = fs.readdirSync(zPath, { withFileTypes: true }).filter(d => d.isDirectory());
 
     for (const xDir of xDirs) {
