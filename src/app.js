@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.30';
+const APP_VERSION = '2.0.31';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1998,7 +1998,8 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
-    maxZoom: 16, // 限制最大缩放层级为 16 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
+    maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
+    centerClampedToGround: false, // 禁用手势结束时的高程突跳反算，彻底杜绝滚轮松手后的“回拉回弹与层级跌落”
     maxPitch: 85,
     // 鼠标滚轮缩放：完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉）
     scrollZoom: true,
@@ -9056,7 +9057,7 @@ function importWaypointsIntoFavorites(waypoints, sourceName, mapInstance) {
     try {
       map.fitBounds(bounds, {
         padding: { top: 70, bottom: 90, left: 70, right: 70 },
-        maxZoom: 15.2,
+        maxZoom: 15.0,
         duration: 850
       });
     } catch (e) {}
