@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.42';
+const APP_VERSION = '2.0.43';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1681,6 +1681,20 @@ async function initApplication() {
     }
   } catch (e) {}
 
+  // 杜绝三维复杂地形下滚轮缩放反向回弹 (Zero-Rebound Zoom)：
+  // MapLibre 6.9 原生 _elevateCameraIfInsideTerrain 会在视锥后方或相机所在位置低于起伏地形时，
+  // 误判穿模并强行拍降 zoom 并重算 pitch，破坏滚轮缩放缓动曲线导致画面发生明显反向回弹拉扯。
+  // 将实例与原型方法均置为空对象返回，彻底根治滚轮缩放回弹与晃动。
+  try {
+    if (map._camera) {
+      const camProto = Object.getPrototypeOf(map._camera);
+      if (camProto && typeof camProto._elevateCameraIfInsideTerrain === 'function') {
+        camProto._elevateCameraIfInsideTerrain = function() { return {}; };
+      }
+      map._camera._elevateCameraIfInsideTerrain = function() { return {}; };
+    }
+  } catch (e) {}
+
   // MapLibre 6.9 原生纯净 60FPS 顺滑手感，原生 200ms 缓动
   map.scrollZoom?.setWheelZoomRate?.(1 / 450);
   map.scrollZoom?.setZoomRate?.(1 / 100);
@@ -1833,7 +1847,6 @@ async function initApplication() {
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
         if (map.isMoving() || map.isZooming() || map.isRotating()) return;
-        syncCameraGroundElevation(map);
         scheduleRouteElevationProfileRefresh(map, 420);
       }
     });

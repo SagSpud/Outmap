@@ -7,8 +7,8 @@ const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const expectedVersion = pkg.version;
 
-if (expectedVersion !== '2.0.42') {
-  console.error(`Expected version 2.0.42, found ${expectedVersion}`);
+if (!expectedVersion) {
+  console.error(`Expected valid package version, found ${expectedVersion}`);
   process.exit(1);
 }
 
@@ -38,7 +38,7 @@ app.whenReady().then(async () => {
 
       for (let i = 0; i < 400 && !window.mapInstance?.__outmapStyleReady; i++) await sleep(25);
       check(window.mapInstance?.__outmapStyleReady, 'Map did not initialize');
-      check(window.OUTMAP_APP_VERSION === '2.0.42', 'Version mismatch');
+      check(window.OUTMAP_APP_VERSION === '${expectedVersion}', 'Version mismatch');
 
       // Test 1: Tombstone normalization timestamp test
       const oldRoute = {
