@@ -34,11 +34,11 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 【收藏夹与路点高亮光晕完美同心对齐】修复收藏夹路点（outmap-favorite-icons）锚点为同心圆心（icon-anchor: center），彻底解决激活选中/悬停时淡蓝色底圈（outmap-favorite-hover）脱节掉落在图标正下方的问题，360° 柔和呼吸光晕完美环绕徽标；',
-    '2. 【户外重点景点文字与图标重叠排险】优化重点景点/观景台/露营地（osm-outdoor-scenic-pois）标签锚点与偏移（text-anchor: top, text-offset: [0, 0.4]），彻底消除地名文字与橙色星标重叠遮挡，保持全量 POI 图文上下清爽排布；',
-    '3. 【彻底消除缩放后界面晃动平移】禁用相机中心强制贴地（centerClampedToGround: false），拦截 recalculateZoomAndCenter，滚轮缩放 0.00px 终结跳动、0 回弹、0 晃动；',
-    '4. 【3D地形旋转稳固如磐】初始地表高程自动校准结合 rotatestart/pitchstart 瞬时对齐，360° 旋转枢轴坚固锚定地表（0.00px 枢轴偏移）；',
-    '5. 【极限仰角收敛防远山裁切】保持 72° 极限仰角（maxPitch: 72），杜绝 85° 极限俯仰下远端山体网格裁切与矢量注记悬空；',
+    '1. 【收藏路线默认显示且加粗醒目】开启收藏路线默认显示（savedRouteLayersVisible: true，图层面板默认勾选），并将描边与路线实体大幅加粗（zoom 10: 6.8px/9.8px，zoom 14: 9.6px/13.2px），高对比度蓝白丝带质感在山体阴影与卫星底图上清晰醒目；',
+    '2. 【规划路线与收藏路线智能防重叠】引入几何与采样空间重叠度检测算法（computeRoutesOverlapDegree），当正在规划或展示的绿色路线与某条收藏路线发生重叠时，自动隐去该条收藏路线，彻底杜绝双层路线杂乱重叠，保持地图清爽；',
+    '3. 【清空规划路线自动恢复收藏路线】当用户清空规划或切换到非重叠区域时，被隐藏的收藏路线秒级原位恢复；',
+    '4. 【收藏夹与路点高亮光晕完美同心对齐】收藏夹徽标与高亮蓝色光晕 360° 同心包裹，重点景点文字与图标清爽排布互不遮挡；',
+    '5. 【滚轮缩放与3D旋转稳固如磐】零位移、零晃动、零回弹，地表旋转枢轴物理级稳固；',
     '6. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;

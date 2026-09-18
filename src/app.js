@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.40';
+const APP_VERSION = '2.0.41';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -6572,6 +6572,9 @@ function exitRouteEditMode(notify = false) {
   if (!currentEditingSavedRouteId) return;
   currentEditingSavedRouteId = null;
   updateRouteEditUIState(null);
+  if (typeof renderSavedRoutesOnMap === 'function') {
+    try { renderSavedRoutesOnMap(); } catch (_) {}
+  }
   if (notify && typeof showToast === 'function') {
     showToast('已退出原路线编辑，后续保存将新建独立路线');
   }
@@ -6586,10 +6589,148 @@ let favoriteLayerEventsBound = false;
 let favoriteLayerInitPending = false;
 const SAVED_ROUTES_SOURCE_ID = 'outmap-saved-routes';
 const SAVED_ROUTE_LAYER_IDS = ['outmap-saved-route-casing', 'outmap-saved-route-line'];
-// 收藏路线默认关闭，避免启动后与当前绿色规划路线叠加；用户可在图层面板独立开启。
-let savedRouteLayersVisible = false;
+// 收藏路线默认开启显示，并加粗醒目呈现；若与当前规划/导航路线有空间重叠，则自动隐藏该条收藏路线避免图层重复叠加。
+let savedRouteLayersVisible = true;
 let savedRouteLayerEventsBound = false;
 let savedRouteLayerInitPending = false;
+
+// 高性能计算两条路线的空间重叠度 (0.0 ~ 1.0)
+function computeRoutesOverlapDegree(coordsA, coordsB) {
+  if (!Array.isArray(coordsA) || !Array.isArray(coordsB) || coordsA.length < 2 || coordsB.length < 2) {
+    return 0;
+  }
+
+  // 1. 包围盒快速初筛 (带 ~150米容差)
+  let minLngA = Infinity, maxLngA = -Infinity, minLatA = Infinity, maxLatA = -Infinity;
+  for (let i = 0; i < coordsA.length; i++) {
+    const c = coordsA[i];
+    if (c[0] < minLngA) minLngA = c[0];
+    if (c[0] > maxLngA) maxLngA = c[0];
+    if (c[1] < minLatA) minLatA = c[1];
+    if (c[1] > maxLatA) maxLatA = c[1];
+  }
+
+  let minLngB = Infinity, maxLngB = -Infinity, minLatB = Infinity, maxLatB = -Infinity;
+  for (let i = 0; i < coordsB.length; i++) {
+    const c = coordsB[i];
+    if (c[0] < minLngB) minLngB = c[0];
+    if (c[0] > maxLngB) maxLngB = c[0];
+    if (c[1] < minLatB) minLatB = c[1];
+    if (c[1] > maxLatB) maxLatB = c[1];
+  }
+
+  const margin = 0.0015; // ~150米缓冲区
+  if (minLngA > maxLngB + margin || maxLngA < minLngB - margin ||
+      minLatA > maxLatB + margin || maxLatA < minLatB - margin) {
+    return 0;
+  }
+
+  // 2. 均匀采样 A 序列 (最多 25 点)
+  const sampleCountA = 25;
+  const strideA = Math.max(1, Math.floor(coordsA.length / sampleCountA));
+  const samplesA = [];
+  for (let i = 0; i < coordsA.length; i += strideA) {
+    samplesA.push(coordsA[i]);
+    if (samplesA.length >= sampleCountA) break;
+  }
+  const lastA = coordsA[coordsA.length - 1];
+  if (samplesA[samplesA.length - 1] !== lastA) samplesA.push(lastA);
+
+  // 均匀采样 B 序列作为参考点 (最多 60 点加速几何比对)
+  const strideB = Math.max(1, Math.floor(coordsB.length / 60));
+  const samplesB = [];
+  for (let i = 0; i < coordsB.length; i += strideB) {
+    samplesB.push(coordsB[i]);
+  }
+  const lastB = coordsB[coordsB.length - 1];
+  if (samplesB[samplesB.length - 1] !== lastB) samplesB.push(lastB);
+
+  // 3. 计算 A 的样本点落入 B 缓冲区（~80m，约 0.0008 度）的比例
+  const thresholdSq = 0.0008 * 0.0008;
+  let matchCountA = 0;
+  for (let i = 0; i < samplesA.length; i++) {
+    const ptA = samplesA[i];
+    let isNear = false;
+    for (let j = 0; j < samplesB.length; j++) {
+      const ptB = samplesB[j];
+      const dx = ptA[0] - ptB[0];
+      const dy = ptA[1] - ptB[1];
+      if (dx * dx + dy * dy <= thresholdSq) {
+        isNear = true;
+        break;
+      }
+    }
+    if (isNear) matchCountA++;
+  }
+
+  const ratioA = matchCountA / samplesA.length;
+  if (ratioA >= 0.45) return ratioA;
+
+  // 4. 反向验证：计算 B 的样本点落入 A 缓冲区比例（防止长路线包含短路线时单向漏检）
+  const sampleCountB = 25;
+  const strideCheckB = Math.max(1, Math.floor(coordsB.length / sampleCountB));
+  const checkSamplesB = [];
+  for (let i = 0; i < coordsB.length; i += strideCheckB) {
+    checkSamplesB.push(coordsB[i]);
+    if (checkSamplesB.length >= sampleCountB) break;
+  }
+  if (checkSamplesB[checkSamplesB.length - 1] !== lastB) checkSamplesB.push(lastB);
+
+  let matchCountB = 0;
+  for (let i = 0; i < checkSamplesB.length; i++) {
+    const ptB = checkSamplesB[i];
+    let isNear = false;
+    for (let j = 0; j < samplesA.length; j++) {
+      const ptA = samplesA[j];
+      const dx = ptB[0] - ptA[0];
+      const dy = ptB[1] - ptA[1];
+      if (dx * dx + dy * dy <= thresholdSq) {
+        isNear = true;
+        break;
+      }
+    }
+    if (isNear) matchCountB++;
+  }
+
+  const ratioB = matchCountB / checkSamplesB.length;
+  return Math.max(ratioA, ratioB);
+}
+
+function isRouteOverlappingWithPlanned(savedRoute, plannedCoords, editingRouteId, isPlannedVisible = true) {
+  if (!isPlannedVisible) return false;
+  if (!savedRoute) return false;
+
+  // 1. 若当前正在编辑/调入该收藏路线，直接判定为同一路线（重叠）
+  if (editingRouteId) {
+    if (String(savedRoute.id) === String(editingRouteId) || routesRepresentSameRecord(savedRoute, { id: editingRouteId })) {
+      return true;
+    }
+  }
+
+  // 2. 若当前没有有效规划路线坐标，则无重叠
+  if (!Array.isArray(plannedCoords) || plannedCoords.length < 2) {
+    return false;
+  }
+  const sCoords = savedRoute.pathCoords;
+  if (!Array.isArray(sCoords) || sCoords.length < 2) {
+    return false;
+  }
+
+  // 3. 端点快速匹配 (起终点相近或反向相近，容差 ~120m)
+  const pStart = plannedCoords[0], pEnd = plannedCoords[plannedCoords.length - 1];
+  const sStart = sCoords[0], sEnd = sCoords[sCoords.length - 1];
+  const distStartStart = Math.hypot(pStart[0] - sStart[0], pStart[1] - sStart[1]);
+  const distEndEnd = Math.hypot(pEnd[0] - sEnd[0], pEnd[1] - sEnd[1]);
+  const distStartEnd = Math.hypot(pStart[0] - sEnd[0], pStart[1] - sEnd[1]);
+  const distEndStart = Math.hypot(pEnd[0] - sStart[0], pEnd[1] - sStart[1]);
+
+  if ((distStartStart < 0.0012 && distEndEnd < 0.0012) || (distStartEnd < 0.0012 && distEndStart < 0.0012)) {
+    return true;
+  }
+
+  // 4. 计算几何路径多点采样重叠度
+  return computeRoutesOverlapDegree(sCoords, plannedCoords) >= 0.45;
+}
 
 function savedRoutesFeatureCollection() {
   const compactForDisplay = coords => {
@@ -6604,6 +6745,7 @@ function savedRoutesFeatureCollection() {
     type: 'FeatureCollection',
     features: (savedRoutes || [])
       .filter(route => route?.id && Array.isArray(route.pathCoords) && route.pathCoords.length >= 2)
+      .filter(route => !isRouteOverlappingWithPlanned(route, currentPlannedRouteCoords, currentEditingSavedRouteId, routePointLayersVisible))
       .map(route => ({
         type: 'Feature',
         id: String(route.id),
@@ -6626,25 +6768,27 @@ function ensureSavedRouteLayers(map) {
       promoteId: 'id'
     });
   }
+  // 收藏路线加粗高对比度白底描边，确保在山体阴影和卫星底图上清晰可见
   if (!map.getLayer('outmap-saved-route-casing')) {
     map.addLayer({
       id: 'outmap-saved-route-casing', type: 'line', source: SAVED_ROUTES_SOURCE_ID,
       layout: { 'line-cap': 'round', 'line-join': 'round', visibility: savedRouteLayersVisible ? 'visible' : 'none' },
       paint: {
-        'line-color': 'rgba(255,255,255,0.92)',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 3.8, 10, 5.8, 14, 8.2, 17, 10],
-        'line-opacity': 0.9
+        'line-color': 'rgba(255,255,255,0.95)',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 6.6, 10, 9.8, 14, 13.2, 17, 16.0],
+        'line-opacity': 0.95
       }
     }, beforeLabelId);
   }
+  // 收藏路线加粗高饱和度户外天蓝实心线
   if (!map.getLayer('outmap-saved-route-line')) {
     map.addLayer({
       id: 'outmap-saved-route-line', type: 'line', source: SAVED_ROUTES_SOURCE_ID,
       layout: { 'line-cap': 'round', 'line-join': 'round', visibility: savedRouteLayersVisible ? 'visible' : 'none' },
       paint: {
-        'line-color': '#2f80ed',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.0, 10, 3.4, 14, 5.4, 17, 6.8],
-        'line-opacity': 0.78
+        'line-color': '#2563eb',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 4.2, 10, 6.8, 14, 9.6, 17, 12.0],
+        'line-opacity': 0.88
       }
     }, beforeLabelId);
   }
@@ -6721,7 +6865,19 @@ function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
     return;
   }
   savedRouteLayerInitPending = false;
-  submitGeoJSONChanges(map.getSource(SAVED_ROUTES_SOURCE_ID), savedRoutesFeatureCollection());
+  try {
+    if (map.getLayer('outmap-saved-route-casing')) {
+      map.setPaintProperty('outmap-saved-route-casing', 'line-width', ['interpolate', ['linear'], ['zoom'], 6, 6.6, 10, 9.8, 14, 13.2, 17, 16.0]);
+      map.setPaintProperty('outmap-saved-route-casing', 'line-color', 'rgba(255,255,255,0.95)');
+      map.setPaintProperty('outmap-saved-route-casing', 'line-opacity', 0.95);
+    }
+    if (map.getLayer('outmap-saved-route-line')) {
+      map.setPaintProperty('outmap-saved-route-line', 'line-width', ['interpolate', ['linear'], ['zoom'], 6, 4.2, 10, 6.8, 14, 9.6, 17, 12.0]);
+      map.setPaintProperty('outmap-saved-route-line', 'line-color', '#2563eb');
+      map.setPaintProperty('outmap-saved-route-line', 'line-opacity', 0.88);
+    }
+  } catch (_) {}
+  submitGeoJSONChanges(map.getSource(SAVED_ROUTES_SOURCE_ID), savedRoutesFeatureCollection(), true);
   SAVED_ROUTE_LAYER_IDS.forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', savedRouteLayersVisible ? 'visible' : 'none');
   });
@@ -10331,6 +10487,7 @@ function getRouteRevealSignature(pathCoords) {
 }
 
 function renderRouteGeometry(map, pathCoords) {
+  currentPlannedRouteCoords = Array.isArray(pathCoords) ? pathCoords : [];
   const routeGeojson = {
     type: 'Feature',
     geometry: {
@@ -10404,6 +10561,10 @@ function renderRouteGeometry(map, pathCoords) {
     animateRouteReveal(map);
   } else {
     stopRouteRevealAnimation(map, true);
+  }
+  // 规划路线与收藏路线重叠判定与图层刷新：若当前规划路线覆盖某条收藏路线，自动隐藏该收藏路线避免图层重复叠加
+  if (typeof renderSavedRoutesOnMap === 'function') {
+    try { renderSavedRoutesOnMap(map); } catch (_) {}
   }
 }
 
@@ -10678,6 +10839,9 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     currentRouteMetrics = null;
     lastElevationProfileFingerprint = '';
     lastElevationProfileAllKnown = false;
+    if (typeof renderSavedRoutesOnMap === 'function') {
+      try { renderSavedRoutesOnMap(map); } catch (_) {}
+    }
     return;
   }
 
@@ -11542,6 +11706,9 @@ function setupOutdoorRouteSystem(map) {
     currentProfileData = [];
     currentRouteMetrics = null;
     exitRouteEditMode(false);
+    if (typeof renderSavedRoutesOnMap === 'function') {
+      try { renderSavedRoutesOnMap(map); } catch (_) {}
+    }
 
     // 清空后自动顺滑收起路线规划面板
     smoothClosePanel(routePanel);
@@ -12082,6 +12249,13 @@ if (typeof window !== 'undefined') {
   window.getCurrentEditingSavedRouteId = () => currentEditingSavedRouteId;
   window.updateRouteEditUIState = updateRouteEditUIState;
   window.exitRouteEditMode = exitRouteEditMode;
+  window.getSavedRoutes = () => savedRoutes;
+  window.setSavedRoutes = list => {
+    savedRoutes = Array.isArray(list) ? list : [];
+    if (typeof renderSavedRoutesOnMap === 'function') {
+      try { renderSavedRoutesOnMap(); } catch (_) {}
+    }
+  };
 }
 
 // 绘制精美流畅的高清 Canvas 海拔剖面图 (完美适配 Retina 高分屏，iOS 级细腻质感)
@@ -12853,7 +13027,8 @@ function setupLayersPopover(map) {
     });
   });
 
-  // 2. 已收藏的蓝色路线独立显示；默认关闭，避免与当前规划路线重叠。
+  // 2. 已收藏的路线显示切换（默认开启并加粗；与规划路线重叠时自动隐藏避免重复）
+  if (toggleSavedRoutes) toggleSavedRoutes.checked = savedRouteLayersVisible;
   toggleSavedRoutes?.addEventListener('change', () => {
     const visible = toggleSavedRoutes.checked;
     savedRouteLayersVisible = visible;
@@ -12884,6 +13059,8 @@ function setupLayersPopover(map) {
       if (v.marker?.getElement()) v.marker.getElement().style.display = displayStyle;
     });
     window.renderWaypointMarkersOnMap?.();
+    // 规划路线显示状态变化时，重新比对并刷新收藏路线的重叠隐藏状态
+    renderSavedRoutesOnMap(map);
   });
 }
 
