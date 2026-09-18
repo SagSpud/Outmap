@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.43';
+const APP_VERSION = '2.0.44';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -889,19 +889,29 @@ function routeTombstoneKey(item) {
 }
 
 function mergeRouteTombstones(localList = [], cloudList = []) {
-  const result = [];
-  const seen = new Set();
+  const map = new Map();
   [...(localList || []), ...(cloudList || [])].forEach(item => {
     const normalized = normalizeRouteTombstone(item);
     if (!normalized) return;
     const key = routeTombstoneKey(normalized);
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    result.push(normalized);
+    if (!key) return;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, normalized);
+    } else {
+      // 冲突时始终保留最新的删除时间戳，严禁旧时间戳覆盖新删除时间！
+      const maxTime = Math.max(Number(existing.time || 0), Number(normalized.time || 0));
+      map.set(key, {
+        ...existing,
+        ...normalized,
+        name: normalized.name || existing.name,
+        time: maxTime
+      });
+    }
   });
   // 保留较长时间，避免旧云端快照在数月后让已删路线复活；数量上限防止无限增长。
   const cutoff = Date.now() - 365 * 24 * 3600 * 1000;
-  return result.filter(item => !item.time || item.time > cutoff).slice(-500);
+  return Array.from(map.values()).filter(item => !item.time || item.time > cutoff).slice(-500);
 }
 
 function pruneRevivedRouteTombstones(routes = [], tombstones = []) {
@@ -923,10 +933,11 @@ function pruneRevivedRouteTombstones(routes = [], tombstones = []) {
 }
 
 function addDeletedRouteTombstone(route) {
-  const tombstone = normalizeRouteTombstone({ ...route, deletedAt: route?.deletedAt || Date.now() });
+  const now = Date.now();
+  const tombstone = normalizeRouteTombstone({ ...route, deletedAt: now, time: now });
   if (!tombstone) return false;
   try {
-    const merged = mergeRouteTombstones(getDeletedRoutes(), [tombstone]);
+    const merged = mergeRouteTombstones([tombstone], getDeletedRoutes());
     localStorage.setItem(DELETED_ROUTES_STORAGE_KEY, JSON.stringify(merged));
     return true;
   } catch (e) {
@@ -6826,35 +6837,7 @@ function ensureSavedRouteLayers(map) {
 const geoJSONRenderCache = new WeakMap();
 function submitGeoJSONChanges(source, data, force = false) {
   if (!source) return;
-  if (force) {
-    geoJSONRenderCache.delete(source);
-    source.setData(data);
-    return;
-  }
-  const next = new Map(data.features.map(feature => [feature.id, JSON.stringify(feature)]));
-  const previous = geoJSONRenderCache.get(source);
-  const stableIds = !next.has(undefined) && next.size === data.features.length;
-  if (previous && stableIds) {
-    const add = [], update = [], remove = [];
-    for (const id of previous.keys()) if (!next.has(id)) remove.push(id);
-    for (const feature of data.features) {
-      if (!previous.has(feature.id)) add.push(feature);
-      else if (previous.get(feature.id) !== next.get(feature.id)) update.push({
-        id: feature.id, newGeometry: feature.geometry,
-        removeAllProperties: true,
-        addOrUpdateProperties: Object.entries(feature.properties || {}).map(([key, value]) => ({ key, value }))
-      });
-    }
-    if (!add.length && !update.length && !remove.length) return;
-    if (typeof source.updateData === 'function') {
-      source.updateData({ add, update, remove });
-      geoJSONRenderCache.set(source, next);
-      return;
-    }
-  }
   source.setData(data);
-  if (stableIds) geoJSONRenderCache.set(source, next);
-  else geoJSONRenderCache.delete(source);
 }
 function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
   const map = mapInstance;
