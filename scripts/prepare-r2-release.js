@@ -33,9 +33,10 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 【彻底根除 3D 高原地表高程冻结与地下穿透】恢复 MapLibre 原生 centerClampedToGround 核心机制，使中心点真实地表海拔在 DEM 瓦片加载全生命周期毫秒级自动同步，彻底消灭高山近距观察时相机钻入地下的根源；',
-    '2. 【无跳动无回弹姿态完美稳定】手势结束高程静默对齐，彻底阻断原生反算引起的视野瞬移与回弹；360°旋转圆心漂移实现 0.000000px 绝对稳定；',
-    '3. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
+    '1. 【彻底根除 3D 视角滚轮缩放画面拖拽/侧滑】启用 MapLibre 原生 scrollZoom: { around: \'center\' }，视口黄金中心绝对锁定，滚轮缩放中心漂移量归零（0 侧滑，0 拖拽）；',
+    '2. 【全量清理非原生拦截与冗余监听】全面剥离非原生私有补丁与冗余事件监听，回归 MapLibre 6.9 原生手势管线与 centerClampedToGround 自动地表贴地；',
+    '3. 【保持 0 穿透、0 回弹、360°旋转 0 漂移】视锥接触边界原生自然阻停，360° 旋转枢轴漂移严格为 0.000000px；',
+    '4. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 

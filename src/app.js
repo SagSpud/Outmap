@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.47';
+const APP_VERSION = '2.0.48';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1644,8 +1644,8 @@ async function initApplication() {
     maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
     centerClampedToGround: true, // 启用 MapLibre 原生地表高程自动贴地同步，确保 3D 地形下中心高程恒为真实地表高程
     maxPitch: 72, // 收敛极限仰角至 72°，既保留强烈 3D 纵深视角，又彻底杜绝地平线远景网格视锥裁切脱节
-    // 鼠标滚轮缩放：完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉）
-    scrollZoom: true,
+    // 鼠标滚轮缩放：MapLibre 原生以视口黄金正中心为锚点缩放，彻底杜绝 3D 视角下鼠标偏位引起的“画面被拖拽/侧滑”
+    scrollZoom: { around: 'center' },
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
@@ -1901,24 +1901,8 @@ async function initApplication() {
 
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
-        if (!map.isMoving() && !map.isZooming() && !map.isRotating()) {
-          syncCameraGroundElevation(map);
-        }
         scheduleRouteElevationProfileRefresh(map, 420);
       }
-    });
-
-    // 拖拽平移释放后校准旋转枢轴
-    map.on('dragend', () => {
-      syncCameraGroundElevation(map);
-    });
-
-    // 旋转与俯仰手势开启瞬间，确保 3D 旋转枢轴高程精确对齐地表
-    map.on('rotatestart', () => {
-      syncCameraGroundElevation(map);
-    });
-    map.on('pitchstart', () => {
-      syncCameraGroundElevation(map);
     });
     // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
     map.addLayer({
