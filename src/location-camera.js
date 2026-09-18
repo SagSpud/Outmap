@@ -51,6 +51,53 @@
     warmups.get(map)?.cancel();
   }
 
+  // 统一全场景视距与缩放感知自适应飞掠动力学模型
+  // (Unified Perceptual Flight Dynamics Model)
+  function computeAdaptiveFlight(map, targetCoords, targetZoom) {
+    const curCenter = map.getCenter?.() || { lng: targetCoords[0], lat: targetCoords[1] };
+    const curZoom = Number.isFinite(map.getZoom?.()) ? map.getZoom() : targetZoom;
+
+    // 1. 大圆/球面距离计算 (km)
+    const rad = Math.PI / 180;
+    const meanLat = ((curCenter.lat + targetCoords[1]) / 2) * rad;
+    const dLngKm = (targetCoords[0] - curCenter.lng) * rad * 6371 * Math.cos(meanLat);
+    const dLatKm = (targetCoords[1] - curCenter.lat) * rad * 6371;
+    const distKm = Math.hypot(dLngKm, dLatKm);
+    const deltaZoom = Math.abs(curZoom - targetZoom);
+
+    // 2. 屏幕像素视口距离判定
+    let isLocalPan = false;
+    try {
+      if (typeof map.project === 'function') {
+        const p1 = map.project(curCenter);
+        const p2 = map.project(targetCoords);
+        const screenDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const container = map.getContainer?.();
+        const viewDiag = container
+          ? Math.hypot(container.clientWidth || 800, container.clientHeight || 600)
+          : 1000;
+        // 若在当前屏幕视野内 (0.45对角线) 且缩放级差很小，视为局部平移微调
+        isLocalPan = screenDist < viewDiag * 0.45 && deltaZoom < 0.8;
+      }
+    } catch (_) {}
+
+    // 3. 对数尺度空间感知距离模型 (Log-Scale van Wijk Perceptual Distance)
+    // 地理距离沿对数递增，缩放级差按感知权重融合
+    const sGeo = Math.log(1 + distKm);
+    const sZoom = deltaZoom * 0.7;
+    const s = Math.hypot(sGeo, sZoom);
+
+    // 严格收敛于 [460ms, 1200ms] 黄金舒适区间：近距丝滑敏捷不拖沓，跨省长距平稳巡航不眩晕
+    const adaptiveDuration = Math.round(460 + 740 * (1 - Math.exp(-s / 4.0)));
+
+    return {
+      distKm,
+      deltaZoom,
+      isLocalPan,
+      duration: adaptiveDuration
+    };
+  }
+
   function fly(map, coordinates, options = {}) {
     if (!map || !Array.isArray(coordinates) || coordinates.length < 2) return;
     const coords = coordinates.slice(0, 2).map(Number);
@@ -112,7 +159,8 @@
     const pitch = Math.max(map.getMinPitch(), Math.min(map.getMaxPitch(), Number.isFinite(options.pitch) ? options.pitch : map.getPitch()));
     const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const duration = reduced ? 0 : Math.max(0, options.duration ?? 850);
+    const flight = computeAdaptiveFlight(map, coords, zoom);
+    const duration = reduced ? 0 : Math.max(0, Number.isFinite(options.duration) ? options.duration : flight.duration);
     const desiredAnchor = anchor(map, options.centered);
     let terrain;
     try { terrain = map.getTerrain?.(); } catch (_) {}
@@ -133,9 +181,11 @@
       }
     }
 
+    // C2 连续五次平滑阶跃曲线 (Perlin Smootherstep)：起点与终点一阶与二阶导数均严格归零，彻底根除启停顿挫
     const smoothStep = t => {
-      easingProgress = Math.max(0, Math.min(1, t));
-      return t * t * (3 - 2 * t);
+      const clamped = Math.max(0, Math.min(1, t));
+      easingProgress = clamped;
+      return clamped * clamped * clamped * (clamped * (clamped * 6 - 15) + 10);
     };
 
     const cameraOptions = refineDuration => {
@@ -148,7 +198,8 @@
         bearing,
         offset: desiredAnchor.sub(viewportCenter),
         duration: refineDuration,
-        curve: 1,
+        speed: 1.2,
+        curve: 1.42,
         easing: smoothStep,
         freezeElevation: false,
         essential: false
@@ -271,10 +322,8 @@
       dispose(true);
     });
 
-    const current = map.getCenter();
-    const distance = Math.hypot((current.lng - coords[0]) * Math.cos(coords[1] * Math.PI / 180), current.lat - coords[1]);
-    const nearby = distance < 0.25;
-    const needsLoadingState = distance > 2.5 || Math.abs(map.getZoom() - zoom) > 3.5;
+    const nearby = flight.isLocalPan || (flight.distKm < 1.2 && flight.deltaZoom < 0.6);
+    const needsLoadingState = flight.distKm > 200 || flight.deltaZoom > 3.5;
     if (needsLoadingState) setFlightLoadState(true);
 
     // Start warming the exact destination area before starting the native
@@ -333,18 +382,17 @@
       });
     } else {
       let moveDuration = duration;
-      if (terrainWarmPromise && distance >= 0.25) {
+      if (terrainWarmPromise && !nearby && duration > 0) {
         let prepared = null;
         try { prepared = options.resolveTerrainElevation?.(coords, zoom); } catch (_) {}
         if (!Number.isFinite(prepared)) {
-          const coldDuration = Math.max(0, Math.min(3000,
-            Number(options.coldDuration) || duration));
-          moveDuration = Math.max(moveDuration, coldDuration);
+          // 冷启动未加载地形时轻微缓冲过渡，上限严格锁定在 1200ms 内，杜绝卡顿感
+          moveDuration = Math.min(1200, Math.max(duration, Math.min(1200, Number(options.coldDuration) || (duration + 80))));
         }
       }
       startNativeMove(nearby ? 'easeTo' : 'flyTo', moveDuration);
     }
   }
 
-  global.OutmapLocationCamera = Object.freeze({ fly, cancel, anchor, install });
+  global.OutmapLocationCamera = Object.freeze({ fly, cancel, anchor, install, computeAdaptiveFlight });
 })(window);

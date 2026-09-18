@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.32';
+const APP_VERSION = '2.0.34';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2863,7 +2863,7 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
       ...flyOpts,
       prepareTerrain: flyOpts.prepareTerrain || window.OutmapPrepareTerrainAt,
       resolveTerrainElevation: flyOpts.resolveTerrainElevation || window.OutmapResolvePreparedTerrainElevation,
-      coldDuration: flyOpts.coldDuration || (webMode ? 2300 : 1500),
+      coldDuration: flyOpts.coldDuration || (webMode ? 1300 : 1100),
       instantTerrainTimeout: flyOpts.instantTerrainTimeout || (webMode ? 2500 : 1200),
       onFlightLoadStateChange: active => flyOpts.onFlightLoadStateChange?.(active),
       onArrival: () => {
@@ -2884,7 +2884,9 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
     pitch: flyOpts.pitch !== undefined ? flyOpts.pitch : (map.getPitch() ?? 50),
     bearing: flyOpts.bearing !== undefined ? flyOpts.bearing : (map.getBearing() ?? 0),
     padding: cameraPadding,
-    duration: flyOpts.duration || 850
+    speed: 1.2,
+    curve: 1.42,
+    ...(flyOpts.duration !== undefined ? { duration: flyOpts.duration } : {})
   });
 }
 window.flyToLocationPrecisely = flyToLocationPrecisely;
@@ -3380,7 +3382,7 @@ function setupOfficeHeaderInteractions(map) {
       pinWrap.addEventListener('click', (e) => {
         e.stopPropagation();
         const curPitch = map.getPitch() ?? 50;
-        flyToLocationPrecisely(map, validCoords, { zoom: 12.0, pitch: curPitch, duration: 600, centered: false });
+        flyToLocationPrecisely(map, validCoords, { zoom: 12.0, pitch: curPitch, centered: false });
       });
     }
 
@@ -3534,7 +3536,6 @@ function setupOfficeHeaderInteractions(map) {
     const curCenter = map.getCenter();
     const distDeg = Math.hypot((curCenter.lng || 104.5) - lng, (curCenter.lat || 36.0) - lat);
     const isLongFlight = curZoom < 8.5 || distDeg > 2.5;
-    const flightDuration = isLongFlight ? 1100 : 500;
 
     let landingMarkerShown = false;
     const ensureLandingMarker = () => {
@@ -3548,7 +3549,6 @@ function setupOfficeHeaderInteractions(map) {
       zoom: targetZoom,
       pitch: targetPitch,
       centered: isProv,
-      duration: flightDuration,
       elevation: item.ele ?? item.elevation,
       onArrival: () => {
         ensureLandingMarker();
@@ -4070,10 +4070,9 @@ function setupPyramidModal(map) {
     if (!window.electronAPI?.getOfflineDataDir) return;
     try {
       const res = await window.electronAPI.getOfflineDataDir();
-      if (res && statStorageDir) {
-        const displayPath = res.archivesDir || res.baseDir || '';
-        statStorageDir.innerText = displayPath;
-        statStorageDir.title = `点击在 Windows 资源管理器中打开:\n${displayPath}`;
+      const displayPath = res?.archivesDir || res?.baseDir || '';
+      if (btnOpenOfflineLink && displayPath) {
+        btnOpenOfflineLink.title = `点击在 Windows 资源管理器中打开离线存储目录:\n${displayPath}`;
       }
     } catch (_) {}
   };
@@ -4300,6 +4299,13 @@ function setupPyramidModal(map) {
   // 全局点击监听：弹窗开启时，点击外部任何空白处平滑收起并缩放回图标
   document.addEventListener('click', (e) => {
     if (modal.style.display !== 'none') {
+      // 关键守卫：若页面当前有上层子浮层（如存储体检弹窗等），严禁关闭底层的离线下载主弹窗！
+      const activeUpperModal = document.getElementById('storage-maintenance-overlay')
+        || document.querySelector('.fluent-prompt-overlay')
+        || document.querySelector('.fluent-confirm-overlay');
+      if (activeUpperModal && (activeUpperModal.contains(e.target) || e.target === activeUpperModal)) {
+        return;
+      }
       const modalCard = modal.querySelector('.modal-card');
       if (!modalCard?.contains(e.target) && !btnOpen.contains(e.target)) {
         closePyramidModal();
@@ -6144,8 +6150,7 @@ function flyToProvince(map, key) {
     centered: true,
     zoom: prov.zoom,
     pitch: targetPitch,
-    bearing: 0,
-    duration: 1200
+    bearing: 0
   });
   const regionEl = document.getElementById('status-region');
   if (regionEl) {
@@ -7002,15 +7007,9 @@ function setupWaypointAndFavoritesSystem(map) {
       }
       selectedFavoriteFeatureId = feature.id;
       map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: feature.id }, { selected: true });
-      const center = map.getCenter();
-      const distDeg = Math.hypot(center.lng - wp.lng, center.lat - wp.lat);
-      const flightDuration = distDeg < 0.2
-        ? 450
-        : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
         zoom: 12.0,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
-        duration: flightDuration,
         centered: false,
         elevation: wp.ele ?? wp.elevation
       });
@@ -7629,16 +7628,10 @@ function setupWaypointAndFavoritesSystem(map) {
           return;
         }
         const startFavoriteFlight = () => {
-          const curCenter = map.getCenter();
-          const distDeg = Math.hypot((curCenter.lng || 104.5) - wp.lng, (curCenter.lat || 36.0) - wp.lat);
-          const flightDuration = distDeg < 0.2
-            ? 450
-            : Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)));
           const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
           flyToLocationPrecisely(map, [wp.lng, wp.lat], {
             zoom: 12.0,
             pitch: curPitch,
-            duration: flightDuration,
             centered: false,
             elevation: wp.ele ?? wp.elevation
           });
@@ -8960,7 +8953,6 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
       flyToLocationPrecisely(map, item.coords, {
         zoom: targetZoom,
         pitch: targetPitch,
-        duration: 650,
         centered: false,
         elevation: item.ele ?? item.elevation
       });
@@ -9474,7 +9466,6 @@ function bindRoutePointLayerEvents(map) {
       flyToLocationPrecisely(map, point.coords, {
         zoom: 12.0,
         pitch: map.getPitch() ?? 50,
-        duration: 600,
         centered: false,
         elevation: point.ele ?? point.elevation
       });
@@ -9952,7 +9943,6 @@ function renderViaList(mapInstance) {
           flyToLocationPrecisely(row._map, row._via.coords, {
             zoom: 12.0,
             pitch: row._map.getPitch() ?? 50,
-            duration: 600,
             centered: false,
             elevation: row._via?.ele ?? row._via?.elevation
           });
@@ -11109,7 +11099,6 @@ function setupOutdoorRouteSystem(map) {
         flyToLocationPrecisely(map, routeStartCoord, {
           zoom: routeStartZoom || 12.0,
           pitch: map.getPitch() ?? 50,
-          duration: 600,
           centered: false
         });
       }
@@ -11124,7 +11113,6 @@ function setupOutdoorRouteSystem(map) {
         flyToLocationPrecisely(map, routeEndCoord, {
           zoom: routeEndZoom || 12.0,
           pitch: map.getPitch() ?? 50,
-          duration: 600,
           centered: false
         });
       } else if (routeViaPoints.length > 0 && map) {
@@ -11133,7 +11121,6 @@ function setupOutdoorRouteSystem(map) {
           flyToLocationPrecisely(map, lastVia.coords, {
             zoom: lastVia.zoom || 12.0,
             pitch: map.getPitch() ?? 50,
-            duration: 600,
             centered: false,
             elevation: lastVia.ele ?? lastVia.elevation
           });

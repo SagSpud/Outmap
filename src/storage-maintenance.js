@@ -19,34 +19,57 @@
     }
 
     const overlay = document.createElement('div');
-    overlay.className = 'fluent-prompt-overlay';
+    overlay.className = 'modal-overlay prompt-active';
     overlay.id = 'storage-maintenance-overlay';
+    overlay.style.zIndex = '10050'; // 确保位于离线下载主弹窗之上
     overlay.innerHTML = [
-      '<div class="fluent-prompt-card" style="max-width: 480px;">',
-      '  <div class="fluent-prompt-title">🛠️ 离线存储体检与健康维护</div>',
-      '  <div class="storage-health-content" id="storage-health-content" style="padding: 12px 0; font-size: 13px; color: #94a3b8;">',
-      '    <div style="text-align:center; padding: 20px 0;">正在扫描磁盘与 PMTiles 归档健康度...</div>',
+      '<div class="modal-card" style="max-width: 480px; width: 92%; margin: auto; animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);">',
+      '  <div class="modal-header">',
+      '    <div class="modal-title">',
+      '      <span>🛠️ 离线存储体检与健康维护</span>',
+      '    </div>',
+      '    <button class="modal-close-btn" id="btn-close-storage-modal" title="关闭">✕</button>',
       '  </div>',
-      '  <div class="fluent-prompt-actions" style="display:flex; justify-content:flex-end; gap:8px;">',
-      '    <button class="fluent-prompt-btn btn-prompt-cancel" id="btn-storage-cancel">关 闭</button>',
-      '    <button class="fluent-prompt-btn btn-prompt-confirm" id="btn-storage-clean" style="display:none; background:#0ea5e9;">一键无损瘦身</button>',
+      '  <div class="modal-body" id="storage-health-content" style="padding: 14px 16px; font-size: 13px;">',
+      '    <div style="text-align:center; padding: 24px 0; color: #94a3b8;">正在扫描磁盘与 PMTiles 归档健康度...</div>',
+      '  </div>',
+      '  <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; padding: 12px 16px;">',
+      '    <button class="modal-btn secondary" id="btn-storage-cancel">关闭</button>',
+      '    <button class="modal-btn accent" id="btn-storage-clean" style="display:none;">一键无损瘦身</button>',
       '  </div>',
       '</div>'
     ].join('');
 
     document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('prompt-active'));
 
     const content = overlay.querySelector('#storage-health-content');
+    const btnCloseModal = overlay.querySelector('#btn-close-storage-modal');
     const btnCancel = overlay.querySelector('#btn-storage-cancel');
     const btnClean = overlay.querySelector('#btn-storage-clean');
 
-    const close = () => {
+    const close = (e) => {
+      if (e) e.stopPropagation();
+      window.removeEventListener('keydown', handleKeyDown);
       overlay.classList.remove('prompt-active');
+      overlay.style.opacity = '0';
+      overlay.style.transition = 'opacity 0.15s ease';
       setTimeout(() => overlay.remove(), 160);
     };
 
-    btnCancel.addEventListener('click', close);
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') close(e);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    // 关键：点击自身遮罩背景关闭自己，并阻止事件冒泡误关底层离线下载弹窗
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        close(e);
+      }
+    });
+
+    btnCloseModal?.addEventListener('click', close);
+    btnCancel?.addEventListener('click', close);
 
     try {
       const health = await window.electronAPI.getStorageHealth();
