@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.50';
+const APP_VERSION = '2.0.51';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1644,8 +1644,8 @@ async function initApplication() {
     maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
     centerClampedToGround: true, // 启用 MapLibre 原生地表高程自动贴地同步，确保 3D 地形下中心高程恒为真实地表高程
     maxPitch: 72, // 收敛极限仰角至 72°，既保留强烈 3D 纵深视角，又彻底杜绝地平线远景网格视锥裁切脱节
-    // 鼠标滚轮缩放：MapLibre 原生以视口黄金正中心为锚点缩放，彻底杜绝 3D 视角下鼠标偏位引起的“画面被拖拽/侧滑”
-    scrollZoom: { around: 'center' },
+    // 鼠标滚轮缩放：完全交还 MapLibre 官方原生跟随鼠标指针自然顺滑缩放（光标所指即所放，0 偏差 0 侧滑）
+    scrollZoom: true,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
