@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -11,9 +11,25 @@ try {
   originalFs = require('original-fs');
 } catch (e) {}
 
-// Electron/Chromium 默认已经启用硬件加速、GPU 光栅化与自适应线程数。
-// 不覆盖 GPU 黑名单、安全沙箱、V8 堆和缓存上限：这些“强制加速”开关会在
-// 不同显卡/驱动上造成纹理抖动、内存常驻和渲染进程崩溃，反而降低稳定性。
+// 注册 outmap-tile 原生特权协议（突破浏览器单域名 6 并发连接限制，直通 Mojo IPC）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'outmap-tile',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true
+    }
+  }
+]);
+
+// 稳健化 GPU 共享图像与 WebGL 显存配额，消除 3D 大倾角立体视角海量瓦片下的 Context Lost
+app.commandLine.appendSwitch('max-active-webgl-contexts', '32');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 let mainWindow;
 
@@ -1471,10 +1487,136 @@ let activeDownloadAbort = null;
 app.whenReady().then(async () => {
   await startLocalTileServer();
 
+  // 注册 outmap-tile 原生特权协议处理器（Chromium Mojo IPC 二进制直通，突破单域名 6 并发限制）
+  protocol.handle('outmap-tile', async (request) => {
+    try {
+      const url = new URL(request.url);
+      let type = url.host;
+      let pathParts = url.pathname.replace(/^\/+/, '').split('/');
+      if (!type || type === 'localhost' || type === '') {
+        type = pathParts[0];
+        pathParts = pathParts.slice(1);
+      }
+      if (pathParts.length < 3) {
+        return new Response('Not found', { status: 404 });
+      }
+      const z = Number(pathParts[0]);
+      const x = Number(pathParts[1]);
+      const yFile = pathParts[2];
+      const y = Number(yFile.split('.')[0]);
+
+      if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y)) {
+        return new Response('Invalid tile coordinates', { status: 400 });
+      }
+
+      let contentType = 'application/octet-stream';
+      if (type === 'dem') contentType = yFile.endsWith('.png') ? 'image/png' : 'image/webp';
+      else if (type === 'sat') contentType = 'image/jpeg';
+      else if (type === 'vector' || type === 'contour') contentType = 'application/vnd.mapbox-vector-tile';
+
+      const prepareTileBuffer = (b) => {
+        if (!b) return b;
+        if ((type === 'vector' || type === 'contour') && b.length > 2 && b[0] === 0x1f && b[1] === 0x8b) {
+          try {
+            const zlib = require('zlib');
+            return zlib.gunzipSync(b);
+          } catch (_) {}
+        }
+        return b;
+      };
+
+      const cacheKey = `${type}/${z}/${x}/${yFile}`;
+
+      // 1. 优先内存 LRU 零拷贝响应
+      let memory = getCachedTile(cacheKey);
+      if (memory) {
+        memory = prepareTileBuffer(memory);
+        return new Response(memory, {
+          status: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Content-Length': String(memory.length),
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'X-Tile-Source': 'memory-cache'
+          }
+        });
+      }
+
+      // 2. 优先单文件归档 (PMTiles) 毫秒级直接读取
+      try {
+        const archiveTile = await tileArchiveManager.getTile(type, z, x, y);
+        if (archiveTile && archiveTile.data && archiveTile.data.length > 0) {
+          const tileBuf = prepareTileBuffer(archiveTile.data);
+          setCachedTile(cacheKey, tileBuf);
+          return new Response(tileBuf, {
+            status: 200,
+            headers: {
+              'Content-Type': contentType,
+              'Content-Length': String(tileBuf.length),
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'X-Tile-Source': 'archive-pmtiles'
+            }
+          });
+        }
+      } catch (_) {}
+
+      // 3. 本地散列目录回退
+      let localDir = OFFLINE_VEC_DIR;
+      if (type === 'dem') localDir = OFFLINE_DEM_DIR;
+      else if (type === 'sat') localDir = OFFLINE_SAT_DIR;
+      else if (type === 'contour') localDir = path.join(OFFLINE_CONTOUR_DIR, 'metric-v1');
+      const localPath = path.join(localDir, String(z), String(x), yFile);
+
+      try {
+        let buf = await fs.promises.readFile(localPath);
+        if (buf.length > (type === 'vector' ? 0 : 20)) {
+          buf = prepareTileBuffer(buf);
+          setCachedTile(cacheKey, buf);
+          return new Response(buf, {
+            status: 200,
+            headers: {
+              'Content-Type': contentType,
+              'Content-Length': String(buf.length),
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'X-Tile-Source': 'local-offline'
+            }
+          });
+        }
+      } catch (_) {}
+
+      // 4. 非中国区域 DEM 边界平滑补平
+      if (type === 'dem' && z >= 11 && !isTileInChina(z, x, y)) {
+        return new Response(EMPTY_DEM_TILE_BUFFER, {
+          status: 200,
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Length': String(EMPTY_DEM_TILE_BUFFER.length),
+            'Cache-Control': 'no-cache'
+          }
+        });
+      }
+
+      // 5. 在线回退：通过本地 HTTP 服务统一处理在线代理与增量缓存
+      const httpFallbackUrl = `http://127.0.0.1:${localServerPort}/${type}/${z}/${x}/${yFile}`;
+      const httpResp = await fetch(httpFallbackUrl);
+      const ab = await httpResp.arrayBuffer();
+      return new Response(ab, {
+        status: httpResp.status,
+        headers: {
+          'Content-Type': httpResp.headers.get('content-type') || contentType,
+          'Cache-Control': httpResp.headers.get('cache-control') || 'public, max-age=31536000, immutable'
+        }
+      });
+    } catch (err) {
+      return new Response('Tile protocol error: ' + err.message, { status: 500 });
+    }
+  });
+
   ipcMain.handle('get-tile-server-info', (event, { forceRefresh } = {}) => {
     const stats = getQuickTileCount(Boolean(forceRefresh));
     return {
       port: localServerPort,
+      tileProtocol: true,
       demCount: stats.demCount || 0,
       satCount: stats.satCount || 0,
       vectorCount: stats.vectorCount || 0,
@@ -1514,6 +1656,89 @@ app.whenReady().then(async () => {
   ipcMain.handle('offline:generate-contours', async (event, opts) => {
     const { runContourGeneration } = require('./src/contour-generator.cjs');
     return await runContourGeneration(opts || { demDir: OFFLINE_DEM_DIR });
+  });
+
+  // 离线切片存储健康体检
+  ipcMain.handle('get-storage-health', async () => {
+    let archivesCount = 0;
+    let archivesBytes = 0;
+    let archivesTiles = 0;
+    let fragmentCount = 0;
+    let fragmentBytes = 0;
+
+    const summary = tileArchiveManager.getArchivesSummary();
+    archivesCount = summary.length;
+    for (const a of summary) {
+      archivesTiles += a.tileCount || 0;
+    }
+
+    if (fs.existsSync(OFFLINE_ARCHIVES_DIR)) {
+      try {
+        const files = fs.readdirSync(OFFLINE_ARCHIVES_DIR);
+        for (const f of files) {
+          const fullPath = path.join(OFFLINE_ARCHIVES_DIR, f);
+          const st = fs.statSync(fullPath);
+          if (f.toLowerCase().endsWith('.pmtiles')) {
+            archivesBytes += st.size;
+          } else if (f.endsWith('.tmp') || f.endsWith('.spool') || f.includes('.tmp.')) {
+            fragmentCount++;
+            fragmentBytes += st.size;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (fs.existsSync(OFFLINE_BASE_DIR)) {
+      try {
+        const baseFiles = fs.readdirSync(OFFLINE_BASE_DIR);
+        for (const bf of baseFiles) {
+          if (bf.endsWith('.tmp') || bf.includes('.tmp.')) {
+            const p = path.join(OFFLINE_BASE_DIR, bf);
+            const st = fs.statSync(p);
+            fragmentCount++;
+            fragmentBytes += st.size;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return {
+      archivesCount,
+      archivesBytes,
+      archivesTiles,
+      fragmentCount,
+      fragmentBytes,
+      archivesSummary: summary
+    };
+  });
+
+  // 离线切片存储一键整理与碎片清理
+  ipcMain.handle('clean-storage-fragments', async () => {
+    const { PmtilesDownloadSink } = require('./src/pmtiles-download-sink.cjs');
+    const res = PmtilesDownloadSink.cleanTemporaryArtifacts(OFFLINE_ARCHIVES_DIR);
+
+    if (fs.existsSync(OFFLINE_BASE_DIR)) {
+      try {
+        const baseFiles = fs.readdirSync(OFFLINE_BASE_DIR);
+        for (const bf of baseFiles) {
+          if (bf.endsWith('.tmp') || bf.includes('.tmp.')) {
+            const p = path.join(OFFLINE_BASE_DIR, bf);
+            try {
+              const st = fs.statSync(p);
+              res.reclaimedBytes += st.size;
+              fs.unlinkSync(p);
+              res.cleanedFiles++;
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
+    return {
+      success: true,
+      cleanedFiles: res.cleanedFiles,
+      reclaimedBytes: res.reclaimedBytes
+    };
   });
 
   // 地图交互期间把后台下载主动让路给 WebGL 与本地切片服务。
@@ -1886,6 +2111,10 @@ app.whenReady().then(async () => {
     let discoveredMissing = 0;
     let scannedColumns = 0;
     let lastPlanningProgressTime = 0;
+    let lastCompletedProgressTime = Date.now();
+    let lastCompletedCount = 0;
+    let isAutoHealing = false;
+    let watchdogTimer = null;
 
     const speedSamples = [{ time: startTime, bytes: 0 }];
 
@@ -1911,19 +2140,50 @@ app.whenReady().then(async () => {
         .join(' · ');
     }
 
+    async function fetchWithHardTimeout(url, fetchOpts = {}, timeoutMs = 7000) {
+      const ac = new AbortController();
+      let timer = null;
+      const baseSignal = fetchOpts.signal || signal;
+      const combinedSignal = baseSignal
+        ? (typeof AbortSignal.any === 'function'
+            ? AbortSignal.any([baseSignal, ac.signal])
+            : ac.signal)
+        : ac.signal;
+
+      const hardTimeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          ac.abort(new Error(`request timed out after ${timeoutMs}ms`));
+          const err = new Error(`request timed out after ${timeoutMs}ms`);
+          err.name = 'TimeoutError';
+          err.code = 'ETIMEDOUT';
+          reject(err);
+        }, timeoutMs);
+      });
+
+      try {
+        const fetchPromise = (async () => {
+          const response = await fetch(url, { ...fetchOpts, signal: combinedSignal });
+          if (!response.ok) {
+            return { response, buffer: null };
+          }
+          const buffer = Buffer.from(await response.arrayBuffer());
+          return { response, buffer };
+        })();
+
+        return await Promise.race([fetchPromise, hardTimeoutPromise]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
     async function fetchMissingTile(url, type) {
       const lane = downloadLanes[type] || downloadLanes.vector;
       let lastError = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         const release = await lane.acquire();
         try {
-          const timeout = AbortSignal.timeout(6000);
-          const fetchSignal = typeof AbortSignal.any === 'function'
-            ? AbortSignal.any([signal, timeout])
-            : timeout;
-          const response = await fetch(url, { signal: fetchSignal });
-          if (response.ok) {
-            const buffer = Buffer.from(await response.arrayBuffer());
+          const { response, buffer } = await fetchWithHardTimeout(url, { signal }, 7000);
+          if (response.ok && buffer) {
             const contentType = String(response.headers.get('content-type') || '').toLowerCase();
             // Small vector PBFs are valid (water/empty-label tiles can be only
             // a few bytes). Validate by MIME type instead of an arbitrary
@@ -1950,9 +2210,10 @@ app.whenReady().then(async () => {
           }
           if (response.status === 429 || response.status >= 500) {
             const retryAfter = Number(response.headers.get('retry-after'));
+            const jitter = Math.random() * 200;
             lane.coolDown(Number.isFinite(retryAfter) && retryAfter > 0
-              ? Math.min(5000, retryAfter * 1000)
-              : 600 + attempt * 700);
+              ? Math.min(8000, retryAfter * 1000 + jitter)
+              : Math.min(6000, 500 * Math.pow(1.8, attempt) + jitter));
           }
         } catch (error) {
           lastError = error;
@@ -1961,7 +2222,7 @@ app.whenReady().then(async () => {
           release();
         }
         if (attempt < 2 && !signal.aborted) {
-          await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1) ** 2 + Math.random() * 180));
+          await new Promise(resolve => setTimeout(resolve, Math.min(4000, 300 * Math.pow(1.8, attempt + 1) + Math.random() * 200)));
         }
       }
       throw lastError || new Error('tile request failed');
@@ -2015,7 +2276,10 @@ app.whenReady().then(async () => {
 
     function enqueueMissingRange(range) {
       const length = Math.max(0, range.endY - range.startY + 1);
-      if (length === 0) return;
+      if (length === 0) {
+        discoveryFlow.release();
+        return;
+      }
       missingRanges.push({ ...range, nextY: range.startY });
       discoveredMissing += length;
       total = discoveredMissing;
@@ -2047,7 +2311,15 @@ app.whenReady().then(async () => {
           }
         }
         if (planningDone) return null;
-        await new Promise(resolve => rangeWaiters.push(resolve));
+        await new Promise(resolve => {
+          rangeWaiters.push(resolve);
+          const t = setTimeout(() => {
+            const idx = rangeWaiters.indexOf(resolve);
+            if (idx !== -1) rangeWaiters.splice(idx, 1);
+            resolve();
+          }, 3000);
+          signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+        });
       }
       return null;
     }
@@ -2236,6 +2508,7 @@ app.whenReady().then(async () => {
             }
           }
           completed++;
+          lastCompletedProgressTime = Date.now();
         }
 
         // 关键性能优化：每检查 250 块让渡事件循环微任务，彻底杜绝本地校验越来越慢与 UI 假死
@@ -2267,7 +2540,7 @@ app.whenReady().then(async () => {
               byteSpeed = Math.max(0, Math.round(dBytes / dt));
             }
           }
-          if (byteSpeed === 0 && totalBytes > 0 && elapsed > 0) {
+          if (byteSpeed === 0 && totalBytes > 0 && elapsed < 3.0) {
             byteSpeed = Math.round(totalBytes / elapsed);
           }
 
@@ -2321,6 +2594,68 @@ app.whenReady().then(async () => {
       }
     }
 
+    // 启动工业级下载停滞看门狗 (Download Stall Watchdog):
+    // 每 4 秒检查一次心跳。若有任务正在进行中且非用户交互暂停状态，
+    // 连续 25 秒内零进展，判定为 CDN 连接假死或队列挂起，自动触发自愈重置与重试！
+    watchdogTimer = setInterval(async () => {
+      if (signal.aborted || (planningDone && completed >= total && total > 0)) return;
+      const now = Date.now();
+      const isInteracting = Boolean(mapInteractionActive || framePressureActive);
+      const hasPendingWork = (!planningDone) || (completed < total);
+      if (hasPendingWork && !isInteracting) {
+        const stallMs = now - lastCompletedProgressTime;
+        if (stallMs >= 25000 && !isAutoHealing) {
+          isAutoHealing = true;
+          console.warn(`[Download Stall Watchdog]: 检测到离线下载已停滞 ${Math.round(stallMs / 1000)} 秒，正在自动自愈重试...`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('download-progress', {
+              completed,
+              total,
+              savedCount,
+              newlySavedCount,
+              existingCount: isVerify
+                ? existingCount
+                : (isIncrementalUpdate ? unchangedCount + updatedCount : 0),
+              failedCount,
+              unavailableCount,
+              unchangedCount,
+              updatedCount,
+              newlyAddedCount,
+              speed: 0,
+              byteSpeed: 0,
+              bytes: totalBytes,
+              done: false,
+              phase: planningDone ? 'downloading' : 'locating',
+              foundMissing: discoveredMissing,
+              scannedCandidates: plannedCandidates,
+              scannedColumns,
+              isVerify,
+              isIncrementalUpdate,
+              autoHealing: true,
+              failureReason: '网络抖动假死，自愈看门狗已介入重试...',
+              totalTiles: (baselineStats.totalTiles || 0) + newlySavedCount + newlyAddedCount,
+              totalBytes: (baselineStats.totalBytes || 0) + totalBytes,
+              currentProvince: activeProvName,
+              currentZ: activeZ
+            });
+          }
+          try {
+            if (downloadLanes) {
+              downloadLanes.dem?.abortWaiters();
+              downloadLanes.vector?.abortWaiters();
+            }
+            wakeRangeWaiters();
+            discoveryFlow.release();
+          } catch (_) {}
+          await new Promise(r => setTimeout(r, 1200 + Math.random() * 1200));
+          lastCompletedProgressTime = Date.now();
+          isAutoHealing = false;
+        }
+      } else {
+        lastCompletedProgressTime = now;
+      }
+    }, 4000);
+
     const workers = [];
     for (let i = 0; i < concurrency; i++) {
       workers.push(worker(i));
@@ -2334,6 +2669,10 @@ app.whenReady().then(async () => {
       await Promise.allSettled([...workers, planningPromise]);
       throw error;
     } finally {
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+      }
       discoveryFlow.dispose();
     }
     if (planningError) throw planningError;

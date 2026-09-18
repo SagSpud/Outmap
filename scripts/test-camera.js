@@ -2,6 +2,10 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
+app.commandLine.appendSwitch('max-active-webgl-contexts', '32');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
 const watchdog = setTimeout(() => { console.error('Camera test timed out'); app.exit(1); }, 60000);
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 1280, height: 800, useContentSize: true, webPreferences: { backgroundThrottling: false } });

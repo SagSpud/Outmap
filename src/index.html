@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:*; font-src 'self' data: http://127.0.0.1:* https:; connect-src 'self' http://127.0.0.1:* https:; worker-src 'self' blob:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: outmap-tile:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:* outmap-tile:; font-src 'self' data: http://127.0.0.1:* https: outmap-tile:; connect-src 'self' http://127.0.0.1:* https: outmap-tile:; worker-src 'self' blob:;" />
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.31" />
+  <link rel="stylesheet" href="style.css?v=2.0.32" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -382,6 +382,7 @@
 
           <div class="route-actions-row">
             <button class="modal-btn primary" id="btn-calc-route">规划</button>
+            <button class="modal-btn secondary-sm" id="btn-route-sim-fly" title="以第一人称 60° 俯视沿此路线低空航拍飞掠漫游" style="display: none;">3D漫游</button>
             <button class="modal-btn secondary-sm" id="btn-route-details-toggle">详情 ▾</button>
             <button class="modal-btn secondary-sm" id="btn-save-route-trigger">收藏</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route">清空</button>
@@ -656,7 +657,11 @@
             <div class="prov-status-line" id="prov-offline-status-tag" style="display: none;"></div>
             <div class="stat-line">预计总数: <b id="stat-tile-count">计算中...</b></div>
             <div class="stat-line">预计大小: <b id="stat-tile-size">计算中...</b></div>
-            <div class="stat-line" style="font-size: 11px; opacity: 0.85; cursor: pointer; margin-top: 4px; display: flex; align-items: center; gap: 4px;" id="btn-open-offline-link" title="点击在 Windows 资源管理器中打开此文件夹"><span>📁 存储目录:</span> <span id="stat-storage-dir" style="max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline;">加载中...</span></div>
+            <div class="stat-line" style="font-size: 11px; opacity: 0.9; cursor: pointer; margin-top: 4px; display: flex; align-items: center; gap: 4px;" id="btn-open-offline-link" title="点击在 Windows 资源管理器中打开离线存储目录">
+              <span>📁 存储目录:</span>
+              <span id="stat-storage-dir" style="max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline;">加载中...</span>
+              <span style="font-size: 10px; padding: 1px 4px; border-radius: 3px; background: rgba(0,120,215,0.15); color: var(--color-accent, #0078d7);">打开</span>
+            </div>
           </div>
           <div class="stat-divider-line"></div>
           <div class="stat-status-col">
@@ -682,9 +687,9 @@
       </div>
 
       <div class="modal-footer">
-        <button class="modal-btn secondary" id="btn-open-offline-dir" title="在Windows资源管理器中查看PMTiles单文件与离线数据">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          <span>打开离线目录</span>
+        <button class="modal-btn secondary" id="btn-storage-maintenance" title="离线切片存储体检、PMTiles健康度与碎片整理">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>存储体检</span>
         </button>
         <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
         <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>

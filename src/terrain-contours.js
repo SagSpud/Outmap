@@ -31,6 +31,13 @@
         if (abortController?.signal?.aborted) throw error;
       }
 
+      // 点 4 优化：若未命中预生成缓存，且当前处于手势拖动或 3D 飞掠中，
+      // 主动让出 60ms 帧预算给 WebGL 渲染与手势交互，避免多 Worker 争抢 CPU 造成掉帧
+      if (typeof document !== 'undefined' && (document.body?.classList?.contains('map-is-moving') || window.__outmap_map_moving)) {
+        await new Promise(r => setTimeout(r, 60));
+        if (abortController?.signal?.aborted) return null;
+      }
+
       const result = await generate(request, abortController);
       const data = result?.data;
       if (data && !abortController?.signal?.aborted) {

@@ -40,5 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   convertOfflineTilesToPmtiles: () => ipcRenderer.invoke('offline:convert-all-pmtiles'),
   generateContourPmtiles: (opts) => ipcRenderer.invoke('offline:generate-contours', opts),
   getOfflineDataDir: () => ipcRenderer.invoke('get-offline-data-dir'),
-  openOfflineDataDir: () => ipcRenderer.invoke('open-offline-data-dir')
+  openOfflineDataDir: () => ipcRenderer.invoke('open-offline-data-dir'),
+  getStorageHealth: () => ipcRenderer.invoke('get-storage-health'),
+  cleanStorageFragments: () => ipcRenderer.invoke('clean-storage-fragments')
 });

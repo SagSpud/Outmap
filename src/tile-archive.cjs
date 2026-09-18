@@ -16,8 +16,14 @@ class NodeFileSource {
   }
 
   async getBytes(offset, length) {
-    const buf = Buffer.alloc(length);
-    const bytesRead = fs.readSync(this.fd, buf, 0, length, offset);
+    if (this.fd === null) return { data: new ArrayBuffer(0) };
+    const buf = Buffer.allocUnsafe(length);
+    const bytesRead = await new Promise((resolve, reject) => {
+      fs.read(this.fd, buf, 0, length, offset, (err, nRead) => {
+        if (err) reject(err);
+        else resolve(nRead);
+      });
+    });
     return {
       data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead)
     };

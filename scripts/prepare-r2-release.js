@@ -22,7 +22,11 @@ async function main() {
     'src/unavailable-tile-index.cjs',
     'src/convert-to-pmtiles.cjs',
     'src/contour-generator.cjs',
-    'src/pmtiles-download-sink.cjs'
+    'src/pmtiles-download-sink.cjs',
+    'src/geo-constants.js',
+    'src/route-simulator.js',
+    'src/storage-maintenance.js',
+    'src/terrain-contours.js'
   ]) {
     const code = fs.readFileSync(path.join(rootDir, file), 'utf8');
     new vm.Script(require('module').wrap(code), { filename: file });
@@ -30,10 +34,11 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 【缩放层级与视距收敛】最大缩放层级收敛至 15.0 级，贴合三维地形真实景深，彻底避免近景山体过度放大或贴脸穿模；',
-    '2. 【彻底消除松手回拉与层级跌落】禁用手势结束时的高程突跳反算，滚轮停在何处即稳在何处，彻底杜绝放完又缩回的顿挫感；',
-    '3. 【全链路 60FPS 丝滑体验】相机所有 9 项核心测试及移动端 11 项场景 100% 亚像素级通过；',
-    '4. 【秒级极速应用内更新】约 4.8MB 增量热更新包，即时生效。'
+    '1. 【离线下载自愈看门狗】新增运行期 Stall Watchdog 与 7500ms 全周期硬超时沙箱，25秒零进展自动重置重试，彻底杜绝通宵卡死；',
+    '2. 【离线界面精简去重】移除底部重复的“打开离线目录”按钮，强化左侧存储目录点击体验，操作栏纯粹聚焦；',
+    '3. 【GPU显存健壮化】调优瓦片显存自适应缓存上限，配置Chromium共享图像配额，彻底根治3D极限视角下Context Lost；',
+    '4. 【9项深度架构优化全量落地】异步文件I/O、outmap-tile特权协议、数据模块化、等高线算力避让、RTT显存回收、存储体检整理、3D漫游模拟与视点联动等全部实装；',
+    '5. 【秒级热更新】约 4.9MB 增量热更新包，启动即时生效。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 

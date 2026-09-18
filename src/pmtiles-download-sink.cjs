@@ -365,6 +365,27 @@ class PmtilesDownloadSink {
     }
     this.layers = {};
   }
+
+  static cleanTemporaryArtifacts(archivesDir) {
+    if (!fs.existsSync(archivesDir)) return { cleanedFiles: 0, reclaimedBytes: 0 };
+    let cleanedFiles = 0;
+    let reclaimedBytes = 0;
+    try {
+      const files = fs.readdirSync(archivesDir);
+      for (const file of files) {
+        if (file.endsWith('.tmp') || file.endsWith('.spool') || file.includes('.tmp.')) {
+          const p = path.join(archivesDir, file);
+          try {
+            const stat = fs.statSync(p);
+            reclaimedBytes += stat.size;
+            fs.unlinkSync(p);
+            cleanedFiles++;
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return { cleanedFiles, reclaimedBytes };
+  }
 }
 
 module.exports = {
