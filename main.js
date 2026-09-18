@@ -276,8 +276,7 @@ if (isGenerateContours || isConvertPmtiles) {
       }
     }
   });
-  return;
-}
+} else {
 
 // 单实例锁控制，防止重复双击产生后台僵尸进程
 const gotTheLock = app.requestSingleInstanceLock();
@@ -3462,3 +3461,4 @@ del "%~f0"
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+}
