@@ -7037,4 +7037,70 @@ body.dark-mode .fav-hover-tooltip .fav-tooltip-ele {
   background: rgba(239, 68, 68, 0.15);
 }
 
+/* -------------------------------------------------------------
+   离线存储体检与健康维护子弹窗（高层级、强对比度、防透色与遮罩模糊）
+   ------------------------------------------------------------- */
+#storage-maintenance-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 10050 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(15, 23, 42, 0.52) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+#storage-maintenance-overlay .modal-card {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(203, 213, 225, 0.8) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(15, 23, 42, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#storage-maintenance-overlay .modal-header {
+  border-bottom: 1px solid #f1f5f9 !important;
+  padding: 14px 18px !important;
+}
+
+#storage-maintenance-overlay .modal-title {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+}
+
+#storage-maintenance-overlay .modal-close-btn {
+  color: #64748b !important;
+  font-size: 16px !important;
+  transition: color 0.15s ease !important;
+}
+
+#storage-maintenance-overlay .modal-close-btn:hover {
+  color: #0f172a !important;
+}
+
+#storage-maintenance-overlay .modal-body {
+  padding: 16px 18px !important;
+  color: #334155 !important;
+  font-size: 13px !important;
+}
+
+#storage-maintenance-overlay .modal-footer {
+  padding: 12px 18px !important;
+  border-top: 1px solid #f1f5f9 !important;
+  background: #f8fafc !important;
+  border-bottom-left-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+}
+
+
 

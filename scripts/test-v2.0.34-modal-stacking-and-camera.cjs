@@ -10,6 +10,7 @@ const htmlSource = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8')
 const appSource = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const maintSource = fs.readFileSync(path.join(root, 'src', 'storage-maintenance.js'), 'utf8');
 const cameraSource = fs.readFileSync(path.join(root, 'src', 'location-camera.js'), 'utf8');
+const styleSource = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 
 // [Test 1] Storage Directory Button & UI Cleanliness
 console.log('[Test 1] Storage Directory Button & UI Cleanliness...');
@@ -27,10 +28,19 @@ assert(maintSource.includes('modal-btn secondary'), 'storage-maintenance.js must
 assert(maintSource.includes('modal-btn accent'), 'storage-maintenance.js must use modal-btn accent');
 assert(!maintSource.includes('fluent-prompt-btn'), 'Old unstyled fluent-prompt-btn must be replaced');
 assert(maintSource.includes("overlay.addEventListener('click'"), 'Overlay must have click listener for backdrop');
-assert(maintSource.includes('if (e) e.stopPropagation();'), 'Close must stop propagation to prevent closing parent modal');
+assert(maintSource.includes("e.stopPropagation?.()"), 'Close must stop propagation to prevent closing parent modal');
 assert(maintSource.includes("e.key === 'Escape'"), 'Modal must support Escape key');
+assert(maintSource.includes("window.addEventListener('keydown', handleKeyDown, true)"), 'Modal must capture Escape in capture phase');
 assert(appSource.includes('activeUpperModal'), 'app.js backdrop click must check for activeUpperModal');
-console.log('  ✅ Test 2 passed: Modal hierarchy and click isolation fully verified.');
+assert(appSource.includes('storageMaintenanceOverlay'), 'app.js global dispatcher must intercept storageMaintenanceOverlay first on Escape');
+
+// [Test 2.1] Visual Clarity and Opacity Assertions
+console.log('\n[Test 2.1] Storage Maintenance Visual Contrast & 100% Solid Backdrop Audit...');
+assert(maintSource.includes('background: #ffffff !important'), 'Modal card must have 100% solid white background to eliminate bleed-through');
+assert(maintSource.includes('color: #334155'), 'Content text must use high-contrast dark slate font');
+assert(styleSource.includes('#storage-maintenance-overlay'), 'style.css must have dedicated #storage-maintenance-overlay styles');
+assert(styleSource.includes('rgba(15, 23, 42, 0.52) !important'), 'Backdrop overlay must have deep dimming');
+console.log('  ✅ Test 2 & 2.1 passed: Modal hierarchy, Escape dispatch, and visual clarity verified.');
 
 // [Test 3] Camera Unified Flight Dynamics Math
 console.log('\n[Test 3] Camera Unified Perceptual Flight Dynamics Model...');
@@ -71,9 +81,9 @@ assert(fCountry.duration > fProv.duration && fCountry.duration <= 1200, 'Country
 
 // [Test 4] App.js Callers Cleanliness Audit
 console.log('\n[Test 4] App.js Callers Cleanliness Audit...');
-// Check that hardcoded flight durations are eliminated from the major user flows
 assert(!appSource.includes('const flightDuration = isLongFlight ? 1100 : 500;'), 'Search must not use hardcoded 1100/500 switch');
 assert(!appSource.includes('Math.min(1300, Math.max(700, Math.round(550 + distDeg * 260)))'), 'Favorites must not use old linear formula');
+assert(!appSource.includes('duration: 1200\n  });\n  const regionEl'), 'flyToProvince must not use hardcoded duration: 1200');
 
 console.log('  ✅ Test 4 passed: All caller locations in app.js cleanly integrated.');
 

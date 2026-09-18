@@ -4292,6 +4292,10 @@ function setupPyramidModal(map) {
     }
     // 2. 如果点击的是遮罩空白背景处，收起整个弹窗并缩放回图标
     if (e.target === modal) {
+      const activeUpperModal = document.getElementById('storage-maintenance-overlay')
+        || document.querySelector('.fluent-prompt-overlay')
+        || document.querySelector('.fluent-confirm-overlay');
+      if (activeUpperModal) return;
       closePyramidModal();
     }
   });
@@ -4303,7 +4307,7 @@ function setupPyramidModal(map) {
       const activeUpperModal = document.getElementById('storage-maintenance-overlay')
         || document.querySelector('.fluent-prompt-overlay')
         || document.querySelector('.fluent-confirm-overlay');
-      if (activeUpperModal && (activeUpperModal.contains(e.target) || e.target === activeUpperModal)) {
+      if (activeUpperModal) {
         return;
       }
       const modalCard = modal.querySelector('.modal-card');
@@ -13051,6 +13055,37 @@ function setupMapContextMenu(map) {
 function setupGlobalKeyboardDispatcher() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      // 0.001 离线存储体检与健康维护子弹窗 (z-index: 10050，最高层级子浮层，优先于任何底层窗口退出)
+      const storageMaintenanceOverlay = document.getElementById('storage-maintenance-overlay');
+      if (storageMaintenanceOverlay) {
+        const btnClose = storageMaintenanceOverlay.querySelector('#btn-close-storage-modal')
+          || storageMaintenanceOverlay.querySelector('#btn-storage-cancel');
+        if (btnClose) {
+          btnClose.click();
+        } else {
+          storageMaintenanceOverlay.remove();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // 0.002 通用提示与确认弹窗
+      const activePromptOverlay = document.querySelector('.fluent-prompt-overlay.prompt-active, .fluent-confirm-overlay.prompt-active');
+      if (activePromptOverlay) {
+        const btnCancel = activePromptOverlay.querySelector('.btn-prompt-cancel, .btn-confirm-cancel');
+        if (btnCancel) {
+          btnCancel.click();
+        } else {
+          activePromptOverlay.remove();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
       // 0. 地图右键菜单 (最高响应优先级)
       const ctxMenu = document.getElementById('map-context-menu');
       if (ctxMenu && ctxMenu.style.display !== 'none') {
@@ -13173,6 +13208,15 @@ function setupGlobalKeyboardDispatcher() {
 
       const pyramidModal = document.getElementById('pyramid-modal');
       if (pyramidModal && pyramidModal.style.display !== 'none') {
+        // 若当前页面有任何处于活动状态的上层子浮层，严禁关闭底层的离线下载主弹窗！
+        if (document.getElementById('storage-maintenance-overlay') ||
+            document.querySelector('.fluent-prompt-overlay.prompt-active') ||
+            document.querySelector('.fluent-confirm-overlay.prompt-active')) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return;
+        }
         if (window.closePyramidModal) {
           window.closePyramidModal();
         } else {
