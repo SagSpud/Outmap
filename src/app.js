@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.45';
+const APP_VERSION = '2.0.46';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1692,11 +1692,12 @@ async function initApplication() {
     }
   } catch (e) {}
 
-  // 杜绝三维复杂地形下滚轮缩放穿透与反向回弹 (Zero-Rebound & Anti-Penetration Camera Guard)：
-  // 1. 绝不修改或拍降 zoom（杜绝回弹，保持缩放单调前进与 60FPS 顺滑曲线）；
-  // 2. 当相机视点逼近或即将穿入起伏山体网格时（视点高程 < 地表高程 + 35m 安全净空）：
-  //    优先平滑抬升俯仰角（让相机顺应山脊自然滑翔掠过，0 穿模，0 削山）；
-  //    若面对极度悬殊的高峰峡谷（俯仰角压至 15° 仍无法脱险），精准抬升视点基准高程，保证相机视点恒在山体外部！
+  // 三维复杂地形下原生平滑避障与零回弹守卫 (Native Terrain Boundary Soft-Clamp & Zero-Rebound Guard)：
+  // 1. 绝不篡改 elevation（保持中心点真实地表高程语义，杜绝 3D 矩阵偏移、射线拾取错位与晃动）；
+  // 2. 绝不修改 pitch（100% 兼容俯仰角锁定配置）；
+  // 3. 绝不暴力降级 zoom（杜绝回弹，保持缩放单调顺滑前进）；
+  // 4. 当且仅当相机视点在极限角度逼近山体网格时（视点高程 < 地表高程 + 35m 安全净空），
+  //    原生软限幅（Soft-Clamp）在当前物理接触边界，反向滚轮即刻顺滑拉出。
   try {
     const safeElevateCamera = function(e) {
       if (!this.terrain || e.pitch > 90) return {};
@@ -1710,18 +1711,17 @@ async function initApplication() {
       const targetAlt = terrUnderEye + margin;
       if (eyeAlt >= targetAlt) return {};
 
-      const pitchRad = e.pitchInRadians;
-      const cosPitch = Math.cos(pitchRad);
-      if (cosPitch <= 1e-4) return {};
-
-      const D = (eyeAlt - e.elevation) / cosPitch;
-      if (D <= 0) return {};
-
-      // 直接抬升基准 elevation 保证视点高程恒不低于 targetAlt:
-      // eyeAlt_new = D * cosPitch + (targetAlt - D * cosPitch) = targetAlt
-      // 绝不拍降或修改 zoom (0 回弹)，且无视视角是否处于锁定状态恒定生效！
-      const neededElev = targetAlt - D * cosPitch;
-      return { elevation: neededElev };
+      const curDiff = eyeAlt - e.elevation;
+      const targetDiff = targetAlt - e.elevation;
+      if (curDiff > 0 && targetDiff > 0) {
+        const ratio = targetDiff / curDiff;
+        const safeZoom = e.zoom - Math.log2(ratio);
+        // 原生软限幅（最大回调幅度严格限制在极微小范围，杜绝大幅度回弹）：
+        if (Number.isFinite(safeZoom) && safeZoom < e.zoom && (e.zoom - safeZoom) < 1.0) {
+          return { zoom: safeZoom };
+        }
+      }
+      return {};
     };
 
     if (map._camera) {
@@ -1871,20 +1871,27 @@ async function initApplication() {
     function syncCameraGroundElevation(m) {
       try {
         if (!m || !m.terrain) return;
-        if (m.isZooming?.()) return; // 缩放手势期间绝不触发高程重算，彻底杜绝晃动平移
+        if (m.isZooming?.() || m.isRotating?.() || m.isPitching?.()) return; // 缩放、旋转或俯仰手势期间绝不触发高程重算，彻底杜绝晃动平移
         const tr = m._camera?.transform || m.transform;
         if (!tr) return;
         const center = m.getCenter();
         const elev = m.terrain.getElevationForLngLat(center, tr);
-        if (Number.isFinite(elev)) {
+        if (Number.isFinite(elev) && elev >= 0) {
           tr.setElevation(elev);
         }
       } catch (_) {}
     }
 
+    // 移动/飞行降落完成后同步中心地表高程（如搜索飞行落地、快捷跳转、平移结束）
+    map.on('moveend', () => {
+      syncCameraGroundElevation(map);
+    });
+
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
-        if (map.isMoving() || map.isZooming() || map.isRotating()) return;
+        if (!map.isMoving() && !map.isZooming() && !map.isRotating()) {
+          syncCameraGroundElevation(map);
+        }
         scheduleRouteElevationProfileRefresh(map, 420);
       }
     });

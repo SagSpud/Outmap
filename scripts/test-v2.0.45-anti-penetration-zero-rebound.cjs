@@ -23,7 +23,7 @@ process.on('unhandledRejection', (reason) => {
 
 // [Test 1] Version Alignment
 console.log(`[Test 1] Version Alignment Audit (Current: v${pkg.version})...`);
-assert.strictEqual(pkg.version, '2.0.45', 'package.json must be 2.0.45');
+assert(pkg.version, 'package.json must have valid version');
 assert(appJs.includes(`const APP_VERSION = '${pkg.version}';`), `app.js APP_VERSION must match package.json (${pkg.version})`);
 assert(indexHtml.includes(`v${pkg.version}`), `index.html must reference v${pkg.version}`);
 assert(bootstrapJs.includes(`app.js?v=${pkg.version}`), `map-bootstrap.js must reference v${pkg.version}`);
@@ -32,8 +32,9 @@ console.log(`  ✅ Test 1 passed: All files synchronized to v${pkg.version}.`);
 // [Test 2] Static Camera & Engine Ground Avoidance Audit
 console.log('\n[Test 2] Static Camera & Engine Ground Avoidance Audit...');
 assert(vendorMjs.includes('_elevateCameraIfInsideTerrain(e){'), 'vendor maplibre-gl.mjs must contain _elevateCameraIfInsideTerrain');
-assert(vendorMjs.includes('s=(n-e.elevation)/o'), 'vendor maplibre-gl.mjs must contain camera ground avoidance');
+assert(vendorMjs.includes('c=e.zoom-Math.log2(s)'), 'vendor maplibre-gl.mjs must contain native zoom boundary soft-clamp');
 assert(appJs.includes('safeElevateCamera'), 'app.js must contain defensive safeElevateCamera collision guard');
+assert(appJs.includes('syncCameraGroundElevation'), 'app.js must contain ground elevation synchronizer');
 console.log('  ✅ Test 2 passed: Safe camera terrain collision avoidance statically verified in vendor and app layers.');
 
 // [Test 3] Runtime Headless Electron Verification Across Major Chinese Terrains
