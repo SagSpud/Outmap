@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.44';
+const APP_VERSION = '2.0.45';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1692,17 +1692,44 @@ async function initApplication() {
     }
   } catch (e) {}
 
-  // 杜绝三维复杂地形下滚轮缩放反向回弹 (Zero-Rebound Zoom)：
-  // MapLibre 6.9 原生 _elevateCameraIfInsideTerrain 会在视锥后方或相机所在位置低于起伏地形时，
-  // 误判穿模并强行拍降 zoom 并重算 pitch，破坏滚轮缩放缓动曲线导致画面发生明显反向回弹拉扯。
-  // 将实例与原型方法均置为空对象返回，彻底根治滚轮缩放回弹与晃动。
+  // 杜绝三维复杂地形下滚轮缩放穿透与反向回弹 (Zero-Rebound & Anti-Penetration Camera Guard)：
+  // 1. 绝不修改或拍降 zoom（杜绝回弹，保持缩放单调前进与 60FPS 顺滑曲线）；
+  // 2. 当相机视点逼近或即将穿入起伏山体网格时（视点高程 < 地表高程 + 35m 安全净空）：
+  //    优先平滑抬升俯仰角（让相机顺应山脊自然滑翔掠过，0 穿模，0 削山）；
+  //    若面对极度悬殊的高峰峡谷（俯仰角压至 15° 仍无法脱险），精准抬升视点基准高程，保证相机视点恒在山体外部！
   try {
+    const safeElevateCamera = function(e) {
+      if (!this.terrain || e.pitch > 90) return {};
+      const eyeLngLat = e.getCameraLngLat?.();
+      if (!eyeLngLat) return {};
+      const eyeAlt = e.getCameraAltitude?.();
+      const terrUnderEye = this.terrain.getElevationForLngLatZoom(eyeLngLat, e.zoom);
+      if (!Number.isFinite(terrUnderEye) || terrUnderEye <= 0) return {};
+
+      const margin = 35; // 35m 视锥安全避障净空，杜绝近裁切面削山穿透 (0 穿透)
+      const targetAlt = terrUnderEye + margin;
+      if (eyeAlt >= targetAlt) return {};
+
+      const pitchRad = e.pitchInRadians;
+      const cosPitch = Math.cos(pitchRad);
+      if (cosPitch <= 1e-4) return {};
+
+      const D = (eyeAlt - e.elevation) / cosPitch;
+      if (D <= 0) return {};
+
+      // 直接抬升基准 elevation 保证视点高程恒不低于 targetAlt:
+      // eyeAlt_new = D * cosPitch + (targetAlt - D * cosPitch) = targetAlt
+      // 绝不拍降或修改 zoom (0 回弹)，且无视视角是否处于锁定状态恒定生效！
+      const neededElev = targetAlt - D * cosPitch;
+      return { elevation: neededElev };
+    };
+
     if (map._camera) {
       const camProto = Object.getPrototypeOf(map._camera);
       if (camProto && typeof camProto._elevateCameraIfInsideTerrain === 'function') {
-        camProto._elevateCameraIfInsideTerrain = function() { return {}; };
+        camProto._elevateCameraIfInsideTerrain = safeElevateCamera;
       }
-      map._camera._elevateCameraIfInsideTerrain = function() { return {}; };
+      map._camera._elevateCameraIfInsideTerrain = safeElevateCamera;
     }
   } catch (e) {}
 

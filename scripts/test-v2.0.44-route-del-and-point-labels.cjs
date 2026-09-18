@@ -22,7 +22,7 @@ process.on('unhandledRejection', (reason) => {
 
 // [Test 1] Version Alignment
 console.log(`[Test 1] Version Alignment Audit (Current: v${pkg.version})...`);
-assert.strictEqual(pkg.version, '2.0.44', 'package.json version must be 2.0.44');
+assert(pkg.version, 'package.json must have valid version');
 assert(appJs.includes(`const APP_VERSION = '${pkg.version}';`), `app.js APP_VERSION must match package.json (${pkg.version})`);
 assert(indexHtml.includes(`v${pkg.version}`), `index.html must reference v${pkg.version}`);
 assert(bootstrapJs.includes(`app.js?v=${pkg.version}`), `map-bootstrap.js must reference v${pkg.version}`);
@@ -87,7 +87,13 @@ app.whenReady().then(async () => {
       });
 
       // Post-check in MapLibre GeoJSON Source
-      const srcFeatures = map.querySourceFeatures('outmap-route-points');
+      const rawFeatures = map.querySourceFeatures('outmap-route-points');
+      const seenIds = new Set();
+      const srcFeatures = rawFeatures.filter(f => {
+        if (seenIds.has(f.id)) return false;
+        seenIds.add(f.id);
+        return true;
+      });
       check(srcFeatures.length === 21, 'Expected 21 MapLibre features after deletion, got ' + srcFeatures.length);
       for (const sf of srcFeatures) {
         check(sf.properties.label !== undefined, 'Feature label MUST NOT be undefined: id ' + sf.id);
