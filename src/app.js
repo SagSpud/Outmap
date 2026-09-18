@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.37';
+const APP_VERSION = '2.0.38';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1625,8 +1625,8 @@ async function initApplication() {
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
-    centerClampedToGround: false, // 禁用手势结束时的高程突跳反算，彻底杜绝滚轮松手后的“回拉回弹与层级跌落”
-    maxPitch: 85,
+    centerClampedToGround: true, // 启用中心地表高程实时贴地同步，确保 3D 地形视角下旋转与俯仰枢轴永不脱离地表
+    maxPitch: 72, // 收敛极限仰角至 72°，既保留强烈 3D 纵深视角，又彻底杜绝地平线远景网格视锥裁切脱节
     // 鼠标滚轮缩放：完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉）
     scrollZoom: true,
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
@@ -1661,6 +1661,31 @@ async function initApplication() {
 
   const map = mapInstance;
   window.mapInstance = map;
+
+  // 锁定地形高程同步与平滑无回弹缩放：
+  // 拦截 Transform 原型上的 recalculateZoomAndCenter，手势结束时仅静默同步地表高程，
+  // 杜绝反算 zoom 导致的滚轮“回拉回弹”，同时确保 3D 地形下俯仰与旋转视角枢轴永不脱离地表。
+  try {
+    const trProto = map._camera?.transform ? Object.getPrototypeOf(map._camera.transform) : null;
+    if (trProto && typeof trProto.recalculateZoomAndCenter === 'function') {
+      trProto.recalculateZoomAndCenter = function(terrain) {
+        if (!terrain) return;
+        const elev = terrain.getElevationForLngLat(this.center, this);
+        if (Number.isFinite(elev)) {
+          this.setElevation(elev);
+        }
+      };
+    }
+    const helperProto = map._camera?.transform?._helper ? Object.getPrototypeOf(map._camera.transform._helper) : null;
+    if (helperProto && typeof helperProto.recalculateZoomAndCenter === 'function') {
+      helperProto.recalculateZoomAndCenter = function(elevation) {
+        if (Number.isFinite(elevation)) {
+          this.setElevation(elevation);
+        }
+      };
+    }
+  } catch (e) {}
+
   // MapLibre 6.9 原生纯净 60FPS 顺滑手感，原生 200ms 缓动
   map.scrollZoom?.setWheelZoomRate?.(1 / 450);
   map.scrollZoom?.setZoomRate?.(1 / 100);
@@ -2293,59 +2318,6 @@ async function initApplication() {
       }
     });
 
-    // POI icon and label share one native symbol bucket.  The 2x sprites stay
-    // crisp at Windows 100/150/200% scaling and participate in one collision
-    // pass instead of a separate circle plus text pass.
-    map.addLayer({
-      id: 'osm-all-pois',
-      type: 'symbol',
-      source: 'osm-vector-source',
-      'source-layer': 'poi',
-      filter: [
-        'all',
-        ['any', ['has', 'name'], ['has', 'name:zh'], ['has', 'name_zh']],
-        ['!', ['match', ['get', 'class'], ['attraction', 'viewpoint', 'theme_park', 'monument', 'campsite', 'picnic_site', 'alpine_hut', 'shelter', 'castle', 'gate', 'lift_gate', 'bollard', 'waste_basket'], true, false]]
-      ],
-      minzoom: 11,
-      layout: {
-        'icon-image': ['match', ['get', 'class'],
-          ['school', 'university', 'college', 'kindergarten', 'library'], 'outmap-poi-school',
-          ['hospital', 'clinic', 'pharmacy', 'doctors', 'dentist'], 'outmap-poi-medical',
-          ['shop', 'grocery', 'supermarket', 'mall', 'bank', 'atm', 'marketplace', 'clothing_store', 'bakery', 'alcohol_shop'], 'outmap-poi-shop',
-          ['bus', 'bus_stop', 'railway', 'railway_station', 'parking', 'fuel', 'ferry_terminal'], 'outmap-poi-transit',
-          ['restaurant', 'fast_food', 'cafe', 'bar', 'beer', 'ice_cream'], 'outmap-poi-food',
-          ['lodging', 'hotel', 'motel', 'hostel'], 'outmap-poi-lodging',
-          ['town_hall', 'office', 'police', 'post', 'fire_station'], 'outmap-poi-civic',
-          ['park', 'garden', 'pitch', 'stadium', 'theatre', 'museum', 'cinema', 'art_gallery', 'place_of_worship'], 'outmap-poi-nature',
-          'outmap-poi-default'],
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.68, 13, 0.78, 15, 0.9],
-        'icon-anchor': 'center',
-        'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9.5, 13, 11, 15, 12.5],
-        'text-anchor': 'top',
-        'text-offset': [0, 1.25],
-        'text-padding': 2,
-        'symbol-sort-key': ['coalesce', ['get', 'rank'], 20]
-      },
-      paint: {
-        'text-color': [
-          'match',
-          ['get', 'class'],
-          ['school', 'university', 'college', 'kindergarten', 'library'], '#6d28d9',
-          ['hospital', 'clinic', 'pharmacy', 'doctors', 'dentist'], '#0284c7',
-          ['shop', 'grocery', 'supermarket', 'mall', 'bank', 'atm', 'marketplace', 'clothing_store', 'bakery', 'alcohol_shop'], '#059669',
-          ['bus', 'bus_stop', 'railway', 'railway_station', 'parking', 'fuel', 'ferry_terminal'], '#2563eb',
-          ['restaurant', 'fast_food', 'cafe', 'bar', 'beer', 'ice_cream', 'lodging', 'hotel'], '#d97706',
-          ['town_hall', 'office', 'police', 'post', 'fire_station'], '#334155',
-          ['park', 'garden', 'pitch', 'stadium', 'theatre', 'museum', 'cinema', 'art_gallery', 'place_of_worship'], '#0f766e',
-          '#334155'
-        ],
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 2.2
-      }
-    });
-
     // 14. 自然保护区、城市公园绿地注记
     map.addLayer({
       id: 'osm-park-labels',
@@ -2400,6 +2372,60 @@ async function initApplication() {
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
         'fill-extrusion-opacity': 0.92
+      }
+    });
+
+    // POI icon and label share one native symbol bucket.  The 2x sprites stay
+    // crisp at Windows 100/150/200% scaling and participate in one collision
+    // pass instead of a separate circle plus text pass.
+    // 放置于 3D 建筑挤出体之后，确保 POI 图标稳定覆盖地表与建筑，避免被建筑屋面切断半截产生悬浮错觉
+    map.addLayer({
+      id: 'osm-all-pois',
+      type: 'symbol',
+      source: 'osm-vector-source',
+      'source-layer': 'poi',
+      filter: [
+        'all',
+        ['any', ['has', 'name'], ['has', 'name:zh'], ['has', 'name_zh']],
+        ['!', ['match', ['get', 'class'], ['attraction', 'viewpoint', 'theme_park', 'monument', 'campsite', 'picnic_site', 'alpine_hut', 'shelter', 'castle', 'gate', 'lift_gate', 'bollard', 'waste_basket'], true, false]]
+      ],
+      minzoom: 11,
+      layout: {
+        'icon-image': ['match', ['get', 'class'],
+          ['school', 'university', 'college', 'kindergarten', 'library'], 'outmap-poi-school',
+          ['hospital', 'clinic', 'pharmacy', 'doctors', 'dentist'], 'outmap-poi-medical',
+          ['shop', 'grocery', 'supermarket', 'mall', 'bank', 'atm', 'marketplace', 'clothing_store', 'bakery', 'alcohol_shop'], 'outmap-poi-shop',
+          ['bus', 'bus_stop', 'railway', 'railway_station', 'parking', 'fuel', 'ferry_terminal'], 'outmap-poi-transit',
+          ['restaurant', 'fast_food', 'cafe', 'bar', 'beer', 'ice_cream'], 'outmap-poi-food',
+          ['lodging', 'hotel', 'motel', 'hostel'], 'outmap-poi-lodging',
+          ['town_hall', 'office', 'police', 'post', 'fire_station'], 'outmap-poi-civic',
+          ['park', 'garden', 'pitch', 'stadium', 'theatre', 'museum', 'cinema', 'art_gallery', 'place_of_worship'], 'outmap-poi-nature',
+          'outmap-poi-default'],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.68, 13, 0.78, 15, 0.9],
+        'icon-anchor': 'bottom',
+        'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9.5, 13, 11, 15, 12.5],
+        'text-anchor': 'top',
+        'text-offset': [0, 0.4],
+        'text-padding': 2,
+        'symbol-sort-key': ['coalesce', ['get', 'rank'], 20]
+      },
+      paint: {
+        'text-color': [
+          'match',
+          ['get', 'class'],
+          ['school', 'university', 'college', 'kindergarten', 'library'], '#6d28d9',
+          ['hospital', 'clinic', 'pharmacy', 'doctors', 'dentist'], '#0284c7',
+          ['shop', 'grocery', 'supermarket', 'mall', 'bank', 'atm', 'marketplace', 'clothing_store', 'bakery', 'alcohol_shop'], '#059669',
+          ['bus', 'bus_stop', 'railway', 'railway_station', 'parking', 'fuel', 'ferry_terminal'], '#2563eb',
+          ['restaurant', 'fast_food', 'cafe', 'bar', 'beer', 'ice_cream', 'lodging', 'hotel'], '#d97706',
+          ['town_hall', 'office', 'police', 'post', 'fire_station'], '#334155',
+          ['park', 'garden', 'pitch', 'stadium', 'theatre', 'museum', 'cinema', 'art_gallery', 'place_of_worship'], '#0f766e',
+          '#334155'
+        ],
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 2.2
       }
     });
 
@@ -2949,7 +2975,7 @@ function setupOfficeHeaderInteractions(map) {
       if (statusPitchLock) statusPitchLock.innerText = '';
     } else {
       map.setMinPitch(0);
-      map.setMaxPitch(85);
+      map.setMaxPitch(72);
       if (map.touchPitch) {
         try { map.touchPitch.enable(); } catch (e) {}
       }
@@ -2998,7 +3024,7 @@ function setupOfficeHeaderInteractions(map) {
       if (is3DView) {
         // 2D 切到 3D 视图：恢复 50 度视角并重新挂载 DEM 地形网格与山体立体阴影
         map.setMinPitch(0);
-        map.setMaxPitch(85);
+        map.setMaxPitch(72);
         try {
           map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5 });
           if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
@@ -7114,6 +7140,7 @@ function setupWaypointAndFavoritesSystem(map) {
         layout: {
           'icon-image': ['get', 'icon'],
           'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.72, 12, 0.9, 16, 1.05],
+          'icon-anchor': 'bottom',
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
           'icon-pitch-alignment': 'viewport',
