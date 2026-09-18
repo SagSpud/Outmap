@@ -34,11 +34,11 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 【3D地形视角旋转与贴地彻底根治】恢复相机中心地表贴地同步（centerClampedToGround），相机高程实时跟踪地表山体高度，旋转与俯仰枢轴永不脱离地表，彻底根治旋转时图标悬浮在空中与视角公转位移；',
-    '2. 【无损零回弹平滑缩放】拦截 Transform 原型 recalculateZoomAndCenter，手势与滚轮结束时仅静默同步地表高程，杜绝反算 zoom 导致的“回拉回弹与层级突跳”，实现物理级平滑跟手动量；',
-    '3. 【极限仰角收敛防远山裁切】将最大仰角收敛至 72°（maxPitch: 72），在保留强烈震撼 3D 纵深感的同时，彻底消除 85° 极限俯仰下远端山体地形网格视锥裁切与矢量注记天空悬空；',
-    '4. 【POI 图标与地表坚实锚固】全量 POI 图标及收藏夹图层全面采用 icon-anchor: bottom，标底精准扎根地表物理坐标；图层树优化为覆盖在 3D 建筑挤出体之上，彻底杜绝楼面截断半截造成的悬空错觉；',
-    '5. 【全场景自适应飞掠与离线自愈】保持 C2 连续曲线对数动态飞掠模型与 Stall Watchdog 下载看门狗高可用架构；',
+    '1. 【彻底消除缩放后界面晃动与平移】禁用相机中心地表强制贴地（centerClampedToGround: false），拦截 recalculateZoomAndCenter，彻底消除鼠标滚轮非居中缩放结束瞬间的高程突跳与视口瞬移（0.00px 终结跳动）；',
+    '2. 【丝滑无回拉滚轮缩放】完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉，0 晃动），手感细腻跟手；',
+    '3. 【3D地形旋转稳固如磐】结合初始地表高程自动校准与 location-camera 航行对齐，360° 全方位自由旋转枢轴坚固锚定地表（0.00px 枢轴偏移）；',
+    '4. 【极限仰角收敛防远山裁切】保持 72° 极限仰角（maxPitch: 72），杜绝 85° 极限俯仰下远端山体网格裁切与矢量注记悬空；',
+    '5. 【POI 图标与收藏夹扎根地表】全量 POI 图标及收藏夹图层保持 icon-anchor: bottom，标底精准扎根地表物理坐标，覆盖在 3D 建筑挤出体之上；',
     '6. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;

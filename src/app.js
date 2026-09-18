@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.38';
+const APP_VERSION = '2.0.39';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1625,7 +1625,7 @@ async function initApplication() {
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
-    centerClampedToGround: true, // 启用中心地表高程实时贴地同步，确保 3D 地形视角下旋转与俯仰枢轴永不脱离地表
+    centerClampedToGround: false, // 禁用相机中心地表强制贴地，彻底杜绝滚轮缩放手势结束瞬间的高程突跳与晃动平移
     maxPitch: 72, // 收敛极限仰角至 72°，既保留强烈 3D 纵深视角，又彻底杜绝地平线远景网格视锥裁切脱节
     // 鼠标滚轮缩放：完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉）
     scrollZoom: true,
@@ -1662,27 +1662,16 @@ async function initApplication() {
   const map = mapInstance;
   window.mapInstance = map;
 
-  // 锁定地形高程同步与平滑无回弹缩放：
-  // 拦截 Transform 原型上的 recalculateZoomAndCenter，手势结束时仅静默同步地表高程，
-  // 杜绝反算 zoom 导致的滚轮“回拉回弹”，同时确保 3D 地形下俯仰与旋转视角枢轴永不脱离地表。
+  // 杜绝滚轮缩放结束后的晃动平移与回拉回弹：
+  // 拦截 Transform 原型上的 recalculateZoomAndCenter 为无害空函数，杜绝任何意外反算或高程瞬移
   try {
     const trProto = map._camera?.transform ? Object.getPrototypeOf(map._camera.transform) : null;
     if (trProto && typeof trProto.recalculateZoomAndCenter === 'function') {
-      trProto.recalculateZoomAndCenter = function(terrain) {
-        if (!terrain) return;
-        const elev = terrain.getElevationForLngLat(this.center, this);
-        if (Number.isFinite(elev)) {
-          this.setElevation(elev);
-        }
-      };
+      trProto.recalculateZoomAndCenter = function() {};
     }
     const helperProto = map._camera?.transform?._helper ? Object.getPrototypeOf(map._camera.transform._helper) : null;
     if (helperProto && typeof helperProto.recalculateZoomAndCenter === 'function') {
-      helperProto.recalculateZoomAndCenter = function(elevation) {
-        if (Number.isFinite(elevation)) {
-          this.setElevation(elevation);
-        }
-      };
+      helperProto.recalculateZoomAndCenter = function() {};
     }
   } catch (e) {}
 
@@ -1821,11 +1810,39 @@ async function initApplication() {
       clearTimeout(idleRttTimer);
     });
 
+    function syncCameraGroundElevation(m) {
+      try {
+        if (!m || !m.terrain) return;
+        if (m.isZooming?.()) return; // 缩放手势期间绝不触发高程重算，彻底杜绝晃动平移
+        const tr = m._camera?.transform || m.transform;
+        if (!tr) return;
+        const center = m.getCenter();
+        const elev = m.terrain.getElevationForLngLat(center, tr);
+        if (Number.isFinite(elev)) {
+          tr.setElevation(elev);
+        }
+      } catch (_) {}
+    }
+
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
         if (map.isMoving() || map.isZooming() || map.isRotating()) return;
+        syncCameraGroundElevation(map);
         scheduleRouteElevationProfileRefresh(map, 420);
       }
+    });
+
+    // 拖拽平移释放后校准旋转枢轴
+    map.on('dragend', () => {
+      syncCameraGroundElevation(map);
+    });
+
+    // 旋转与俯仰手势开启瞬间，确保 3D 旋转枢轴高程精确对齐地表
+    map.on('rotatestart', () => {
+      syncCameraGroundElevation(map);
+    });
+    map.on('pitchstart', () => {
+      syncCameraGroundElevation(map);
     });
     // DEM高程图立体光照阴影渲染 (Apple Maps / Topo 柔和自然阴影，杜绝 OLED 强光刺眼)
     map.addLayer({
