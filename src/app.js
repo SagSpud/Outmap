@@ -478,6 +478,26 @@ function showFluentAlert(message, title = 'Outmap 提示') {
 if (!window._nativeAlert && typeof window.alert === 'function') {
   window._nativeAlert = window.alert.bind(window);
 }
+
+// 全局活动子模态浮层检测器（用于防击穿、防父弹窗误退与键盘 ESC 调度）
+function hasActiveUpperModal() {
+  const maint = document.getElementById('storage-maintenance-overlay');
+  if (maint && maint.style.display !== 'none') return maint;
+
+  const alertOverlay = document.getElementById('fluent-alert-overlay');
+  if (alertOverlay && alertOverlay.style.display !== 'none') return alertOverlay;
+
+  const promptOverlay = document.querySelector('.fluent-prompt-overlay.prompt-active, .fluent-prompt-overlay:not([style*="display: none"])');
+  if (promptOverlay) return promptOverlay;
+
+  const confirmOverlay = document.querySelector('.fluent-confirm-overlay.prompt-active, .fluent-confirm-overlay:not([style*="display: none"])');
+  if (confirmOverlay) return confirmOverlay;
+
+  return null;
+}
+if (typeof window !== 'undefined') {
+  window.hasActiveUpperModal = hasActiveUpperModal;
+}
 window.alert = (msg) => {
   showFluentAlert(msg);
 };
@@ -4292,9 +4312,7 @@ function setupPyramidModal(map) {
     }
     // 2. 如果点击的是遮罩空白背景处，收起整个弹窗并缩放回图标
     if (e.target === modal) {
-      const activeUpperModal = document.getElementById('storage-maintenance-overlay')
-        || document.querySelector('.fluent-prompt-overlay')
-        || document.querySelector('.fluent-confirm-overlay');
+      const activeUpperModal = hasActiveUpperModal();
       if (activeUpperModal) return;
       closePyramidModal();
     }
@@ -4304,9 +4322,7 @@ function setupPyramidModal(map) {
   document.addEventListener('click', (e) => {
     if (modal.style.display !== 'none') {
       // 关键守卫：若页面当前有上层子浮层（如存储体检弹窗等），严禁关闭底层的离线下载主弹窗！
-      const activeUpperModal = document.getElementById('storage-maintenance-overlay')
-        || document.querySelector('.fluent-prompt-overlay')
-        || document.querySelector('.fluent-confirm-overlay');
+      const activeUpperModal = hasActiveUpperModal();
       if (activeUpperModal) {
         return;
       }
@@ -6081,6 +6097,7 @@ function setupCloudSync(map) {
 
   syncModal.addEventListener('click', (e) => {
     if (e.target === syncModal) {
+      if (hasActiveUpperModal()) return;
       closeSync();
     }
   });
@@ -13055,30 +13072,20 @@ function setupMapContextMenu(map) {
 function setupGlobalKeyboardDispatcher() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-      // 0.001 离线存储体检与健康维护子弹窗 (z-index: 10050，最高层级子浮层，优先于任何底层窗口退出)
-      const storageMaintenanceOverlay = document.getElementById('storage-maintenance-overlay');
-      if (storageMaintenanceOverlay) {
-        const btnClose = storageMaintenanceOverlay.querySelector('#btn-close-storage-modal')
-          || storageMaintenanceOverlay.querySelector('#btn-storage-cancel');
-        if (btnClose) {
-          btnClose.click();
+      // 0.001 全局活动模态子弹窗最高优先调度 (存储体检 storageMaintenanceOverlay、Fluent Alert、输入 Prompt 与确认框)
+      const activeUpper = hasActiveUpperModal();
+      if (activeUpper) {
+        if (activeUpper.id === 'storage-maintenance-overlay') {
+          const btnClose = activeUpper.querySelector('#btn-close-storage-modal')
+            || activeUpper.querySelector('#btn-storage-cancel');
+          if (btnClose) btnClose.click();
+          else activeUpper.remove();
+        } else if (activeUpper.id === 'fluent-alert-overlay') {
+          smoothCloseModal(activeUpper);
         } else {
-          storageMaintenanceOverlay.remove();
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
-      }
-
-      // 0.002 通用提示与确认弹窗
-      const activePromptOverlay = document.querySelector('.fluent-prompt-overlay.prompt-active, .fluent-confirm-overlay.prompt-active');
-      if (activePromptOverlay) {
-        const btnCancel = activePromptOverlay.querySelector('.btn-prompt-cancel, .btn-confirm-cancel');
-        if (btnCancel) {
-          btnCancel.click();
-        } else {
-          activePromptOverlay.remove();
+          const btnCancel = activeUpper.querySelector('.btn-prompt-cancel, .btn-confirm-cancel');
+          if (btnCancel) btnCancel.click();
+          else activeUpper.remove();
         }
         e.preventDefault();
         e.stopPropagation();
@@ -13167,15 +13174,6 @@ function setupGlobalKeyboardDispatcher() {
         return;
       }
 
-      // 0.5 全局高质感提示弹窗
-      const alertOverlay = document.getElementById('fluent-alert-overlay');
-      if (alertOverlay && alertOverlay.style.display !== 'none') {
-        smoothCloseModal(alertOverlay);
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
-      }
-
       // 0.6 保存路线对话框
       const saveRouteModal = document.getElementById('save-route-modal');
       if (saveRouteModal && saveRouteModal.style.display !== 'none') {
@@ -13188,6 +13186,12 @@ function setupGlobalKeyboardDispatcher() {
       // 1. 云端多设备同步弹窗 (z-index: 10000，必须优先于底层抽屉面板退出)
       const syncModal = document.getElementById('sync-modal');
       if (syncModal && syncModal.style.display !== 'none') {
+        if (hasActiveUpperModal()) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return;
+        }
         smoothCloseModal(syncModal);
         e.stopPropagation();
         e.stopImmediatePropagation();
@@ -13209,9 +13213,7 @@ function setupGlobalKeyboardDispatcher() {
       const pyramidModal = document.getElementById('pyramid-modal');
       if (pyramidModal && pyramidModal.style.display !== 'none') {
         // 若当前页面有任何处于活动状态的上层子浮层，严禁关闭底层的离线下载主弹窗！
-        if (document.getElementById('storage-maintenance-overlay') ||
-            document.querySelector('.fluent-prompt-overlay.prompt-active') ||
-            document.querySelector('.fluent-confirm-overlay.prompt-active')) {
+        if (hasActiveUpperModal()) {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
@@ -13225,27 +13227,6 @@ function setupGlobalKeyboardDispatcher() {
             if (btnDl) btnDl.classList.remove('expanded');
           });
         }
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return;
-      }
-
-      // 3. 版本更新提示弹窗
-      const updateModal = document.getElementById('update-modal');
-      if (updateModal && updateModal.style.display !== 'none') {
-        smoothCloseModal(updateModal, () => {
-          const btnCancel = document.getElementById('btn-cancel-update');
-          const btnClose = document.getElementById('btn-close-update-modal');
-          const progressBox = document.getElementById('update-progress-box');
-          const btnStart = document.getElementById('btn-start-update');
-          if (btnCancel) btnCancel.style.display = '';
-          if (btnClose) btnClose.style.display = '';
-          if (progressBox) progressBox.style.display = 'none';
-          if (btnStart) {
-            btnStart.disabled = false;
-            btnStart.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 14 }) || ''} <span>立即更新并重启</span>`;
-          }
-        });
         e.stopPropagation();
         e.stopImmediatePropagation();
         return;

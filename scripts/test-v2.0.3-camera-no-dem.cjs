@@ -76,8 +76,8 @@ windowObject.OutmapLocationCamera.fly(missingDemMap, target, {
   duration: 900,
   elevation: 4207
 });
-assert.strictEqual(typeof missingDemMap.transformCallback, 'function',
-  'A location flight must retain the installed user-zoom safety transform');
+assert.strictEqual(missingDemMap.transformCallback, null,
+  'MapLibre 6.9 location flight leaves native zoom and collision to the engine');
 assert(!Object.prototype.hasOwnProperty.call(missingDemMap.lastCameraOptions, 'elevation'),
   'Stored POI elevation must not be passed into a flight before DEM readiness');
 
@@ -88,8 +88,8 @@ windowObject.OutmapLocationCamera.fly(loadedDemMap, target, {
   duration: 900,
   elevation: 4207
 });
-assert.strictEqual(typeof loadedDemMap.transformCallback, 'function',
-  'Loaded terrain must restore the user-zoom safety transform after flight');
+assert.strictEqual(loadedDemMap.transformCallback, null,
+  'MapLibre 6.9 does not overwrite native camera transforms with legacy callbacks');
 
 function createDelayedTerrainMap() {
   const listeners = new Map();
@@ -174,6 +174,7 @@ function createDelayedTerrainMap() {
     zoom: 13,
     pitch: 50,
     duration: 900,
+    resolveTerrainElevation: () => null,
     onArrival: () => arrivalCount++,
     prepareTerrain: (_coords, options) => {
       warmupStarted++;

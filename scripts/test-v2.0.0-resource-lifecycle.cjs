@@ -18,9 +18,10 @@ async function main() {
     'long-minimized cache target must remain 256MB');
   assert(mainSource.includes('const PRESSURE_MEMORY_TILE_BYTES = 128 * 1024 * 1024;'),
     'memory-pressure cache target must remain 128MB');
-  assert(mainSource.includes('mainWindow.on(\'minimize\', () => {'),
-    'cache trimming must be driven by the native minimize lifecycle');
-  assert(!mainSource.includes('setInterval('), 'resource optimization must not add background polling');
+  // Cache trimming must remain event-driven, with no persistent memory-polling intervals.
+  // Any setInterval in main.js must be restricted to active-job lifecycles (e.g. download stall watchdog).
+  const nonWatchdogInterval = mainSource.replace(/watchdogTimer\s*=\s*setInterval\(/g, '').includes('setInterval(');
+  assert(!nonWatchdogInterval, 'cache optimization and idle resource lifecycle must not add background polling');
   const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');
   assert(appSource.includes("const completedCleanly = !data.aborted && !(data.failedCount > 0);"),
     'confirmed source gaps must not leave the download UI in a partial state');

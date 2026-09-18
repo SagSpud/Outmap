@@ -905,7 +905,7 @@ function startLocalTileServer() {
             const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&bbox=73.5,18.0,135.1,53.6&limit=10`;
             const photonResp = await fetch(photonUrl, {
               signal: combinedSearchSignal,
-              headers: { 'User-Agent': 'Outmap/1.4.1' }
+              headers: { 'User-Agent': `Outmap/${app.getVersion()}` }
             });
 
             if (upstreamSearchController.signal.aborted || res.destroyed) return;
@@ -1708,12 +1708,23 @@ app.whenReady().then(async () => {
       archivesTiles,
       fragmentCount,
       fragmentBytes,
-      archivesSummary: summary
+      archivesSummary: summary,
+      isDownloading: Boolean(activeDownloadAbort || offlineDownloadRunning)
     };
   });
 
   // 离线切片存储一键整理与碎片清理
   ipcMain.handle('clean-storage-fragments', async () => {
+    if (activeDownloadAbort || offlineDownloadRunning) {
+      return {
+        success: false,
+        inProgress: true,
+        cleanedFiles: 0,
+        reclaimedBytes: 0,
+        message: '离线下载任务正在运行中，为保障数据完整性，请等待下载完成或中止后再整理碎片。'
+      };
+    }
+
     const { PmtilesDownloadSink } = require('./src/pmtiles-download-sink.cjs');
     const res = PmtilesDownloadSink.cleanTemporaryArtifacts(OFFLINE_ARCHIVES_DIR);
 
@@ -1893,7 +1904,7 @@ app.whenReady().then(async () => {
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
       const resp = await fetch(photonUrl, {
         signal: combinedSignal,
-        headers: { 'User-Agent': 'Outmap/1.4.1' }
+        headers: { 'User-Agent': `Outmap/${app.getVersion()}` }
       });
 
       if (ctrl.signal.aborted) return { type: 'FeatureCollection', features: [] };

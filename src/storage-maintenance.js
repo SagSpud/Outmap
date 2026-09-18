@@ -83,6 +83,28 @@
     try {
       const health = await window.electronAPI.getStorageHealth();
       const hasFragments = (health.fragmentCount || 0) > 0;
+      const isDownloading = Boolean(health?.isDownloading);
+      let statusTitle = '✅ 存储健康，无孤儿临时碎片';
+      let statusColor = '#16a34a';
+      let statusBg = '#f0fdf4';
+      let statusBorder = '#bbf7d0';
+      let statusDesc = '所有离线切片均已封装入 PMTiles 单文件，未发现悬挂临时文件。';
+
+      if (isDownloading) {
+        statusTitle = '⚡ 离线下载正在进行中';
+        statusColor = '#0284c7';
+        statusBg = '#f0f9ff';
+        statusBorder = '#bae6fd';
+        statusDesc = hasFragments
+          ? '检测到 <b>' + health.fragmentCount + '</b> 个正在写入的分块缓存（约 <b>' + formatBytes(health.fragmentBytes) + '</b>）。数据正在流式追加，请等待下载完成后再整理碎片。'
+          : '当前离线下载任务正在平稳写入，切片归档正常。';
+      } else if (hasFragments) {
+        statusTitle = '⚠️ 发现可清理的临时分块碎片';
+        statusColor = '#e11d48';
+        statusBg = '#fff1f2';
+        statusBorder = '#fecdd3';
+        statusDesc = '扫描到 <b>' + health.fragmentCount + '</b> 个未完成的历史下载碎片与临时 Spool 文件，占用 <b>' + formatBytes(health.fragmentBytes) + '</b> 空间。';
+      }
 
       content.innerHTML = [
         '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">',
@@ -97,29 +119,45 @@
         '    <div style="color:#475569; font-size:11.5px;">单文件直读零碎片</div>',
         '  </div>',
         '</div>',
-        '<div style="background:' + (hasFragments ? '#fff1f2' : '#f0fdf4') + '; border:1px solid ' + (hasFragments ? '#fecdd3' : '#bbf7d0') + '; border-radius:8px; padding:12px 14px; margin-bottom:4px;">',
-        '  <div style="color:' + (hasFragments ? '#e11d48' : '#16a34a') + '; font-weight:700; font-size:13px; margin-bottom:4px; display:flex; align-items:center; gap:6px;">',
-        '    ' + (hasFragments ? '⚠️ 发现可清理的临时分块碎片' : '✅ 存储健康，无孤儿临时碎片'),
+        '<div style="background:' + statusBg + '; border:1px solid ' + statusBorder + '; border-radius:8px; padding:12px 14px; margin-bottom:4px;">',
+        '  <div style="color:' + statusColor + '; font-weight:700; font-size:13px; margin-bottom:4px; display:flex; align-items:center; gap:6px;">',
+        '    ' + statusTitle,
         '  </div>',
         '  <div style="color:#334155; font-size:12.5px; line-height:1.55;">',
-        '    ' + (hasFragments ? ('扫描到 <b>' + health.fragmentCount + '</b> 个未完成的下载碎片与临时 Spool 文件，占用 <b>' + formatBytes(health.fragmentBytes) + '</b> 空间。') : '所有离线切片均已封装入 PMTiles 单文件，未发现悬挂临时文件。'),
+        '    ' + statusDesc,
         '  </div>',
         '</div>'
       ].join('');
 
       if (hasFragments) {
         btnClean.style.display = 'inline-block';
-        btnClean.addEventListener('click', async () => {
+        if (isDownloading) {
           btnClean.disabled = true;
-          btnClean.innerText = '正在清理...';
-          try {
-            const res = await window.electronAPI.cleanStorageFragments();
-            window.showToast?.('成功清理 ' + res.cleanedFiles + ' 个临时碎片，释放 ' + formatBytes(res.reclaimedBytes) + ' 空间！');
-            close();
-          } catch (e) {
-            window.showToast?.('清理失败: ' + e.message);
-          }
-        });
+          btnClean.style.opacity = '0.55';
+          btnClean.style.cursor = 'not-allowed';
+          btnClean.title = '离线下载进行中，为避免写入冲突暂不可清理';
+          btnClean.innerText = '下载进行中';
+        } else {
+          btnClean.disabled = false;
+          btnClean.style.opacity = '1';
+          btnClean.style.cursor = 'pointer';
+          btnClean.innerText = '一键无损瘦身';
+          btnClean.addEventListener('click', async () => {
+            btnClean.disabled = true;
+            btnClean.innerText = '正在清理...';
+            try {
+              const res = await window.electronAPI.cleanStorageFragments();
+              if (res.inProgress) {
+                window.showToast?.(res.message);
+              } else {
+                window.showToast?.('成功清理 ' + res.cleanedFiles + ' 个临时碎片，释放 ' + formatBytes(res.reclaimedBytes) + ' 空间！');
+              }
+              close();
+            } catch (e) {
+              window.showToast?.('清理失败: ' + e.message);
+            }
+          });
+        }
       }
     } catch (err) {
       content.innerHTML = '<div style="color:#f87171;">扫描存储状态失败: ' + err.message + '</div>';

@@ -299,6 +299,10 @@ button:active,
   transition: min-width 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+.brand-flip-card[data-update-state="available"] {
+  min-width: 68px;
+}
+
 .brand-flip-card[data-update-state="ready"] {
   min-width: 76px;
 }
