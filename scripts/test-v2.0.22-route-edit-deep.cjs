@@ -128,7 +128,7 @@ app.whenReady().then(async () => {
       check(localData2.length === 2, 'localStorage should contain 2 routes');
 
       // 验证另存为反馈
-      check(btnSaveTrigger.innerText.includes('已另存为新路线'), 'button text should indicate save as new success');
+      check(btnSaveTrigger.innerText.includes('已保存'), 'button text should indicate save success');
       check(window.getCurrentEditingSavedRouteId() === newRoute.id, 'editing route ID should switch to new route');
       check(editNameTxt.innerText.includes('二期'), 'banner name should update to new route name');
 

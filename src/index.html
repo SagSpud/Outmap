@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.41" />
+  <link rel="stylesheet" href="style.css?v=2.0.42" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.41</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.42</span>
                 </div>
               </div>
             </div>
@@ -382,7 +382,6 @@
 
           <div class="route-actions-row">
             <button class="modal-btn primary" id="btn-calc-route">规划</button>
-            <button class="modal-btn secondary-sm" id="btn-route-sim-fly" title="以第一人称 60° 俯视沿此路线低空航拍飞掠漫游" style="display: none;">3D漫游</button>
             <button class="modal-btn secondary-sm" id="btn-route-details-toggle">详情 ▾</button>
             <button class="modal-btn secondary-sm" id="btn-save-route-trigger">收藏</button>
             <button class="modal-btn secondary-sm" id="btn-clear-route">清空</button>
@@ -778,6 +777,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.41"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.42"></script>
 </body>
 </html>

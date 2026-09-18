@@ -55,7 +55,10 @@ app.whenReady().then(async () => {
       plannedToggle.dispatchEvent(new Event('change'));
       const plannedHidden = map.getLayoutProperty('outdoor-route-line', 'visibility') === 'none'
         && map.getLayoutProperty('outmap-route-point-circles', 'visibility') === 'none';
-      const savedStillHidden = map.getLayoutProperty('outmap-saved-route-line', 'visibility') === 'none';
+
+      savedToggle.checked = false;
+      savedToggle.dispatchEvent(new Event('change'));
+      const savedHidden = map.getLayoutProperty('outmap-saved-route-line', 'visibility') === 'none';
 
       savedToggle.checked = true;
       savedToggle.dispatchEvent(new Event('change'));
@@ -67,7 +70,7 @@ app.whenReady().then(async () => {
       const plannedStillHidden = map.getLayoutProperty('outdoor-route-line', 'visibility') === 'none';
 
       return {
-        initial, initializedAfterLoad, plannedHidden, savedStillHidden, savedVisible, savedFeatureCount, plannedStillHidden,
+        initial, initializedAfterLoad, plannedHidden, savedHidden, savedVisible, savedFeatureCount, plannedStillHidden,
         terrainToggleAbsent: !document.getElementById('layer-toggle-terrain'),
         view3dPresent: !!document.getElementById('btn-3d-toggle'),
         labels: [...document.querySelectorAll('#layers-popover .layer-toggle-label span:last-child')].map(el => el.textContent.trim()),
@@ -75,12 +78,12 @@ app.whenReady().then(async () => {
       };
     })()`);
 
-    assert.strictEqual(result.initial.savedChecked, false, 'saved routes must default off');
+    assert.strictEqual(result.initial.savedChecked, true, 'saved routes must default on (v2.0.41+)');
     assert.strictEqual(result.initial.plannedChecked, true, 'current planned route must default on');
-    assert.strictEqual(result.initial.savedVisibility, 'none');
+    assert.notStrictEqual(result.initial.savedVisibility, 'none');
     assert.notStrictEqual(result.initial.plannedVisibility, 'none');
     assert(result.initializedAfterLoad, 'saved route layers must initialize after the map load event');
-    assert(result.plannedHidden && result.savedStillHidden, 'planned toggle must control only the current route');
+    assert(result.plannedHidden && result.savedHidden, 'toggles must control their respective routes independently');
     assert(result.savedVisible && result.savedFeatureCount === 1 && result.plannedStillHidden,
       'saved toggle must create/update and show only saved routes');
     assert(result.terrainToggleAbsent && result.view3dPresent, 'duplicate terrain toggle must be removed while 2D/3D remains');

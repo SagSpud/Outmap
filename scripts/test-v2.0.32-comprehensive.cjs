@@ -107,29 +107,12 @@ async function runTests() {
   console.log('  ✅ Point 7: Storage health analysis and fragment cleanup verified');
 
   // ==========================================
-  // Point 8: 3D Aerial Route Simulation Engine
-  // ==========================================
-  console.log('\n[Test 8] 3D Aerial Route Simulator Verification...');
-  const { RouteSimulator, calculateBearing, haversineDistance, lerpAngle } = require('../src/route-simulator.js');
-  const p1 = [104.0668, 30.5728]; // Chengdu
-  const p2 = [104.0668, 31.5728]; // North of Chengdu
-  const bearing = calculateBearing(p1, p2);
-  assert(Math.abs(bearing - 0) < 0.1 || Math.abs(bearing - 360) < 0.1, 'Bearing directly north must be ~0 deg');
-  
-  const dist = haversineDistance(p1, p2);
-  assert(dist > 100 && dist < 120, 'Distance between points ~111km');
-  
-  const turned = lerpAngle(350, 10, 0.5);
-  assert(Math.abs(turned - 0) < 0.1 || Math.abs(turned - 360) < 0.1, 'Angle wrap-around interpolation must pass through 0 deg');
-  
-  const sim = new RouteSimulator(null);
-  const loaded = sim.loadRoute([p1, [104.5, 30.8], p2]);
-  assert.strictEqual(loaded, true, 'RouteSimulator must load coordinate list');
-  assert(sim.totalDistKm > 100, 'Total distance must be calculated');
-  
-  const styleCss = fs.readFileSync(path.join(__dirname, '..', 'src', 'style.css'), 'utf8');
-  assert(styleCss.includes('.route-sim-bar'), 'style.css must include .route-sim-bar');
-  console.log('  ✅ Point 8: 3D Aerial flythrough math and simulation engine verified');
+  // Point 8: 3D Aerial Route Simulation Engine (Decommissioned per user request)
+  // ==============================================================================
+  console.log('\n[Test 8] 3D Route Simulator Decommission Audit...');
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+  assert(!indexHtml.includes('id="btn-route-sim-fly"'), 'btn-route-sim-fly must be removed from index.html');
+  console.log('  ✅ Point 8: 3D Aerial flythrough simulator safely removed per user instruction');
 
   // ==========================================
   // Point 9: Elevation Profile Viewport Follow

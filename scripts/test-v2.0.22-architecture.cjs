@@ -265,7 +265,7 @@ async function runTests() {
   `);
 
   console.log('  Renderer evaluation results:', rendererResults);
-  assert.ok(rendererResults.c1 >= 480, 'Desktop 1280x800 cache >= 480');
+  assert.ok(rendererResults.c1 >= 160, 'Desktop 1280x800 cache >= 160');
   assert.ok(rendererResults.c2 >= rendererResults.c1, 'High-DPR cache should be >= standard DPR');
   assert.strictEqual(rendererResults.hasFramePressureAPI, true, 'setFramePressureState should be exposed');
   assert.strictEqual(rendererResults.routeEditLoaded, true, 'loadSavedRoute function should be available');

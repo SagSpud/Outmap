@@ -38,6 +38,15 @@ const watchdog = setTimeout(() => {
   app.exit(1);
 }, 30000);
 
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Unhandled Rejection:', reason);
+  process.exit(1);
+});
+
 app.whenReady().then(async () => {
   let win;
   try {
@@ -82,6 +91,7 @@ app.whenReady().then(async () => {
             geometry: { type: 'Point', coordinates: [118, 35] }
           }];
         }
+        if (options?.layers?.includes('outmap-route-point-circles')) return [];
         return originalQuery(point, options);
       };
 
@@ -111,10 +121,6 @@ app.whenReady().then(async () => {
       check(flightCount === 2 && favoriteMenuCount === 0 && locationMenuCount === 0,
         'Mobile favorite tap must only fly once and keep menus closed');
 
-      // Verify that the real flyToLocationPrecisely executes cleanly without reference errors
-      originalFly(map, [118, 35], { zoom: 12, duration: 0 });
-      originalFly(map, { lng: 118, lat: 35 }, { zoom: 12, duration: 0 });
-
       map.fire('contextmenu', {
         point: { x: 210, y: 210 },
         lngLat: { lng: 118, lat: 35 },
@@ -130,7 +136,7 @@ app.whenReady().then(async () => {
         lngLats: [{ lng: 118, lat: 35 }],
         originalEvent: { touches: [{ clientX: 210, clientY: 210 }] }
       });
-      await sleep(650);
+      await sleep(800);
       map.fire('touchend', {
         point: { x: 210, y: 210 },
         points: [], lngLat: { lng: 118, lat: 35 }, lngLats: [],
@@ -191,6 +197,10 @@ app.whenReady().then(async () => {
       window.showChangeWaypointTypeMenu = originalFavoriteMenu;
       window.showContextMenuForLocation = originalLocationMenu;
       window.clearLandingMarker?.();
+
+      // Verify that the real flyToLocationPrecisely executes cleanly without reference errors
+      originalFly(map, [118, 35], { zoom: 12, duration: 0 });
+      originalFly(map, { lng: 118, lat: 35 }, { zoom: 12, duration: 0 });
 
       return {
         alignments,

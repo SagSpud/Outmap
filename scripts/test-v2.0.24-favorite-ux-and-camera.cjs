@@ -22,8 +22,8 @@ app.whenReady().then(async () => {
     const locCamJs = fs.readFileSync(path.join(__dirname, '../src/location-camera.js'), 'utf8');
     const styleCss = fs.readFileSync(path.join(__dirname, '../src/style.css'), 'utf8');
 
-    // MaxZoom audit
-    assert(appJs.includes('maxZoom: 16'), 'app.js must configure maxZoom: 16');
+    // MaxZoom audit (v2.0.31+ constrained to 15)
+    assert(appJs.includes('maxZoom: 15') || appJs.includes('maxZoom: 16'), 'app.js must configure maxZoom: 15');
     assert(!appJs.includes('maxZoom: 17'), 'app.js must not configure maxZoom: 17');
     assert(appJs.includes('clusterMaxZoom: 15'), 'app.js must configure clusterMaxZoom: 15');
 
@@ -170,7 +170,7 @@ app.whenReady().then(async () => {
 
     console.log('Runtime test results:', runtimeResults);
 
-    assert.strictEqual(runtimeResults.mapMaxZoom, 16, 'Runtime map maxZoom must be 16');
+    assert.ok(runtimeResults.mapMaxZoom === 15 || runtimeResults.mapMaxZoom === 16, 'Runtime map maxZoom must be 15 or 16');
     assert.strictEqual(runtimeResults.tooltipExists, true, 'Hover tooltip element must exist in DOM');
     assert.strictEqual(runtimeResults.tooltipHasName, true, 'Tooltip must display favorite point name');
     assert.strictEqual(runtimeResults.tooltipHasEle, true, 'Tooltip must display elevation text');

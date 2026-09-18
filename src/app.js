@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.41';
+const APP_VERSION = '2.0.42';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -863,13 +863,19 @@ function normalizeRouteTombstone(route) {
   const distKm = Number(route.metrics?.distKm ?? route.distKm ?? route.distance);
   const start = routeCoords(route, 'start');
   const end = routeCoords(route, 'end');
+  const isExistingTombstone = !route.points && !route.coordinates && !route.geojson && !route.waypoints && !route.pathCoords;
+  const deleteTime = Number(
+    route.deletedAt ||
+    (isExistingTombstone && route.time ? route.time : 0) ||
+    Date.now()
+  );
   return {
     id: route.id ? String(route.id) : '',
     name: String(route.name || '').trim(),
     distKm: Number.isFinite(distKm) ? distKm : null,
     start: start ? start.map(v => Number(v.toFixed(5))) : null,
     end: end ? end.map(v => Number(v.toFixed(5))) : null,
-    time: Number(route.time || route.deletedAt || Date.now())
+    time: deleteTime
   };
 }
 
@@ -917,7 +923,7 @@ function pruneRevivedRouteTombstones(routes = [], tombstones = []) {
 }
 
 function addDeletedRouteTombstone(route) {
-  const tombstone = normalizeRouteTombstone(route);
+  const tombstone = normalizeRouteTombstone({ ...route, deletedAt: route?.deletedAt || Date.now() });
   if (!tombstone) return false;
   try {
     const merged = mergeRouteTombstones(getDeletedRoutes(), [tombstone]);
@@ -6700,9 +6706,9 @@ function isRouteOverlappingWithPlanned(savedRoute, plannedCoords, editingRouteId
   if (!isPlannedVisible) return false;
   if (!savedRoute) return false;
 
-  // 1. 若当前正在编辑/调入该收藏路线，直接判定为同一路线（重叠）
+  // 1. 若当前正在编辑/调入该收藏路线，隐藏该路线图层（规划图层正实时呈现，杜绝双层重叠）
   if (editingRouteId) {
-    if (String(savedRoute.id) === String(editingRouteId) || routesRepresentSameRecord(savedRoute, { id: editingRouteId })) {
+    if (String(savedRoute.id) === String(editingRouteId)) {
       return true;
     }
   }
@@ -6716,20 +6722,8 @@ function isRouteOverlappingWithPlanned(savedRoute, plannedCoords, editingRouteId
     return false;
   }
 
-  // 3. 端点快速匹配 (起终点相近或反向相近，容差 ~120m)
-  const pStart = plannedCoords[0], pEnd = plannedCoords[plannedCoords.length - 1];
-  const sStart = sCoords[0], sEnd = sCoords[sCoords.length - 1];
-  const distStartStart = Math.hypot(pStart[0] - sStart[0], pStart[1] - sStart[1]);
-  const distEndEnd = Math.hypot(pEnd[0] - sEnd[0], pEnd[1] - sEnd[1]);
-  const distStartEnd = Math.hypot(pStart[0] - sEnd[0], pStart[1] - sEnd[1]);
-  const distEndStart = Math.hypot(pEnd[0] - sStart[0], pEnd[1] - sStart[1]);
-
-  if ((distStartStart < 0.0012 && distEndEnd < 0.0012) || (distStartEnd < 0.0012 && distEndStart < 0.0012)) {
-    return true;
-  }
-
-  // 4. 计算几何路径多点采样重叠度
-  return computeRoutesOverlapDegree(sCoords, plannedCoords) >= 0.45;
+  // 3. 计算几何路径多点采样重叠度（只有真实沿线重叠超过 70% 才隐藏，严禁仅凭同出发地/小区误伤远方其他路线）
+  return computeRoutesOverlapDegree(sCoords, plannedCoords) >= 0.70;
 }
 
 function savedRoutesFeatureCollection() {
@@ -8952,6 +8946,7 @@ let routePlanTimer = null;
 const ROUTE_POINTS_SOURCE_ID = 'outmap-route-points';
 const ROUTE_POINT_LAYER_IDS = [
   'outmap-route-point-halo', 'outmap-route-point-circles', 'outmap-route-point-labels',
+  'outmap-route-point-names',
   'outmap-route-point-clusters', 'outmap-route-point-cluster-count'
 ];
 let routePointLayersVisible = true;
@@ -9417,10 +9412,12 @@ function getRoutePointFeatures() {
   const features = [];
   const add = (id, role, coords, name, label, zoom) => {
     if (!coords || !Number.isFinite(Number(coords[0])) || !Number.isFinite(Number(coords[1]))) return;
+    const cleanName = String(name || '').trim();
+    const displayName = (cleanName && cleanName !== label) ? cleanName : '';
     features.push({
       type: 'Feature', id,
       geometry: { type: 'Point', coordinates: [Number(coords[0]), Number(coords[1])] },
-      properties: { id, role, name: name || label, label, zoom: Number(zoom) || 12.0 }
+      properties: { id, role, name: displayName, label, zoom: Number(zoom) || 12.0 }
     });
   };
   add('route-start', 'start', routeStartCoord, routeStartName, '起', routeStartZoom);
@@ -9466,9 +9463,7 @@ function ensureRoutePointLayers(map) {
       type: 'geojson',
       data: getRoutePointFeatures(),
       promoteId: 'id',
-      cluster: true,
-      clusterMaxZoom: 15,
-      clusterRadius: 26
+      cluster: false
     });
     map.addLayer({
       id: 'outmap-route-point-halo', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
@@ -9516,6 +9511,30 @@ function ensureRoutePointLayers(map) {
         'text-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 1],
         'text-halo-color': 'rgba(15,23,42,0.25)',
         'text-halo-width': 0.4
+      }
+    });
+    map.addLayer({
+      id: 'outmap-route-point-names', type: 'symbol', source: ROUTE_POINTS_SOURCE_ID,
+      filter: ['all', ['!', ['has', 'point_count']], ['!=', ['get', 'name'], '']],
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 6, 9, 11, 10, 15, 11.5],
+        'text-anchor': 'top',
+        'text-offset': [0, 0.95],
+        'text-max-width': 8,
+        'text-pitch-alignment': 'viewport',
+        'text-rotation-alignment': 'viewport',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'symbol-sort-key': ['match', ['get', 'role'], 'start', 1, 'end', 2, 3]
+      },
+      paint: {
+        'text-color': '#0f172a',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.6,
+        'text-halo-blur': 0.2,
+        'text-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 0.95]
       }
     });
     map.addLayer({
@@ -10831,9 +10850,6 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
     if (chartSection) chartSection.style.display = 'none';
     const btnDetails = document.getElementById('btn-route-details-toggle');
     if (btnDetails) btnDetails.innerText = '详情 ▾';
-    const btnSimFly = document.getElementById('btn-route-sim-fly');
-    if (btnSimFly) btnSimFly.style.display = 'none';
-    window.currentRouteSimulator?.stop?.(true);
     currentProfileData = [];
     currentPlannedRouteCoords = [];
     currentRouteMetrics = null;
@@ -11209,8 +11225,6 @@ async function autoPlanMultiPointRoute(mapInstance, shouldFitBounds = false) {
         const finalCoords = limitGeometryPoints(mergedCoords);
         renderRouteGeometry(map, finalCoords);
         updateProfileAndMetrics(map, finalCoords, mergedDistKm, mergedDurationSec, isEntireRouteRoad, shouldFitBounds);
-        const btnSimFly = document.getElementById('btn-route-sim-fly');
-        if (btnSimFly) btnSimFly.style.display = 'inline-flex';
       }
     } catch (e) {
       if (reqId === currentRouteRequestId && distEl) {
@@ -11253,19 +11267,6 @@ function setupOutdoorRouteSystem(map) {
   const chartSection = document.getElementById('route-chart-section');
   const canvas = document.getElementById('elevation-chart-canvas');
   const chartHoverInfo = document.getElementById('chart-hover-info');
-  const btnRouteSimFly = document.getElementById('btn-route-sim-fly');
-
-  btnRouteSimFly?.addEventListener('click', () => {
-    if (!currentPlannedRouteCoords || currentPlannedRouteCoords.length < 2) {
-      window.showToast?.('请先规划有效路线后再开启 3D 漫游');
-      return;
-    }
-    if (!window.currentRouteSimulator) {
-      window.currentRouteSimulator = new window.RouteSimulator(map);
-    }
-    window.currentRouteSimulator.loadRoute(currentPlannedRouteCoords);
-    window.currentRouteSimulator.start();
-  });
 
   btnFabRoute?.addEventListener('click', () => {
     const isHidden = routePanel.style.display === 'none' || routePanel.classList.contains('panel-closing');
@@ -11700,8 +11701,6 @@ function setupOutdoorRouteSystem(map) {
 
     if (statsBox) statsBox.style.display = 'none';
     if (chartSection) chartSection.style.display = 'none';
-    if (btnRouteSimFly) btnRouteSimFly.style.display = 'none';
-    window.currentRouteSimulator?.stop?.(true);
     currentPlannedRouteCoords = [];
     currentProfileData = [];
     currentRouteMetrics = null;
@@ -11868,7 +11867,7 @@ function setupOutdoorRouteSystem(map) {
 
     if (btnSaveRouteTrigger) {
       btnSaveRouteTrigger.classList.add('saved-success');
-      btnSaveRouteTrigger.innerText = isUpdate ? '✓ 已保存修改' : '✓ 已收藏路线';
+      btnSaveRouteTrigger.innerText = '已保存';
       setTimeout(() => {
         btnSaveRouteTrigger.classList.remove('saved-success');
         updateRouteEditUIState(targetRoute);
@@ -11941,7 +11940,7 @@ function setupOutdoorRouteSystem(map) {
 
     if (btnSaveRouteTrigger) {
       btnSaveRouteTrigger.classList.add('saved-success');
-      btnSaveRouteTrigger.innerText = '✓ 已另存为新路线';
+      btnSaveRouteTrigger.innerText = '已保存';
       setTimeout(() => {
         btnSaveRouteTrigger.classList.remove('saved-success');
         updateRouteEditUIState(newRoute);
