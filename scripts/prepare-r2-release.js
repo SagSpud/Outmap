@@ -34,11 +34,11 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 【彻底消除缩放后界面晃动与平移】禁用相机中心地表强制贴地（centerClampedToGround: false），拦截 recalculateZoomAndCenter，彻底消除鼠标滚轮非居中缩放结束瞬间的高程突跳与视口瞬移（0.00px 终结跳动）；',
-    '2. 【丝滑无回拉滚轮缩放】完全交还 MapLibre 原生跟随鼠标指针物理缩放（0 阻尼，0 回拉，0 晃动），手感细腻跟手；',
-    '3. 【3D地形旋转稳固如磐】结合初始地表高程自动校准与 location-camera 航行对齐，360° 全方位自由旋转枢轴坚固锚定地表（0.00px 枢轴偏移）；',
-    '4. 【极限仰角收敛防远山裁切】保持 72° 极限仰角（maxPitch: 72），杜绝 85° 极限俯仰下远端山体网格裁切与矢量注记悬空；',
-    '5. 【POI 图标与收藏夹扎根地表】全量 POI 图标及收藏夹图层保持 icon-anchor: bottom，标底精准扎根地表物理坐标，覆盖在 3D 建筑挤出体之上；',
+    '1. 【收藏夹与路点高亮光晕完美同心对齐】修复收藏夹路点（outmap-favorite-icons）锚点为同心圆心（icon-anchor: center），彻底解决激活选中/悬停时淡蓝色底圈（outmap-favorite-hover）脱节掉落在图标正下方的问题，360° 柔和呼吸光晕完美环绕徽标；',
+    '2. 【户外重点景点文字与图标重叠排险】优化重点景点/观景台/露营地（osm-outdoor-scenic-pois）标签锚点与偏移（text-anchor: top, text-offset: [0, 0.4]），彻底消除地名文字与橙色星标重叠遮挡，保持全量 POI 图文上下清爽排布；',
+    '3. 【彻底消除缩放后界面晃动平移】禁用相机中心强制贴地（centerClampedToGround: false），拦截 recalculateZoomAndCenter，滚轮缩放 0.00px 终结跳动、0 回弹、0 晃动；',
+    '4. 【3D地形旋转稳固如磐】初始地表高程自动校准结合 rotatestart/pitchstart 瞬时对齐，360° 旋转枢轴坚固锚定地表（0.00px 枢轴偏移）；',
+    '5. 【极限仰角收敛防远山裁切】保持 72° 极限仰角（maxPitch: 72），杜绝 85° 极限俯仰下远端山体网格裁切与矢量注记悬空；',
     '6. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;

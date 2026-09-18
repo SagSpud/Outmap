@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.39';
+const APP_VERSION = '2.0.40';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2323,8 +2323,8 @@ async function initApplication() {
         'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name_zh'], ['get', 'name']],
         'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9.5, 11, 11, 14, 13],
-        'text-anchor': 'bottom',
-        'text-offset': [0, -1.25],
+        'text-anchor': 'top',
+        'text-offset': [0, 0.4],
         'text-padding': 2,
         'symbol-sort-key': 8
       },
@@ -7157,7 +7157,7 @@ function setupWaypointAndFavoritesSystem(map) {
         layout: {
           'icon-image': ['get', 'icon'],
           'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.72, 12, 0.9, 16, 1.05],
-          'icon-anchor': 'bottom',
+          'icon-anchor': 'center',
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
           'icon-pitch-alignment': 'viewport',
