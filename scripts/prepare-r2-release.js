@@ -33,10 +33,11 @@ async function main() {
 
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
-    '1. 【彻底根除 3D 视角滚轮缩放画面拖拽/侧滑】启用 MapLibre 原生 scrollZoom: { around: \'center\' }，视口黄金中心绝对锁定，滚轮缩放中心漂移量归零（0 侧滑，0 拖拽）；',
-    '2. 【全量清理非原生拦截与冗余监听】全面剥离非原生私有补丁与冗余事件监听，回归 MapLibre 6.9 原生手势管线与 centerClampedToGround 自动地表贴地；',
-    '3. 【保持 0 穿透、0 回弹、360°旋转 0 漂移】视锥接触边界原生自然阻停，360° 旋转枢轴漂移严格为 0.000000px；',
-    '4. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
+    '1. 【全新 v2.0.50 正式里程碑发布】通过全量深入语法、交互与稳定性排查，全面回归纯净原生架构；',
+    '2. 【彻底根除 3D 视角滚轮缩放画面拖拽/侧滑】启用 MapLibre 原生 scrollZoom: { around: \'center\' }，视口黄金中心绝对锁定，滚轮缩放中心漂移量归零（0 侧滑，0 拖拽）；',
+    '3. 【全量清理非原生拦截与冗余监听】全面剥离非原生私有补丁与冗余事件监听，回归 MapLibre 6.9 原生手势管线与 centerClampedToGround 自动地表贴地；',
+    '4. 【保持 0 穿透、0 回弹、360°旋转 0 漂移】视锥接触边界原生自然阻停，360° 旋转枢轴漂移严格为 0.000000px；',
+    '5. 【秒级极速热更新】约 4.18MB 增量热更新包，启动即时生效。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;
 
