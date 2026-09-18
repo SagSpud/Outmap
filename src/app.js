@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.36';
+const APP_VERSION = '2.0.37';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4788,7 +4788,7 @@ function setupPyramidModal(map) {
       progressSubline.style.display = 'none';
     }
     if (isIncrementalUpdate) {
-      progressNum.innerText = '方案 A：正在通过 If-Modified-Since 启动切片级增量更新...';
+      progressNum.innerText = '正在通过云端比对启动切片级增量更新...';
     } else if (isVerify) {
       progressNum.innerText = '正在高速校验本地已缓存切片...';
     } else {
@@ -5074,9 +5074,12 @@ function setupPyramidModal(map) {
         });
 
         if (data.isIncrementalUpdate) {
-          if (typeof showFluentAlert === 'function') {
-            showFluentAlert(`方案 A 增量更新完成！\n\n共扫描检查 ${data.total.toLocaleString()} 块瓦片：\n• 保持最新: ${(data.unchangedCount || 0).toLocaleString()} 块 (304 跳过，0 流量)\n• 增量更新: ${(data.updatedCount || 0).toLocaleString()} 块 (云端最新路网)\n• 查漏补缺: ${(data.newlyAddedCount || 0).toLocaleString()} 块\n\n您之前下载的数据全部完好保留在本地，未漏掉任何切片！`);
+          const detailMsg = `共扫描 ${data.total?.toLocaleString?.() || data.total} 块 · 保持最新 ${(data.unchangedCount || 0).toLocaleString()} · 增量更新 ${(data.updatedCount || 0).toLocaleString()} · 查漏补缺 ${(data.newlyAddedCount || 0).toLocaleString()}`;
+          if (progressSubline) {
+            progressSubline.innerText = detailMsg;
+            progressSubline.style.display = 'block';
           }
+          window.showToast?.('增量更新已完成，数据已全部保持最新');
         }
 
         // 刷新顶栏切片真实总数与体积

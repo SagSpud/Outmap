@@ -1666,11 +1666,19 @@ app.whenReady().then(async () => {
     let fragmentCount = 0;
     let fragmentBytes = 0;
 
+    // 1. 动态刷新加载最新的 PMTiles 档案
+    try {
+      await tileArchiveManager.init();
+    } catch (_) {}
+
     const summary = tileArchiveManager.getArchivesSummary();
     archivesCount = summary.length;
     for (const a of summary) {
       archivesTiles += a.tileCount || 0;
     }
+
+    const { readPmtilesInfo } = require('./src/tile-archive.cjs');
+    const scannedPmtiles = new Set(summary.map(a => a.name.toLowerCase()));
 
     if (fs.existsSync(OFFLINE_ARCHIVES_DIR)) {
       try {
@@ -1678,8 +1686,19 @@ app.whenReady().then(async () => {
         for (const f of files) {
           const fullPath = path.join(OFFLINE_ARCHIVES_DIR, f);
           const st = fs.statSync(fullPath);
-          if (f.toLowerCase().endsWith('.pmtiles')) {
+          const lower = f.toLowerCase();
+          if (lower.endsWith('.pmtiles')) {
             archivesBytes += st.size;
+            if (!scannedPmtiles.has(lower)) {
+              scannedPmtiles.add(lower);
+              archivesCount++;
+              try {
+                const info = readPmtilesInfo(fullPath);
+                if (info?.header?.numTiles) {
+                  archivesTiles += info.header.numTiles;
+                }
+              } catch (_) {}
+            }
           } else if (f.endsWith('.tmp') || f.endsWith('.spool') || f.includes('.tmp.')) {
             fragmentCount++;
             fragmentBytes += st.size;
@@ -1701,6 +1720,22 @@ app.whenReady().then(async () => {
         }
       } catch (_) {}
     }
+
+    // 2. 双重兜底保障：若 PMTiles 档案中切片为 0，结合 manifest.json 权威清单统计
+    try {
+      const manifest = loadOfflineManifest();
+      const mTiles = Number(manifest?.stats?.totalTiles || 0);
+      const mBytes = Number(manifest?.stats?.totalBytes || 0);
+      if (archivesTiles === 0 && mTiles > 0) {
+        archivesTiles = mTiles;
+      }
+      if (archivesBytes === 0 && mBytes > 0) {
+        archivesBytes = mBytes;
+      }
+      if (archivesCount === 0 && archivesTiles > 0) {
+        archivesCount = Math.max(1, scannedPmtiles.size);
+      }
+    } catch (_) {}
 
     return {
       archivesCount,

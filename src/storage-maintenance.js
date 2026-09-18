@@ -21,7 +21,7 @@
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay prompt-active storage-maintenance-backdrop';
     overlay.id = 'storage-maintenance-overlay';
-    overlay.style.zIndex = '10050'; // 确保位于离线下载主弹窗之上
+    overlay.style.zIndex = '105000'; // 确保位于离线下载主弹窗之上的顶层浮层
     overlay.innerHTML = [
       '<div class="modal-card" style="max-width: 480px; width: 92%; margin: auto; background: #ffffff !important; color: #0f172a !important; border: 1px solid rgba(203, 213, 225, 0.9) !important; border-radius: 12px !important; box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.4), 0 0 0 1px rgba(15, 23, 42, 0.08) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);">',
       '  <div class="modal-header" style="border-bottom: 1px solid #f1f5f9; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;">',
