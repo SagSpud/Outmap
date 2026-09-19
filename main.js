@@ -2737,10 +2737,15 @@ app.whenReady().then(async () => {
             failureReason: '正在极速组装 PMTiles 单文件...'
           });
         }
-        // 在 Windows 上替换或合并 PMTiles 单文件前，先关闭读取句柄，杜绝 EBUSY 锁定冲突
+        // 先在现有归档旁完整组装临时文件；地图在这段耗时阶段仍可继续读取旧归档。
+        // 仅在最终替换文件的极短窗口关闭 Windows 读取句柄，随后立即重新挂载。
+        const preparedArchives = await downloadSink.finalizeAll(() => {}, { deferCommit: true });
         tileArchiveManager.close();
-        await downloadSink.finalizeAll();
-        await tileArchiveManager.init();
+        try {
+          await downloadSink.commitPrepared(preparedArchives);
+        } finally {
+          await tileArchiveManager.init();
+        }
 
         // 若本次任务下载了 DEM 高程切片，流水线自动联动 Chromium 无头引擎解算生成等高线 PMTiles
         const newDemTiles = downloadSink.getNewTiles('dem');
@@ -2757,12 +2762,14 @@ app.whenReady().then(async () => {
             });
           }
           try {
-            tileArchiveManager.close();
             const { runContourGeneration } = require('./src/contour-generator.cjs');
             await runContourGeneration({
               tiles: newDemTiles.map(t => ({ z: t.z, x: t.x, y: t.y })),
               output: path.join(OFFLINE_ARCHIVES_DIR, 'contour_metric-v1.pmtiles'),
-              outputType: 'pmtiles'
+              outputType: 'pmtiles',
+              beforeArchiveCommit: async () => {
+                tileArchiveManager.close();
+              }
             }, (p) => {
               if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('download-progress', {

@@ -18,6 +18,7 @@ class PmtilesDownloadSink {
     this.baseDir = options.baseDir || process.cwd();
     this.archivesDir = options.archivesDir || path.join(this.baseDir, 'archives');
     this.layers = {}; // type -> LayerState
+    this.preparedArtifacts = new Set();
     this.disposed = false;
   }
 
@@ -181,7 +182,7 @@ class PmtilesDownloadSink {
     return Array.from(layer.spoolEntries.values());
   }
 
-  async finalizeLayer(type, onProgress = () => {}) {
+  async finalizeLayer(type, onProgress = () => {}, options = {}) {
     const layer = this.layers[type];
     if (!layer) return null;
 
@@ -270,6 +271,7 @@ class PmtilesDownloadSink {
     const copyBuf = Buffer.allocUnsafe(CHUNK_SIZE);
     let copyBufLen = 0;
     let writtenTotal = 0;
+    let bytesSinceYield = 0;
 
     function flushCopyBuf() {
       if (copyBufLen > 0) {
@@ -298,6 +300,7 @@ class PmtilesDownloadSink {
         fs.readSync(srcFd, copyBuf, copyBufLen, tileLen, srcOffset);
         copyBufLen += tileLen;
       }
+      bytesSinceYield += tileLen;
 
       if (i % 2000 === 0) {
         onProgress({
@@ -306,6 +309,13 @@ class PmtilesDownloadSink {
           totalTiles: allTiles.length,
           percent: Math.round(((i + 1) / allTiles.length) * 100)
         });
+      }
+      // Building a large nationwide archive is intentionally incremental:
+      // keep the Electron main loop available to serve the currently mounted
+      // PMTiles file while the replacement is assembled beside it.
+      if (bytesSinceYield >= 64 * 1024 * 1024 || (i > 0 && i % 2000 === 0)) {
+        bytesSinceYield = 0;
+        await new Promise(resolve => setImmediate(resolve));
       }
     }
     flushCopyBuf();
@@ -318,30 +328,60 @@ class PmtilesDownloadSink {
       layer.existingFd = null;
     }
 
-    if (fs.existsSync(layer.archivePath)) {
-      try {
-        fs.unlinkSync(layer.archivePath);
-      } catch (err) {
-        await new Promise(r => setTimeout(r, 50));
-        try { fs.unlinkSync(layer.archivePath); } catch (_) {}
-      }
-    }
-    fs.renameSync(tempTargetPath, layer.archivePath);
-
-    return {
+    const result = {
       type,
       archivePath: layer.archivePath,
       tileCount: allTiles.length,
-      fileSize: fs.statSync(layer.archivePath).size,
-      updated: true
+      fileSize: fs.statSync(tempTargetPath).size,
+      updated: true,
+      prepared: true,
+      tempTargetPath
     };
+    this.preparedArtifacts.add(tempTargetPath);
+
+    if (!options.deferCommit) {
+      await this.commitPrepared([result]);
+    }
+    return result;
   }
 
-  async finalizeAll(onProgress = () => {}) {
+  async finalizeAll(onProgress = () => {}, options = {}) {
     const results = [];
     for (const type of Object.keys(this.layers)) {
-      const res = await this.finalizeLayer(type, onProgress);
+      const res = await this.finalizeLayer(type, onProgress, options);
       if (res) results.push(res);
+    }
+    return results;
+  }
+
+  async commitPrepared(results = []) {
+    for (const result of results) {
+      if (!result?.prepared || !result.tempTargetPath) continue;
+      const targetPath = result.archivePath;
+      const tempPath = result.tempTargetPath;
+      const backupPath = targetPath + '.' + process.pid + '.' + Date.now() + '.replace-backup';
+      let movedOriginal = false;
+      try {
+        if (fs.existsSync(targetPath)) {
+          fs.renameSync(targetPath, backupPath);
+          movedOriginal = true;
+        }
+        fs.renameSync(tempPath, targetPath);
+        this.preparedArtifacts.delete(tempPath);
+        if (movedOriginal && fs.existsSync(backupPath)) {
+          try { fs.unlinkSync(backupPath); } catch (_) {}
+        }
+        result.prepared = false;
+        delete result.tempTargetPath;
+        result.fileSize = fs.statSync(targetPath).size;
+      } catch (error) {
+        // Never leave a previously working offline archive missing when a
+        // Windows rename or antivirus scan races the short commit window.
+        if (!fs.existsSync(targetPath) && movedOriginal && fs.existsSync(backupPath)) {
+          try { fs.renameSync(backupPath, targetPath); } catch (_) {}
+        }
+        throw error;
+      }
     }
     return results;
   }
@@ -363,6 +403,12 @@ class PmtilesDownloadSink {
         try { fs.unlinkSync(layer.spoolPath); } catch (_) {}
       }
     }
+    for (const tempPath of this.preparedArtifacts) {
+      if (fs.existsSync(tempPath)) {
+        try { fs.unlinkSync(tempPath); } catch (_) {}
+      }
+    }
+    this.preparedArtifacts.clear();
     this.layers = {};
   }
 
@@ -373,7 +419,7 @@ class PmtilesDownloadSink {
     try {
       const files = fs.readdirSync(archivesDir);
       for (const file of files) {
-        if (file.endsWith('.tmp') || file.endsWith('.spool') || file.includes('.tmp.')) {
+        if (file.endsWith('.tmp') || file.endsWith('.spool') || file.includes('.tmp.') || file.endsWith('.replace-backup')) {
           const p = path.join(archivesDir, file);
           try {
             const stat = fs.statSync(p);

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 
-const APP_VERSION = '2.0.51';
+const APP_VERSION = '2.0.52';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1642,10 +1642,13 @@ async function initApplication() {
     bearing: 0,
     minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
     maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
-    centerClampedToGround: true, // 启用 MapLibre 原生地表高程自动贴地同步，确保 3D 地形下中心高程恒为真实地表高程
+    // 不在每次手势结束后让 MapLibre 重新反算 center/zoom。陡峭地形下该反算会把一次
+    // 连续滚轮操作改成反向缩放或二次放大；飞掠仍通过 location-camera 的目标高程完成落地。
+    centerClampedToGround: false,
     maxPitch: 72, // 收敛极限仰角至 72°，既保留强烈 3D 纵深视角，又彻底杜绝地平线远景网格视锥裁切脱节
-    // 鼠标滚轮缩放：完全交还 MapLibre 官方原生跟随鼠标指针自然顺滑缩放（光标所指即所放，0 偏差 0 侧滑）
-    scrollZoom: true,
+    // 始终围绕屏幕中心缩放。MapLibre 6.9 对该路径有完整的地形高程冻结/恢复逻辑，
+    // 也可避免光标位于屏幕边缘时连续缩放把目标横向带走。
+    scrollZoom: { around: 'center' },
     maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
@@ -1679,75 +1682,13 @@ async function initApplication() {
   const map = mapInstance;
   window.mapInstance = map;
 
-  // 杜绝滚轮缩放结束后的晃动平移与回拉回弹：
-  // 拦截 Transform 原型上的 recalculateZoomAndCenter，手势结束时仅精准同步中心真实地表高程，
-  // 彻底杜绝 MapLibre 原生反算 center 与 zoom 导致的画面突跳与回弹，同时确保 3D 地形下中心高程恒为真实地表高程
-  try {
-    const trProto = map._camera?.transform ? Object.getPrototypeOf(map._camera.transform) : null;
-    if (trProto && typeof trProto.recalculateZoomAndCenter === 'function') {
-      trProto.recalculateZoomAndCenter = function(terrain) {
-        if (!terrain) return;
-        const elev = typeof terrain.getElevationForLngLat === 'function'
-          ? terrain.getElevationForLngLat(this.center, this)
-          : terrain;
-        if (Number.isFinite(elev) && elev >= 0) {
-          this.setElevation(elev);
-        }
-      };
-    }
-    const helperProto = map._camera?.transform?._helper ? Object.getPrototypeOf(map._camera.transform._helper) : null;
-    if (helperProto && typeof helperProto.recalculateZoomAndCenter === 'function') {
-      helperProto.recalculateZoomAndCenter = function(elevation) {
-        if (Number.isFinite(elevation) && elevation >= 0) {
-          this.setElevation(elevation);
-        }
-      };
-    }
-  } catch (e) {}
-
-  // 三维复杂地形下原生平滑避障与零回弹守卫 (Native Terrain Boundary Soft-Clamp & Zero-Rebound Guard)：
-  // 1. 绝不篡改 elevation（保持中心点真实地表高程语义，杜绝 3D 矩阵偏移、射线拾取错位与晃动）；
-  // 2. 绝不修改 pitch（100% 兼容俯仰角锁定配置）；
-  // 3. 绝不暴力降级 zoom（杜绝回弹，保持缩放单调顺滑前进）；
-  // 4. 当且仅当相机视点在极限角度逼近山体网格时（视点高程 < 地表高程 + 35m 安全净空），
-  //    原生软限幅（Soft-Clamp）在物理接触边界自然阻停，反向滚轮即刻顺滑拉出。
-  try {
-    const safeElevateCamera = function(e) {
-      if (!this.terrain || e.pitch > 90) return {};
-      const eyeLngLat = e.getCameraLngLat?.();
-      if (!eyeLngLat) return {};
-      const eyeAlt = e.getCameraAltitude?.();
-      const terrUnderEye = this.terrain.getElevationForLngLatZoom(eyeLngLat, e.zoom);
-      if (!Number.isFinite(terrUnderEye) || terrUnderEye <= 0) return {};
-
-      const margin = 35; // 35m 视锥安全避障净空，杜绝近裁切面削山穿透 (0 穿透)
-      const targetAlt = terrUnderEye + margin;
-      if (eyeAlt >= targetAlt) return {};
-
-      const curDiff = eyeAlt - e.elevation;
-      const targetDiff = targetAlt - e.elevation;
-      if (curDiff > 0 && targetDiff > 0) {
-        const ratio = targetDiff / curDiff;
-        const safeZoom = e.zoom - Math.log2(ratio);
-        if (Number.isFinite(safeZoom) && safeZoom < e.zoom) {
-          return { zoom: safeZoom };
-        }
-      }
-      return {};
-    };
-
-    if (map._camera) {
-      const camProto = Object.getPrototypeOf(map._camera);
-      if (camProto && typeof camProto._elevateCameraIfInsideTerrain === 'function') {
-        camProto._elevateCameraIfInsideTerrain = safeElevateCamera;
-      }
-      map._camera._elevateCameraIfInsideTerrain = safeElevateCamera;
-    }
-  } catch (e) {}
-
-  // MapLibre 6.9 原生纯净 60FPS 顺滑手感，原生 200ms 缓动
-  map.scrollZoom?.setWheelZoomRate?.(1 / 450);
-  map.scrollZoom?.setZoomRate?.(1 / 100);
+  // 地形手势的 aroundElevation 冻结与碰撞保护交由 MapLibre 6.9 原生相机完成；
+  // 仅通过上面的公开选项禁用手势结束后的二次 center/zoom 反算。不要覆盖私有
+  // Transform/Camera 方法，否则各状态会互相修正，表现为回弹、突然变大或陡坡近裁切。
+  // 仅通过公开 API 轻微降低单个滚轮脉冲的增量，改善 L10+ 与高俯仰角下的细腻度；
+  // 这不会改变 MapLibre 的相机状态链，也不会降低画质。
+  map.scrollZoom?.setWheelZoomRate?.(1 / 720);
+  map.scrollZoom?.setZoomRate?.(1 / 120);
   window.OutmapLocationCamera?.install?.(map);
 
 
@@ -1772,13 +1713,12 @@ async function initApplication() {
     window.electronAPI?.setMapInteractionState?.(false);
   });
 
-  // 主线程高精帧预算与长任务监视器 (按帧耗时与卡顿动态向后台下载与写盘让路)
+  // 主线程长任务监视器：只在真实卡顿发生后短暂让后台下载/写盘降速。
+  // 不使用永久 requestAnimationFrame 轮询，使静止地图能够真正进入空闲状态。
   function initFramePressureMonitor() {
     let isPressure = false;
-    let slowStreak = 0;
-    let normalStreak = 0;
-    let lastTime = performance.now();
-    let rafId = null;
+    let releaseTimer = null;
+    let observer = null;
 
     const setPressure = (active) => {
       if (isPressure === active) return;
@@ -1788,14 +1728,19 @@ async function initApplication() {
       }
     };
 
-    // 1. LongTask 监视器：捕获超过 48ms 的主线程阻塞事件（GPU 上传、复杂 GeoJSON 反序列化等）
+    const holdPressure = () => {
+      setPressure(true);
+      clearTimeout(releaseTimer);
+      releaseTimer = setTimeout(() => setPressure(false), 800);
+    };
+
+    // 捕获超过 48ms 的主线程阻塞事件（GPU 上传、复杂 GeoJSON 反序列化等）。
     if (typeof PerformanceObserver !== 'undefined') {
       try {
-        const observer = new PerformanceObserver((list) => {
+        observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             if (entry.duration > 48) {
-              setPressure(true);
-              normalStreak = 0;
+              holdPressure();
             }
           }
         });
@@ -1803,29 +1748,10 @@ async function initApplication() {
       } catch (_) {}
     }
 
-    // 2. 连续逐帧耗时评估：单帧耗时持续 > 28ms（低于 35fps）判定为高压，连续 4 帧平稳（< 18ms）自动恢复
-    const tick = (now) => {
-      const delta = now - lastTime;
-      lastTime = now;
-      if (delta > 28) {
-        slowStreak++;
-        normalStreak = 0;
-        if (slowStreak >= 2) {
-          setPressure(true);
-        }
-      } else {
-        slowStreak = 0;
-        normalStreak++;
-        if (normalStreak >= 4) {
-          setPressure(false);
-        }
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-
     return () => {
-      if (rafId) cancelAnimationFrame(rafId);
+      clearTimeout(releaseTimer);
+      observer?.disconnect?.();
+      setPressure(false);
     };
   }
 
@@ -1863,41 +1789,8 @@ async function initApplication() {
       exaggeration: currentExaggeration
     });
 
-    // 点 5 优化：3D 离屏地形 RTT 显存轻度回收
-    // 当地图完全静止且连续 idle 超过 5 秒，轻度清理视口外已沉淀的 RTT 离屏纹理，防止长期挂机显存上涨
-    let idleRttTimer = null;
-    map.on('idle', () => {
-      clearTimeout(idleRttTimer);
-      idleRttTimer = setTimeout(() => {
-        if (!map.isMoving() && !map.isZooming() && !map.isRotating()) {
-          try {
-            map.terrain?.tileManager?.releaseAllRTT?.();
-          } catch (_) {}
-        }
-      }, 5000);
-    });
-    map.on('movestart', () => {
-      clearTimeout(idleRttTimer);
-    });
-
-    function syncCameraGroundElevation(m) {
-      try {
-        if (!m || !m.terrain) return;
-        if (m.isZooming?.() || m.isRotating?.() || m.isPitching?.()) return; // 缩放、旋转或俯仰手势期间绝不触发高程重算，彻底杜绝晃动平移
-        const tr = m._camera?.transform || m.transform;
-        if (!tr) return;
-        const center = m.getCenter();
-        const elev = m.terrain.getElevationForLngLat(center, tr);
-        if (Number.isFinite(elev) && elev >= 0) {
-          tr.setElevation(elev);
-        }
-      } catch (_) {}
-    }
-
-    // 移动/飞行降落完成后同步中心地表高程（如搜索飞行落地、快捷跳转、平移结束）
-    map.on('moveend', () => {
-      syncCameraGroundElevation(map);
-    });
+    // 地形 RTT 与中心地表高程都由 MapLibre 自身的生命周期管理。
+    // idle 时主动释放私有 RTT 会制造短暂空白；moveend 再手改 elevation 会制造二次位移。
 
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'terrain-dem' && e.isSourceLoaded) {
@@ -8972,8 +8865,7 @@ let routePlanTimer = null;
 const ROUTE_POINTS_SOURCE_ID = 'outmap-route-points';
 const ROUTE_POINT_LAYER_IDS = [
   'outmap-route-point-halo', 'outmap-route-point-circles', 'outmap-route-point-labels',
-  'outmap-route-point-names',
-  'outmap-route-point-clusters', 'outmap-route-point-cluster-count'
+  'outmap-route-point-names'
 ];
 let routePointLayersVisible = true;
 let routePointLayerEventsBound = false;
@@ -9563,36 +9455,6 @@ function ensureRoutePointLayers(map) {
         'text-opacity': ['case', ['boolean', ['feature-state', 'dragging'], false], 0, 0.95]
       }
     });
-    map.addLayer({
-      id: 'outmap-route-point-clusters', type: 'circle', source: ROUTE_POINTS_SOURCE_ID,
-      filter: ['has', 'point_count'],
-      paint: {
-        'circle-color': ['step', ['get', 'point_count'], '#f59e0b', 10, '#d97706', 30, '#b45309'],
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 9.5, 11, 11, 15, 12.5],
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#ffffff',
-        'circle-pitch-alignment': 'viewport',
-        'circle-pitch-scale': 'viewport'
-      }
-    });
-    map.addLayer({
-      id: 'outmap-route-point-cluster-count', type: 'symbol', source: ROUTE_POINTS_SOURCE_ID,
-      filter: ['has', 'point_count'],
-      layout: {
-        'text-field': ['get', 'point_count_abbreviated'],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': 10,
-        'text-allow-overlap': true,
-        'text-pitch-alignment': 'viewport',
-        'text-rotation-alignment': 'viewport'
-      },
-      paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': 'rgba(15,23,42,0.35)',
-        'text-halo-width': 0.5,
-        'text-halo-blur': 0
-      }
-    });
   }
   ROUTE_POINT_LAYER_IDS.forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routePointLayersVisible ? 'visible' : 'none');
@@ -9605,35 +9467,6 @@ function bindRoutePointLayerEvents(map) {
   routePointLayerEventsBound = true;
   let hoveredId = null;
   let suppressNextClick = false;
-
-  const clusterLayers = ['outmap-route-point-clusters'];
-  clusterLayers.forEach(layerId => {
-    map.on('mouseenter', layerId, () => {
-      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
-        map.getCanvas().style.cursor = 'pointer';
-      }
-    });
-    map.on('mouseleave', layerId, () => {
-      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
-        map.getCanvas().style.cursor = '';
-      }
-    });
-    map.on('click', layerId, async e => {
-      if (pickingRoutePt || isPickingPoint) return;
-      const feature = e.features?.[0];
-      const source = map.getSource(ROUTE_POINTS_SOURCE_ID);
-      if (!feature || !source?.getClusterExpansionZoom) return;
-      try {
-        const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
-        map.easeTo({
-          center: feature.geometry.coordinates,
-          zoom: Math.min(map.getMaxZoom(), zoom),
-          duration: 420,
-          easing: t => 1 - Math.pow(1 - t, 3)
-        });
-      } catch (_) {}
-    });
-  });
 
   const handleRoutePointMouseDown = e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;

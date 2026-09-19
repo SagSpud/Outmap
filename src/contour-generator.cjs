@@ -417,7 +417,12 @@ async function runContourGeneration(options = {}, onProgress = () => {}) {
     for (const t of generatedTiles) {
       sink.appendTile('contour', t.z, t.x, t.y, t.data);
     }
-    const finalizeRes = await sink.finalizeLayer('contour');
+    const deferCommit = typeof opts.beforeArchiveCommit === 'function';
+    const finalizeRes = await sink.finalizeLayer('contour', () => {}, { deferCommit });
+    if (deferCommit && finalizeRes?.prepared) {
+      await opts.beforeArchiveCommit();
+      await sink.commitPrepared([finalizeRes]);
+    }
     finalTileCount = finalizeRes?.tileCount || generatedTiles.length;
     const sizeMb = ((finalizeRes?.fileSize || 0) / (1024 * 1024)).toFixed(2);
     console.log(`✅  等高线 PMTiles 归档成功生成！大小: ${sizeMb} MB, 包含瓦片: ${finalTileCount}`);

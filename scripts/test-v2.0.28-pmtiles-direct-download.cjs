@@ -54,6 +54,26 @@ async function runTest() {
     assert(readVec && readVec.data, 'Should retrieve vector tile from PMTiles');
     assert.strictEqual(readVec.data.toString(), dummyPbf.toString(), 'Vector tile content should match');
 
+    // 2.5 Build an incremental replacement while the current archive remains
+    // mounted. The map must retain access until the short commit window.
+    const updateSink = new PmtilesDownloadSink({ archivesDir });
+    await updateSink.init(['vector']);
+    const secondPbf = Buffer.from('\x18\x02\x22\x06update');
+    updateSink.appendTile('vector', 10, 808, 424, secondPbf);
+    const prepared = await updateSink.finalizeAll(() => {}, { deferCommit: true });
+    assert(prepared[0]?.prepared && fs.existsSync(prepared[0].tempTargetPath),
+      'deferred PMTiles replacement must be fully prepared beside the live archive');
+    const stillReadable = await archiveMgr.getTile('vector', 10, 808, 423);
+    assert.strictEqual(stillReadable.data.toString(), dummyPbf.toString(),
+      'the mounted archive must remain readable during replacement assembly');
+    archiveMgr.close();
+    await updateSink.commitPrepared(prepared);
+    await archiveMgr.init();
+    assert.strictEqual((await archiveMgr.getTile('vector', 10, 808, 423)).data.toString(), dummyPbf.toString(),
+      'commit must retain existing tiles');
+    assert.strictEqual((await archiveMgr.getTile('vector', 10, 808, 424)).data.toString(), secondPbf.toString(),
+      'commit must expose the newly downloaded tile');
+
     // 3. Test offline inventory scan on PMTiles archive
     const mockProvinces = [
       ['sichuan', [97.3, 108.5, 26.0, 34.3]]
@@ -68,9 +88,9 @@ async function runTest() {
 
     console.log('Scan stats:', scanResult.stats);
     assert.strictEqual(scanResult.stats.demCount, 2, 'Scan should find 2 DEM tiles in PMTiles');
-    assert.strictEqual(scanResult.stats.vectorCount, 1, 'Scan should find 1 Vector tile in PMTiles');
+    assert.strictEqual(scanResult.stats.vectorCount, 2, 'Scan should find 2 Vector tiles in PMTiles');
     assert(scanResult.provinces.sichuan.layers.dem.levels[10].present >= 2, 'Sichuan DEM level 10 should count present tiles');
-    assert(scanResult.provinces.sichuan.layers.vector.levels[10].present >= 1, 'Sichuan Vector level 10 should count present tiles');
+    assert(scanResult.provinces.sichuan.layers.vector.levels[10].present >= 2, 'Sichuan Vector level 10 should count present tiles');
 
     // 4. Test UI DOM & app.js elements
     const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
