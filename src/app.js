@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.56';
+const APP_VERSION = '2.0.57';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2876,6 +2876,9 @@ window.refreshRouteElevationProfile = refreshRouteElevationProfile;
 function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const flyOpts = { centered: false, ...options };
   if (!map || !targetCoords) return;
+  if (typeof hideRoutePointInspectCard === 'function') {
+    hideRoutePointInspectCard();
+  }
   let lng = 0, lat = 0;
   if (Array.isArray(targetCoords) && targetCoords.length >= 2) {
     lng = Number(targetCoords[0]);
@@ -9986,15 +9989,11 @@ let currentInspectedPoint = null;
 let inspectCardMoveBound = false;
 
 function hideRoutePointInspectCard() {
-  if (routePointInspectCardEl && routePointInspectCardEl.classList.contains('visible')) {
-    routePointInspectCardEl.classList.remove('visible');
-    setTimeout(() => {
-      if (!currentInspectedPoint && routePointInspectCardEl) {
-        routePointInspectCardEl.style.display = 'none';
-      }
-    }, 160);
-  }
   currentInspectedPoint = null;
+  if (routePointInspectCardEl) {
+    routePointInspectCardEl.classList.remove('visible');
+    routePointInspectCardEl.style.display = 'none';
+  }
 }
 
 function computeRouteCumulativeDistance(coords, targetProgressOrCoord) {
@@ -10167,6 +10166,7 @@ function showRoutePointInspectCard(map, pointInfo, screenPoint) {
   // Bind Focus
   routePointInspectCardEl.querySelector('.btn-inspect-focus')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    hideRoutePointInspectCard();
     flyToLocationPrecisely(map, coords, {
       zoom: 12.0,
       pitch: map.getPitch() ?? 50,
@@ -10224,26 +10224,41 @@ function showRoutePointInspectCard(map, pointInfo, screenPoint) {
     showToast('已将该点添加为途径点');
   });
 
-  // Position
+  // Position using hardware-accelerated transform
   const pt = screenPoint || map.project(coords);
-  routePointInspectCardEl.style.left = `${Math.round(pt.x)}px`;
-  routePointInspectCardEl.style.top = `${Math.round(pt.y)}px`;
+  const px = Math.round(pt.x);
+  const py = Math.round(pt.y);
+  routePointInspectCardEl.style.transform = `translate3d(${px}px, ${py}px, 0) translate(-50%, -100%) scale(0.96)`;
+  routePointInspectCardEl.style.left = '0px';
+  routePointInspectCardEl.style.top = '0px';
   routePointInspectCardEl.style.display = 'block';
 
   requestAnimationFrame(() => {
     if (routePointInspectCardEl && currentInspectedPoint) {
+      routePointInspectCardEl.style.transform = `translate3d(${px}px, ${py}px, 0) translate(-50%, -100%) scale(1)`;
       routePointInspectCardEl.classList.add('visible');
     }
   });
 
   if (!inspectCardMoveBound) {
     inspectCardMoveBound = true;
+    let cardMovePending = false;
     map.on('move', () => {
       if (currentInspectedPoint && routePointInspectCardEl && routePointInspectCardEl.style.display !== 'none') {
-        const p = map.project(currentInspectedPoint.coords);
-        routePointInspectCardEl.style.left = `${Math.round(p.x)}px`;
-        routePointInspectCardEl.style.top = `${Math.round(p.y)}px`;
+        if (cardMovePending) return;
+        cardMovePending = true;
+        requestAnimationFrame(() => {
+          cardMovePending = false;
+          if (currentInspectedPoint && routePointInspectCardEl && routePointInspectCardEl.style.display !== 'none') {
+            const p = map.project(currentInspectedPoint.coords);
+            routePointInspectCardEl.style.transform = `translate3d(${Math.round(p.x)}px, ${Math.round(p.y)}px, 0) translate(-50%, -100%) scale(1)`;
+          }
+        });
       }
+    });
+    map.on('movestart', () => {
+      // 任何相机大幅移动或飞掠动画开始时，立即隐藏卡片，杜绝飞行中因毛玻璃滤镜合成与位置更新造成掉帧卡顿
+      hideRoutePointInspectCard();
     });
   }
 }
@@ -10262,7 +10277,7 @@ function bindRoutePointLayerEvents(map) {
   const handleRoutePointMouseDown = e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
     if (routeInteractionState === 'viewing') {
-      showToast('当前处于浏览模式，请点击“编辑路线”以修改点位');
+      // 处于浏览模式时点位不可拖拽，直接返回，绝不弹出提示！
       return;
     }
     const feature = e.features?.[0];
@@ -10342,7 +10357,7 @@ function bindRoutePointLayerEvents(map) {
     const touch = e.originalEvent?.touches?.[0];
     if (!touch) return;
     if (routeInteractionState === 'viewing') {
-      showToast('当前处于浏览模式，请点击“编辑路线”以修改点位');
+      // 处于浏览模式触控点位不可拖拽，直接返回，绝不弹出提示！
       return;
     }
     const feature = e.features?.[0];
@@ -10459,12 +10474,24 @@ function bindRoutePointLayerEvents(map) {
       e.preventDefault?.();
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
+      hideRoutePointInspectCard();
       flyToLocationPrecisely(map, point.coords, {
         zoom: 12.0,
         pitch: map.getPitch() ?? 50,
         centered: false,
         elevation: point.ele ?? point.elevation
       });
+      // 处于浏览模式时：纯粹平滑聚焦飞掠，不弹出卡片遮挡视线
+      // 仅在明确的编辑模式下，点击点位才自动弹出编辑操作卡片（可执行移除途径点等）
+      if (routeInteractionState === 'editing') {
+        showRoutePointInspectCard(map, point, e.point);
+      }
+    });
+    map.on('contextmenu', layerId, e => {
+      if (e.originalEvent) e.originalEvent._outmapHandled = true;
+      e.preventDefault?.();
+      const point = findRoutePointByFeature(e.features?.[0]);
+      if (!point?.coords) return;
       showRoutePointInspectCard(map, point, e.point);
     });
     map.on('mousedown', layerId, handleRoutePointMouseDown);
@@ -10525,12 +10552,19 @@ function bindRoutePointLayerEvents(map) {
   ['outdoor-route-casing'].forEach(layerId => {
     map.on('mouseenter', layerId, () => {
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
+      if (routeInteractionState === 'viewing') {
+        map.getCanvas().style.cursor = '';
+        return;
+      }
       map.getCanvas().style.cursor = 'pointer';
     });
 
     map.on('mousemove', layerId, e => {
-      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) {
+      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag || routeInteractionState === 'viewing') {
         removeRouteInsertMarker();
+        if (routeInteractionState === 'viewing') {
+          map.getCanvas().style.cursor = '';
+        }
         return;
       }
       map.getCanvas().style.cursor = 'pointer';
@@ -10549,6 +10583,10 @@ function bindRoutePointLayerEvents(map) {
       removeRouteInsertMarker();
       if (e.originalEvent?._outmapHandled) return;
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
+      if (routeInteractionState === 'viewing') {
+        // 处于浏览模式时，点击路线轨迹不弹窗、不插入途经点，纯净浏览
+        return;
+      }
       if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
 
       const fullProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords);

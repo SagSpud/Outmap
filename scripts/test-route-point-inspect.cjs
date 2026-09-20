@@ -168,6 +168,41 @@ async function run() {
   check(favSaveTest.eleMatches, 'saved waypoint elevation must match');
   console.log('✓ savePointToFavorites validated');
 
+  // Test 6: Viewing mode zero-toast and flight auto-dismiss
+  const viewingModeTest = await win.webContents.executeJavaScript(`(() => {
+    const map = window.mapInstance;
+    let toastCount = 0;
+    const origToast = window.showToast;
+    window.showToast = (msg) => {
+      if (msg && msg.includes('浏览模式')) toastCount++;
+      if (origToast) origToast(msg);
+    };
+
+    // Show card first
+    window.showRoutePointInspectCard(map, {
+      role: 'via',
+      coords: [120.18, 30.28],
+      name: '途径测试'
+    });
+    const cardBeforeFlight = document.querySelector('.route-point-inspect-card');
+    const wasVisible = cardBeforeFlight && cardBeforeFlight.style.display !== 'none';
+
+    // Trigger flight
+    window.flyToLocationPrecisely(map, [120.18, 30.28]);
+    const isDismissedOnFlight = !cardBeforeFlight || cardBeforeFlight.style.display === 'none';
+
+    window.showToast = origToast;
+    return {
+      wasVisible,
+      isDismissedOnFlight,
+      toastCount
+    };
+  })()`);
+  check(viewingModeTest.wasVisible, 'inspect card should be visible before flight');
+  check(viewingModeTest.isDismissedOnFlight, 'inspect card must be auto-dismissed when flight begins');
+  check(viewingModeTest.toastCount === 0, 'no 浏览模式 toasts should be fired');
+  console.log('✓ Viewing mode zero-toast and flight auto-dismiss validated');
+
   clearTimeout(watchdog);
   console.log('[Route Point Inspect Test] All tests passed 100%!');
   win.close();
