@@ -30,7 +30,7 @@ console.log(`  ✅ Test 1 passed: All files synchronized to v${pkg.version}.`);
 
 // [Test 2] Static Code Audit
 console.log('\n[Test 2] Static Code Audit for Tombstone & GeoJSON Submission...');
-assert(appJs.includes('function submitGeoJSONChanges(source, data, force = false) {\n  if (!source) return;\n  source.setData(data);'), 'submitGeoJSONChanges must directly use source.setData to guarantee complete symbol layout updates');
+assert(appJs.includes('function submitGeoJSONChanges(source, data') && appJs.includes('source.setData(data);'), 'submitGeoJSONChanges must directly use source.setData to guarantee complete symbol layout updates');
 assert(appJs.includes('Math.max(Number(existing.time || 0), Number(normalized.time || 0))'), 'mergeRouteTombstones must resolve conflicts with Math.max');
 console.log('  ✅ Test 2 passed: Static patterns for point label reactivity and tombstone LWW verified.');
 

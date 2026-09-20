@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.54';
+const APP_VERSION = '2.0.55';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1451,6 +1451,36 @@ async function initApplication() {
     return Math.min(480, Math.max(160, idealCache));
   }
 
+  function safelyUpdatePrivateTileCache(mapInstance, newSize) {
+    if (!mapInstance || !Number.isFinite(newSize) || newSize <= 0) return;
+    try {
+      if ('_maxTileCacheSize' in mapInstance) {
+        mapInstance._maxTileCacheSize = newSize;
+      }
+      const style = mapInstance.style;
+      if (style && typeof style === 'object' && style._sourceCaches) {
+        for (const id in style._sourceCaches) {
+          const sc = style._sourceCaches[id];
+          if (sc && typeof sc === 'object') {
+            if ('_maxTileCacheSize' in sc) {
+              sc._maxTileCacheSize = newSize;
+            }
+            if (typeof sc._updateCacheSize === 'function') {
+              sc._updateCacheSize();
+            } else if (sc._outOfViewCache && typeof sc._outOfViewCache.setMaxSize === 'function') {
+              sc._outOfViewCache.setMaxSize(newSize);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[MapAdaptiveCache] Guarded private cache update ignored:', err?.message || err);
+    }
+  }
+  if (typeof window !== 'undefined') {
+    window.safelyUpdatePrivateTileCache = safelyUpdatePrivateTileCache;
+  }
+
   function updateMapAdaptiveTileCache(mapInstance) {
     if (!mapInstance) return;
     const newSize = computeAdaptiveTileCache({
@@ -1460,21 +1490,7 @@ async function initApplication() {
       width: window.innerWidth,
       height: window.innerHeight
     });
-    mapInstance._maxTileCacheSize = newSize;
-    const style = mapInstance.style;
-    if (style && style._sourceCaches) {
-      for (const id in style._sourceCaches) {
-        const sc = style._sourceCaches[id];
-        if (sc) {
-          sc._maxTileCacheSize = newSize;
-          if (typeof sc._updateCacheSize === 'function') {
-            sc._updateCacheSize();
-          } else if (sc._outOfViewCache?.setMaxSize) {
-            sc._outOfViewCache.setMaxSize(newSize);
-          }
-        }
-      }
-    }
+    safelyUpdatePrivateTileCache(mapInstance, newSize);
   }
 
   const adaptiveTileCache = computeAdaptiveTileCache({
@@ -6474,6 +6490,10 @@ function setupStatusBar(map) {
 // 选点与收藏夹管理系统 (Waypoint & Favorites)
 // =========================================================
 let savedWaypoints = [];
+let savedWaypointsRevision = 0;
+function touchSavedWaypoints() {
+  savedWaypointsRevision++;
+}
 let savedRoutes = []; // 本地持久化收藏路线列表
 let currentEditingSavedRouteId = null; // 当前正在查看或编辑的收藏路线 ID
 let routeInteractionState = 'idle'; // 'idle' | 'viewing' | 'editing'
@@ -6641,59 +6661,128 @@ let savedRouteLayersVisible = true;
 let savedRouteLayerEventsBound = false;
 let savedRouteLayerInitPending = false;
 
-// 高性能计算两条路线的空间重叠度 (0.0 ~ 1.0)
-function computeRoutesOverlapDegree(coordsA, coordsB) {
-  if (!Array.isArray(coordsA) || !Array.isArray(coordsB) || coordsA.length < 2 || coordsB.length < 2) {
-    return 0;
+// 1. 收藏路线几何缓存 (空间包围盒、显示精度压缩坐标与采样点)
+const savedRouteGeometryCache = new Map();
+function getSavedRouteGeometryCache(route) {
+  if (!route || !Array.isArray(route.pathCoords) || route.pathCoords.length < 2) return null;
+  const version = `${route.updatedAt || 0}_${route.pathCoords.length}_${route.name || ''}`;
+  const cached = savedRouteGeometryCache.get(String(route.id));
+  if (cached && cached.version === version) return cached;
+
+  const coords = route.pathCoords;
+  // 显示精度压缩 (最多 5000 点)
+  let compact;
+  if (coords.length <= 5000) {
+    compact = coords;
+  } else {
+    const stride = Math.ceil(coords.length / 4999);
+    compact = coords.filter((_, index) => index % stride === 0);
+    const last = coords[coords.length - 1];
+    if (compact[compact.length - 1] !== last) compact.push(last);
   }
 
-  // 1. 包围盒快速初筛 (带 ~150米容差)
-  let minLngA = Infinity, maxLngA = -Infinity, minLatA = Infinity, maxLatA = -Infinity;
-  for (let i = 0; i < coordsA.length; i++) {
-    const c = coordsA[i];
-    if (c[0] < minLngA) minLngA = c[0];
-    if (c[0] > maxLngA) maxLngA = c[0];
-    if (c[1] < minLatA) minLatA = c[1];
-    if (c[1] > maxLatA) maxLatA = c[1];
+  // 计算空间包围盒
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    const c = coords[i];
+    if (c[0] < minLng) minLng = c[0];
+    if (c[0] > maxLng) maxLng = c[0];
+    if (c[1] < minLat) minLat = c[1];
+    if (c[1] > maxLat) maxLat = c[1];
   }
 
-  let minLngB = Infinity, maxLngB = -Infinity, minLatB = Infinity, maxLatB = -Infinity;
-  for (let i = 0; i < coordsB.length; i++) {
-    const c = coordsB[i];
-    if (c[0] < minLngB) minLngB = c[0];
-    if (c[0] > maxLngB) maxLngB = c[0];
-    if (c[1] < minLatB) minLatB = c[1];
-    if (c[1] > maxLatB) maxLatB = c[1];
+  // 均匀采样 A 序列 (最多 25 点)
+  const sampleCountA = 25;
+  const strideA = Math.max(1, Math.floor(coords.length / sampleCountA));
+  const samplesA = [];
+  for (let i = 0; i < coords.length; i += strideA) {
+    samplesA.push(coords[i]);
+    if (samplesA.length >= sampleCountA) break;
   }
+  const lastA = coords[coords.length - 1];
+  if (samplesA[samplesA.length - 1] !== lastA) samplesA.push(lastA);
 
-  const margin = 0.0015; // ~150米缓冲区
+  // 均匀采样 B 序列 (最多 60 点加速几何比对)
+  const strideB = Math.max(1, Math.floor(coords.length / 60));
+  const samplesB = [];
+  for (let i = 0; i < coords.length; i += strideB) {
+    samplesB.push(coords[i]);
+  }
+  const lastB = coords[coords.length - 1];
+  if (samplesB[samplesB.length - 1] !== lastB) samplesB.push(lastB);
+
+  const entry = {
+    version,
+    compact,
+    bbox: [minLng, maxLng, minLat, maxLat],
+    samplesA,
+    samplesB
+  };
+  savedRouteGeometryCache.set(String(route.id), entry);
+  return entry;
+}
+
+// 2. 路线空间重叠度计算与多级缓存
+const routeOverlapDegreeCache = new Map();
+function getPlannedRouteCoordsSignature(coords) {
+  if (!Array.isArray(coords) || coords.length < 2) return 'none';
+  const start = coords[0];
+  const mid = coords[Math.floor(coords.length / 2)];
+  const end = coords[coords.length - 1];
+  return `${coords.length}_${start[0].toFixed(4)},${start[1].toFixed(4)}_${mid[0].toFixed(4)},${mid[1].toFixed(4)}_${end[0].toFixed(4)},${end[1].toFixed(4)}`;
+}
+
+let cachedPlannedBBoxSig = '';
+let cachedPlannedBBox = null;
+let cachedPlannedSamplesB = null;
+function getPlannedCoordsGeometry(plannedCoords) {
+  const sig = getPlannedRouteCoordsSignature(plannedCoords);
+  if (sig === 'none') return null;
+  if (cachedPlannedBBox && cachedPlannedBBoxSig === sig) {
+    return { bbox: cachedPlannedBBox, samplesB: cachedPlannedSamplesB };
+  }
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (let i = 0; i < plannedCoords.length; i++) {
+    const c = plannedCoords[i];
+    if (c[0] < minLng) minLng = c[0];
+    if (c[0] > maxLng) maxLng = c[0];
+    if (c[1] < minLat) minLat = c[1];
+    if (c[1] > maxLat) maxLat = c[1];
+  }
+  const strideB = Math.max(1, Math.floor(plannedCoords.length / 60));
+  const samplesB = [];
+  for (let i = 0; i < plannedCoords.length; i += strideB) {
+    samplesB.push(plannedCoords[i]);
+  }
+  const lastB = plannedCoords[plannedCoords.length - 1];
+  if (samplesB[samplesB.length - 1] !== lastB) samplesB.push(lastB);
+
+  cachedPlannedBBoxSig = sig;
+  cachedPlannedBBox = [minLng, maxLng, minLat, maxLat];
+  cachedPlannedSamplesB = samplesB;
+  return { bbox: cachedPlannedBBox, samplesB: cachedPlannedSamplesB };
+}
+
+function computeRoutesOverlapDegree(savedRoute, plannedCoords) {
+  if (!savedRoute || !Array.isArray(plannedCoords) || plannedCoords.length < 2) return 0;
+  const geomA = getSavedRouteGeometryCache(savedRoute);
+  if (!geomA) return 0;
+  const geomB = getPlannedCoordsGeometry(plannedCoords);
+  if (!geomB) return 0;
+
+  // 包围盒快速初筛 (带 ~150米容差)
+  const margin = 0.0015;
+  const [minLngA, maxLngA, minLatA, maxLatA] = geomA.bbox;
+  const [minLngB, maxLngB, minLatB, maxLatB] = geomB.bbox;
   if (minLngA > maxLngB + margin || maxLngA < minLngB - margin ||
       minLatA > maxLatB + margin || maxLatA < minLatB - margin) {
     return 0;
   }
 
-  // 2. 均匀采样 A 序列 (最多 25 点)
-  const sampleCountA = 25;
-  const strideA = Math.max(1, Math.floor(coordsA.length / sampleCountA));
-  const samplesA = [];
-  for (let i = 0; i < coordsA.length; i += strideA) {
-    samplesA.push(coordsA[i]);
-    if (samplesA.length >= sampleCountA) break;
-  }
-  const lastA = coordsA[coordsA.length - 1];
-  if (samplesA[samplesA.length - 1] !== lastA) samplesA.push(lastA);
-
-  // 均匀采样 B 序列作为参考点 (最多 60 点加速几何比对)
-  const strideB = Math.max(1, Math.floor(coordsB.length / 60));
-  const samplesB = [];
-  for (let i = 0; i < coordsB.length; i += strideB) {
-    samplesB.push(coordsB[i]);
-  }
-  const lastB = coordsB[coordsB.length - 1];
-  if (samplesB[samplesB.length - 1] !== lastB) samplesB.push(lastB);
-
-  // 3. 计算 A 的样本点落入 B 缓冲区（~80m，约 0.0008 度）的比例
-  const thresholdSq = 0.0008 * 0.0008;
+  // 使用已缓存的均匀采样点进行空间重叠率比对
+  const samplesA = geomA.samplesA;
+  const samplesB = geomB.samplesB;
+  const thresholdSq = 0.0008 * 0.0008; // ~80m
   let matchCountA = 0;
   for (let i = 0; i < samplesA.length; i++) {
     const ptA = samplesA[i];
@@ -6713,22 +6802,23 @@ function computeRoutesOverlapDegree(coordsA, coordsB) {
   const ratioA = matchCountA / samplesA.length;
   if (ratioA >= 0.45) return ratioA;
 
-  // 4. 反向验证：计算 B 的样本点落入 A 缓冲区比例（防止长路线包含短路线时单向漏检）
+  // 反向验证：计算 B 的样本点落入 A 缓冲区比例
   const sampleCountB = 25;
-  const strideCheckB = Math.max(1, Math.floor(coordsB.length / sampleCountB));
+  const strideCheckB = Math.max(1, Math.floor(plannedCoords.length / sampleCountB));
   const checkSamplesB = [];
-  for (let i = 0; i < coordsB.length; i += strideCheckB) {
-    checkSamplesB.push(coordsB[i]);
+  for (let i = 0; i < plannedCoords.length; i += strideCheckB) {
+    checkSamplesB.push(plannedCoords[i]);
     if (checkSamplesB.length >= sampleCountB) break;
   }
+  const lastB = plannedCoords[plannedCoords.length - 1];
   if (checkSamplesB[checkSamplesB.length - 1] !== lastB) checkSamplesB.push(lastB);
 
   let matchCountB = 0;
   for (let i = 0; i < checkSamplesB.length; i++) {
     const ptB = checkSamplesB[i];
     let isNear = false;
-    for (let j = 0; j < samplesA.length; j++) {
-      const ptA = samplesA[j];
+    for (let j = 0; j < geomA.samplesB.length; j++) {
+      const ptA = geomA.samplesB[j];
       const dx = ptB[0] - ptA[0];
       const dy = ptB[1] - ptA[1];
       if (dx * dx + dy * dy <= thresholdSq) {
@@ -6747,48 +6837,54 @@ function isRouteOverlappingWithPlanned(savedRoute, plannedCoords, editingRouteId
   if (!isPlannedVisible) return false;
   if (!savedRoute) return false;
 
-  // 1. 若当前正在编辑/调入该收藏路线，隐藏该路线图层（规划图层正实时呈现，杜绝双层重叠）
-  if (editingRouteId) {
-    if (String(savedRoute.id) === String(editingRouteId)) {
-      return true;
-    }
+  // 1. 若当前正在编辑/调入该收藏路线，隐藏该路线图层
+  if (editingRouteId && String(savedRoute.id) === String(editingRouteId)) {
+    return true;
   }
 
-  // 2. 若当前没有有效规划路线坐标，则无重叠
-  if (!Array.isArray(plannedCoords) || plannedCoords.length < 2) {
-    return false;
-  }
-  const sCoords = savedRoute.pathCoords;
-  if (!Array.isArray(sCoords) || sCoords.length < 2) {
-    return false;
+  // 2. 若无有效规划坐标或路径过短，则无重叠
+  if (!Array.isArray(plannedCoords) || plannedCoords.length < 2) return false;
+  if (!Array.isArray(savedRoute.pathCoords) || savedRoute.pathCoords.length < 2) return false;
+
+  const plannedSig = getPlannedRouteCoordsSignature(plannedCoords);
+  const cacheKey = `${savedRoute.id}_${savedRoute.updatedAt || savedRoute.pathCoords.length}_${plannedSig}`;
+  if (routeOverlapDegreeCache.has(cacheKey)) {
+    return routeOverlapDegreeCache.get(cacheKey);
   }
 
-  // 3. 计算几何路径多点采样重叠度（只有真实沿线重叠超过 70% 才隐藏，严禁仅凭同出发地/小区误伤远方其他路线）
-  return computeRoutesOverlapDegree(sCoords, plannedCoords) >= 0.70;
+  const overlapDegree = computeRoutesOverlapDegree(savedRoute, plannedCoords);
+  const isOverlap = overlapDegree >= 0.70;
+  routeOverlapDegreeCache.set(cacheKey, isOverlap);
+  return isOverlap;
 }
 
+let cachedSavedRoutesFC = null;
+let cachedSavedRoutesFCSig = '';
 function savedRoutesFeatureCollection() {
-  const compactForDisplay = coords => {
-    if (!Array.isArray(coords) || coords.length <= 5000) return coords;
-    const stride = Math.ceil(coords.length / 4999);
-    const compact = coords.filter((_, index) => index % stride === 0);
-    const last = coords[coords.length - 1];
-    if (compact[compact.length - 1] !== last) compact.push(last);
-    return compact;
-  };
-  return {
+  const plannedSig = getPlannedRouteCoordsSignature(currentPlannedRouteCoords);
+  const routesSig = `${(savedRoutes || []).length}_${(savedRoutes || []).map(r => (r.id || '') + ':' + (r.updatedAt || r.pathCoords?.length || 0)).join(';')}_${plannedSig}_${currentEditingSavedRouteId || ''}_${routePointLayersVisible}`;
+  if (cachedSavedRoutesFC && cachedSavedRoutesFCSig === routesSig) {
+    return cachedSavedRoutesFC;
+  }
+
+  const fc = {
     type: 'FeatureCollection',
     features: (savedRoutes || [])
       .filter(route => route?.id && Array.isArray(route.pathCoords) && route.pathCoords.length >= 2)
       .filter(route => !isRouteOverlappingWithPlanned(route, currentPlannedRouteCoords, currentEditingSavedRouteId, routePointLayersVisible))
-      .map(route => ({
-        type: 'Feature',
-        id: String(route.id),
-        properties: { id: String(route.id), name: route.name || '收藏路线' },
-        // 地图总览仅保留足够的显示精度；收藏中仍保存完整轨迹，载入和导出不受影响。
-        geometry: { type: 'LineString', coordinates: compactForDisplay(route.pathCoords) }
-      }))
+      .map(route => {
+        const geom = getSavedRouteGeometryCache(route);
+        return {
+          type: 'Feature',
+          id: String(route.id),
+          properties: { id: String(route.id), name: route.name || '收藏路线' },
+          geometry: { type: 'LineString', coordinates: geom ? geom.compact : (route.pathCoords || []) }
+        };
+      })
   };
+  cachedSavedRoutesFC = fc;
+  cachedSavedRoutesFCSig = routesSig;
+  return fc;
 }
 
 function ensureSavedRouteLayers(map) {
@@ -6852,10 +6948,27 @@ function ensureSavedRouteLayers(map) {
 }
 
 const geoJSONRenderCache = new WeakMap();
-function submitGeoJSONChanges(source, data, force = false) {
+function submitGeoJSONChanges(source, data, force = false, signature = null) {
   if (!source) return;
+  if (signature !== null && !force) {
+    const cached = geoJSONRenderCache.get(source);
+    if (cached && cached.signature === signature) {
+      return;
+    }
+  }
   source.setData(data);
+  geoJSONRenderCache.set(source, {
+    signature: signature || '',
+    time: Date.now()
+  });
 }
+if (typeof window !== 'undefined') {
+  window.submitGeoJSONChanges = submitGeoJSONChanges;
+  window.geoJSONRenderCache = geoJSONRenderCache;
+  window.savedRouteGeometryCache = savedRouteGeometryCache;
+  window.routeOverlapDegreeCache = routeOverlapDegreeCache;
+}
+
 function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
   const map = mapInstance;
   if (!map) return;
@@ -6872,19 +6985,8 @@ function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
     return;
   }
   savedRouteLayerInitPending = false;
-  try {
-    if (map.getLayer('outmap-saved-route-casing')) {
-      map.setPaintProperty('outmap-saved-route-casing', 'line-width', ['interpolate', ['linear'], ['zoom'], 6, 6.6, 10, 9.8, 14, 13.2, 17, 16.0]);
-      map.setPaintProperty('outmap-saved-route-casing', 'line-color', 'rgba(255,255,255,0.95)');
-      map.setPaintProperty('outmap-saved-route-casing', 'line-opacity', 0.95);
-    }
-    if (map.getLayer('outmap-saved-route-line')) {
-      map.setPaintProperty('outmap-saved-route-line', 'line-width', ['interpolate', ['linear'], ['zoom'], 6, 4.2, 10, 6.8, 14, 9.6, 17, 12.0]);
-      map.setPaintProperty('outmap-saved-route-line', 'line-color', '#2563eb');
-      map.setPaintProperty('outmap-saved-route-line', 'line-opacity', 0.88);
-    }
-  } catch (_) {}
-  submitGeoJSONChanges(map.getSource(SAVED_ROUTES_SOURCE_ID), savedRoutesFeatureCollection(), true);
+  const fc = savedRoutesFeatureCollection();
+  submitGeoJSONChanges(map.getSource(SAVED_ROUTES_SOURCE_ID), fc, false, cachedSavedRoutesFCSig);
   SAVED_ROUTE_LAYER_IDS.forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', savedRouteLayersVisible ? 'visible' : 'none');
   });
@@ -6998,7 +7100,10 @@ function setupWaypointAndFavoritesSystem(map) {
   // 读取本地持久化收藏夹、自定义分类与收藏路线
   try {
     const raw = localStorage.getItem('outmap_saved_waypoints');
-    if (raw) savedWaypoints = JSON.parse(raw);
+    if (raw) {
+      savedWaypoints = JSON.parse(raw);
+      touchSavedWaypoints();
+    }
     const rawFolders = localStorage.getItem('outmap_custom_folders');
     if (rawFolders) {
       customFolders = sanitizeFolders(JSON.parse(rawFolders));
@@ -7421,7 +7526,9 @@ function setupWaypointAndFavoritesSystem(map) {
         console.warn('[Favorites] Incremental update fallback:', error.message);
       }
     }
-    submitGeoJSONChanges(source, favoriteFeatureCollection());
+    const fc = favoriteFeatureCollection();
+    const favSig = `${(savedWaypoints || []).length}_${savedWaypointsRevision}_${computeFavoriteRouteFilterSignature()}_${favoriteLayersVisible ? '1' : '0'}`;
+    submitGeoJSONChanges(source, fc, false, favSig);
   };
   window.renderWaypointMarkersOnMap = renderWaypointMarkersOnMap;
 
@@ -7521,6 +7628,7 @@ function setupWaypointAndFavoritesSystem(map) {
     };
 
     savedWaypoints.push(newWp);
+    touchSavedWaypoints();
     try {
       localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
     } catch (e) {}
@@ -7705,6 +7813,7 @@ function setupWaypointAndFavoritesSystem(map) {
           if (targetWp) {
             targetWp.type = newType;
             targetWp.updatedAt = wp.updatedAt;
+            touchSavedWaypoints();
           }
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
@@ -7739,6 +7848,7 @@ function setupWaypointAndFavoritesSystem(map) {
           if (targetWp) {
             targetWp.name = trimmed;
             targetWp.updatedAt = wp.updatedAt;
+            touchSavedWaypoints();
           }
           try {
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
@@ -7764,6 +7874,7 @@ function setupWaypointAndFavoritesSystem(map) {
       if (!await showFluentConfirm({ title: '删除收藏点', message: `确定删除“${wp.name}”？`, confirmText: '删除', danger: true })) return;
       addDeletedWaypointTombstone(wp);
       savedWaypoints = savedWaypoints.filter(item => String(item.id) !== String(wp.id));
+      touchSavedWaypoints();
       try { localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints)); } catch (_) {}
       invalidateSearchMemoryCache();
       renderWaypointMarkersOnMap({ remove: [wp.id] });
@@ -7783,9 +7894,112 @@ function setupWaypointAndFavoritesSystem(map) {
   };
   window.showChangeWaypointTypeMenu = showChangeWaypointTypeMenu;
 
+  // 1. 收藏点列表容器级事件委托与 Keyed DOM 增量复用
+  let favListEventsBound = false;
+  function ensureFavListDelegation() {
+    if (favListEventsBound || !favList) return;
+    favListEventsBound = true;
+    favList.dataset.eventsBound = '1';
+
+    // 单击事件委托
+    favList.addEventListener('click', (e) => {
+      const moreBtn = e.target.closest('.fav-item-more-btn');
+      if (moreBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const card = moreBtn.closest('.fav-item-card');
+        if (!card) return;
+        const wp = savedWaypoints.find(w => String(w.id) === String(card.dataset.id));
+        if (!wp) return;
+        const rect = moreBtn.getBoundingClientRect();
+        showChangeWaypointTypeMenu(wp, rect.left, rect.bottom + 4);
+        return;
+      }
+      const card = e.target.closest('.fav-item-card');
+      if (!card) return;
+      if (card.dataset.suppressNextClick === '1') {
+        delete card.dataset.suppressNextClick;
+        return;
+      }
+      const wp = savedWaypoints.find(w => String(w.id) === String(card.dataset.id));
+      if (!wp) return;
+      const startFavoriteFlight = () => {
+        const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
+        flyToLocationPrecisely(map, [wp.lng, wp.lat], {
+          zoom: 12.0,
+          pitch: curPitch,
+          centered: false,
+          elevation: wp.ele ?? wp.elevation
+        });
+      };
+      if (window.innerWidth <= 768 && favDrawer?.style.display !== 'none') {
+        smoothClosePanel(favDrawer, startFavoriteFlight);
+      } else {
+        startFavoriteFlight();
+      }
+    });
+
+    // 右键上下文菜单委托
+    favList.addEventListener('contextmenu', (e) => {
+      const card = e.target.closest('.fav-item-card');
+      if (!card) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const wp = savedWaypoints.find(w => String(w.id) === String(card.dataset.id));
+      if (!wp) return;
+      showChangeWaypointTypeMenu(wp, e.clientX, e.clientY);
+    });
+
+    // 移动端长按委托
+    let itemTouchTimer = null;
+    let itemTouchStart = null;
+    let touchTargetCard = null;
+    favList.addEventListener('touchstart', (e) => {
+      clearTimeout(itemTouchTimer);
+      const card = e.target.closest('.fav-item-card');
+      if (!card) return;
+      touchTargetCard = card;
+      delete card.dataset.suppressNextClick;
+      if (e.touches && e.touches.length === 1) {
+        const t = e.touches[0];
+        itemTouchStart = { x: t.clientX, y: t.clientY };
+        itemTouchTimer = setTimeout(() => {
+          itemTouchTimer = null;
+          card.dataset.suppressNextClick = '1';
+          const wp = savedWaypoints.find(w => String(w.id) === String(card.dataset.id));
+          if (wp) showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
+        }, 450);
+      }
+    }, { passive: true });
+    favList.addEventListener('touchmove', (e) => {
+      if (itemTouchTimer && itemTouchStart && e.touches?.[0]) {
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - itemTouchStart.x, t.clientY - itemTouchStart.y) > 10) {
+          clearTimeout(itemTouchTimer);
+          itemTouchTimer = null;
+        }
+      }
+    }, { passive: true });
+    favList.addEventListener('touchend', () => {
+      if (itemTouchTimer) {
+        clearTimeout(itemTouchTimer);
+        itemTouchTimer = null;
+        itemTouchStart = null;
+      }
+    }, { passive: true });
+    favList.addEventListener('touchcancel', () => {
+      if (itemTouchTimer) {
+        clearTimeout(itemTouchTimer);
+        itemTouchTimer = null;
+        itemTouchStart = null;
+      }
+      if (touchTargetCard) delete touchTargetCard.dataset.suppressNextClick;
+    }, { passive: true });
+  }
+
   const renderFavoritesList = () => {
     if (!favList) return;
-    favList.innerHTML = '';
+    ensureFavListDelegation();
     if (favPtsCount) favPtsCount.innerText = savedWaypoints.length;
 
     let filtered = savedWaypoints;
@@ -7808,7 +8022,6 @@ function setupWaypointAndFavoritesSystem(map) {
       );
     }
 
-    // 页签数字代表当前文件夹总量；输入搜索词只过滤列表，不让总数随每个按键跳动。
     if (favPtsCount) favPtsCount.innerText = filtered.length;
 
     if (currentFavSearchNormalized) {
@@ -7826,9 +8039,18 @@ function setupWaypointAndFavoritesSystem(map) {
       return;
     }
 
+    const existingCards = new Map();
+    favList.querySelectorAll('.fav-item-card').forEach(el => {
+      if (el.dataset.id) existingCards.set(el.dataset.id, el);
+    });
+
+    const activeIds = new Set();
+    const fragment = document.createDocumentFragment();
+
     filtered.forEach(wp => {
-      const item = document.createElement('div');
-      item.className = 'fav-item-card';
+      const wpId = String(wp.id);
+      activeIds.add(wpId);
+      let item = existingCards.get(wpId);
       const safeLng = Number(wp.lng);
       const safeLat = Number(wp.lat);
       const safeEle = Number(wp.ele);
@@ -7836,7 +8058,7 @@ function setupWaypointAndFavoritesSystem(map) {
         ? `${safeLng.toFixed(3)}°E, ${safeLat.toFixed(3)}°N`
         : '坐标不可用';
       const elevationText = Number.isFinite(safeEle) ? `${Math.round(safeEle)}m` : '--m';
-      item.innerHTML = `
+      const cardHtml = `
         <span class="favorite-list-icon type-${wp.type || 'view'}" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg(wp.type, { autoColor: true, size: 18 }) || ''}</span>
         <div class="fav-item-info">
           <div class="fav-item-name">${escapeHtml(wp.name || '未命名地点')}</div>
@@ -7847,84 +8069,311 @@ function setupWaypointAndFavoritesSystem(map) {
         </button>
       `;
 
-      const moreBtn = item.querySelector('.fav-item-more-btn');
-      const openMoreMenu = (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        const rect = moreBtn.getBoundingClientRect();
-        showChangeWaypointTypeMenu(wp, rect.left, rect.bottom + 4);
-      };
-      moreBtn?.addEventListener('click', openMoreMenu);
-      moreBtn?.addEventListener('touchend', openMoreMenu);
-
-      item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        showChangeWaypointTypeMenu(wp, e.clientX, e.clientY);
-      });
-
-      // 移动端长按 450ms (带 10px 触控微动容差，防手抖误取消)
-      let itemTouchTimer = null;
-      let itemTouchStart = null;
-      let suppressNextItemClick = false;
-      item.addEventListener('touchstart', (e) => {
-        clearTimeout(itemTouchTimer);
-        suppressNextItemClick = false;
-        if (e.touches && e.touches.length === 1) {
-          const t = e.touches[0];
-          itemTouchStart = { x: t.clientX, y: t.clientY };
-          itemTouchTimer = setTimeout(() => {
-            itemTouchTimer = null;
-            suppressNextItemClick = true;
-            showChangeWaypointTypeMenu(wp, t.clientX, t.clientY);
-          }, 450);
+      const renderHash = `${wp.name}_${wp.type}_${safeEle}_${safeLng}_${safeLat}`;
+      if (!item) {
+        item = document.createElement('div');
+        item.className = 'fav-item-card';
+        item.dataset.id = wpId;
+        item.dataset.renderedHash = renderHash;
+        item.innerHTML = cardHtml;
+      } else {
+        if (item.dataset.renderedHash !== renderHash) {
+          item.innerHTML = cardHtml;
+          item.dataset.renderedHash = renderHash;
         }
-      }, { passive: true });
-      item.addEventListener('touchmove', (e) => {
-        if (itemTouchTimer && itemTouchStart && e.touches?.[0]) {
-          const t = e.touches[0];
-          if (Math.hypot(t.clientX - itemTouchStart.x, t.clientY - itemTouchStart.y) > 10) {
-            clearTimeout(itemTouchTimer);
-            itemTouchTimer = null;
-          }
-        }
-      }, { passive: true });
-      item.addEventListener('touchend', () => { if (itemTouchTimer) { clearTimeout(itemTouchTimer); itemTouchTimer = null; itemTouchStart = null; } }, { passive: true });
-      item.addEventListener('touchcancel', () => { clearTimeout(itemTouchTimer); itemTouchTimer = null; itemTouchStart = null; suppressNextItemClick = false; }, { passive: true });
-
-      item.querySelector('.fav-item-info').addEventListener('click', (e) => {
-        if (suppressNextItemClick) {
-          suppressNextItemClick = false;
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-        const startFavoriteFlight = () => {
-          const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
-          flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-            zoom: 12.0,
-            pitch: curPitch,
-            centered: false,
-            elevation: wp.ele ?? wp.elevation
-          });
-        };
-        // 手机抽屉会遮挡大半地图；先完成原生式收起，再按稳定的完整
-        // viewport 解算一次相机终点，避免抽屉动画中途改变落点。
-        if (window.innerWidth <= 768 && favDrawer?.style.display !== 'none') {
-          smoothClosePanel(favDrawer, startFavoriteFlight);
-        } else {
-          startFavoriteFlight();
-        }
-      });
-
-      favList.appendChild(item);
+      }
+      fragment.appendChild(item);
     });
+
+    existingCards.forEach((el, id) => {
+      if (!activeIds.has(id)) el.remove();
+    });
+
+    favList.appendChild(fragment);
   };
 
-  // 2. 收藏路线列表渲染
+  // 2. 收藏路线右键菜单与容器级事件委托
+  const showRouteContextMenu = (route, x, y, mapInstance) => {
+    document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
+    smoothCloseContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'fluent-context-menu fav-route-context-menu';
+
+    menu.innerHTML = `
+      <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
+        <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
+        <span class="ctx-text">重命名</span>
+      </button>
+      <button type="button" class="ctx-item fav-route-context-item btn-ctx-edit">
+        <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('route', { size: 15 }) || ''}</span>
+        <span class="ctx-text">编辑路线</span>
+      </button>
+      <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
+        <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('export', { size: 15 }) || ''}</span>
+        <span class="ctx-text">导出路线</span>
+      </button>
+      <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">
+        <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('trash', { size: 15, color: '#ef4444' }) || ''}</span>
+        <span class="ctx-text">删除路线</span>
+      </button>
+    `;
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportRight = viewportLeft + Math.max(0, viewport?.width || window.innerWidth);
+    const viewportBottom = viewportTop + Math.max(0, viewport?.height || window.innerHeight);
+    const safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
+    let safeY;
+    if ((Number(y) || 0) + rect.height > viewportBottom - 16) {
+      safeY = Math.max(viewportTop + 10, (Number(y) || 0) - rect.height - 8);
+      if (safeY + rect.height > viewportBottom - 16) {
+        safeY = Math.max(viewportTop + 10, viewportBottom - rect.height - 16);
+      }
+    } else {
+      safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
+    }
+    menu.style.left = `${safeX}px`;
+    menu.style.top = `${safeY}px`;
+    void menu.offsetWidth;
+    menu.classList.add('ctx-opening');
+
+    const closeMenu = () => {
+      if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;
+      menu.classList.remove('ctx-opening');
+      menu.classList.add('ctx-closing');
+      setTimeout(() => menu.remove(), 150);
+      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('keydown', onDocKey);
+      if (mapInstance?.off) mapInstance.off('movestart', closeMenu);
+    };
+
+    const onDocClick = (e) => {
+      if (!menu.contains(e.target)) closeMenu();
+    };
+    const onDocKey = (e) => {
+      if (e.key === 'Escape') closeMenu();
+    };
+
+    const triggerRouteRename = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeMenu();
+      showFluentPrompt({
+        title: '重命名收藏路线',
+        initialValue: route.name || '',
+        placeholder: '请输入路线名称',
+        onConfirm: async (newName) => {
+          const trimmed = newName.trim();
+          if (!trimmed || trimmed === route.name) return;
+          const routeIndex = savedRoutes.findIndex(candidate => (
+            candidate === route
+            || (route.id && candidate?.id && String(candidate.id) === String(route.id))
+            || routesRepresentSameRecord(candidate, route)
+          ));
+          if (routeIndex < 0) {
+            showToast('路线重命名失败：未找到路线');
+            return;
+          }
+
+          const currentRoute = savedRoutes[routeIndex];
+          const updatedAt = Math.max(Date.now(), (Number(currentRoute.updatedAt) || 0) + 1);
+          const updatedRoute = normalizeRoute({ ...currentRoute, name: trimmed, updatedAt });
+          const nextRoutes = savedRoutes.slice();
+          nextRoutes[routeIndex] = updatedRoute;
+          try {
+            localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
+          } catch (err) {
+            const reason = /quota|storage|exceed/i.test(String(err?.message || err || ''))
+              ? '本地存储空间不足'
+              : '无法写入本地数据';
+            showToast(`路线重命名失败：${reason}`);
+            return;
+          }
+          savedRoutes = nextRoutes;
+          renderSavedRoutesList();
+          renderSavedRoutesOnMap(mapInstance);
+
+          clearTimeout(cloudSyncDebounceTimer);
+          cloudSyncDebounceTimer = null;
+
+          const syncResult = await syncAndVerifySavedRouteName(updatedRoute);
+          if (!syncResult.success) {
+            const rawReason = String(syncResult.message || '未知原因').trim();
+            const reason = rawReason.length > 80 ? `${rawReason.slice(0, 77)}…` : rawReason;
+            showToast(`路线已在本地重命名，云端同步失败：${reason}`, 4500);
+            return;
+          }
+          if (syncResult.route) {
+            const applied = syncResult.route;
+            const syncedRoutes = savedRoutes.map(item => routesRepresentSameRecord(item, applied)
+              ? { ...item, ...applied, name: applied.name, updatedAt: applied.updatedAt }
+              : item);
+            try {
+              localStorage.setItem('outmap_saved_routes', JSON.stringify(syncedRoutes));
+              savedRoutes = syncedRoutes;
+            } catch (_) {}
+          }
+          showToast(`已重命名路线为“${trimmed}”`);
+        }
+      });
+    };
+    const renameBtn = menu.querySelector('.btn-ctx-rename');
+    renameBtn?.addEventListener('click', triggerRouteRename);
+    renameBtn?.addEventListener('touchend', triggerRouteRename);
+
+    const triggerRouteEdit = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeMenu();
+      const favDrawer = document.getElementById('favorites-drawer');
+      if (favDrawer) smoothClosePanel(favDrawer);
+      loadSavedRoute(route.id, mapInstance, 'editing');
+      showToast(`正在编辑路线“${route.name}”`);
+    };
+    const editBtn = menu.querySelector('.btn-ctx-edit');
+    editBtn?.addEventListener('click', triggerRouteEdit);
+    editBtn?.addEventListener('touchend', triggerRouteEdit);
+
+    const triggerRouteExport = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeMenu();
+      exportRouteToGpx(route, mapInstance);
+    };
+    const exportBtn = menu.querySelector('.btn-ctx-export');
+    exportBtn?.addEventListener('click', triggerRouteExport);
+    exportBtn?.addEventListener('touchend', triggerRouteExport);
+
+    const triggerRouteDelete = async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeMenu();
+      if (await showFluentConfirm({ title: '删除收藏路线', message: `确定删除“${route.name}”？`, confirmText: '删除', danger: true })) {
+        addDeletedRouteTombstone(route);
+        if (currentEditingSavedRouteId && (currentEditingSavedRouteId === route.id || routesRepresentSameRecord(route, { id: currentEditingSavedRouteId }))) {
+          exitRouteEditMode(false);
+        }
+        const nextRoutes = savedRoutes.filter(r => (
+          r !== route
+          && (!route.id || !r.id || String(r.id) !== String(route.id))
+          && !routesRepresentSameRecord(r, route)
+        ));
+        try {
+          localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
+        } catch (err) {}
+        savedRoutes = nextRoutes;
+        renderSavedRoutesList();
+        renderSavedRoutesOnMap(mapInstance);
+        if (typeof window.triggerRealtimeCloudSync === 'function') {
+          window.triggerRealtimeCloudSync('delete_route', true);
+        }
+        showToast('已删除收藏路线');
+      }
+    };
+    const delBtn = menu.querySelector('.btn-ctx-del');
+    delBtn?.addEventListener('click', triggerRouteDelete);
+    delBtn?.addEventListener('touchend', triggerRouteDelete);
+
+    if (mapInstance?.once) mapInstance.once('movestart', closeMenu);
+    setTimeout(() => {
+      document.addEventListener('click', onDocClick);
+      document.addEventListener('keydown', onDocKey);
+    }, 10);
+  };
+
+  let favRoutesListEventsBound = false;
+  function ensureFavRoutesListDelegation() {
+    if (favRoutesListEventsBound || !favRoutesList) return;
+    favRoutesListEventsBound = true;
+    favRoutesList.dataset.eventsBound = '1';
+
+    // 单击事件委托
+    favRoutesList.addEventListener('click', (e) => {
+      const moreBtn = e.target.closest('.fav-route-more-btn');
+      if (moreBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const card = moreBtn.closest('.fav-route-card');
+        if (!card) return;
+        const route = (savedRoutes || []).find(r => String(r.id) === String(card.dataset.id));
+        if (!route) return;
+        const rect = moreBtn.getBoundingClientRect();
+        showRouteContextMenu(route, rect.left, rect.bottom + 4, map);
+        return;
+      }
+      const card = e.target.closest('.fav-route-card');
+      if (!card) return;
+      if (card.dataset.suppressNextClick === '1') {
+        delete card.dataset.suppressNextClick;
+        return;
+      }
+      loadSavedRoute(card.dataset.id, map);
+    });
+
+    // 右键事件委托
+    favRoutesList.addEventListener('contextmenu', (e) => {
+      const card = e.target.closest('.fav-route-card');
+      if (!card) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const route = (savedRoutes || []).find(r => String(r.id) === String(card.dataset.id));
+      if (!route) return;
+      showRouteContextMenu(route, e.clientX, e.clientY, map);
+    });
+
+    // 移动端长按委托
+    let touchTimer = null;
+    let routeTouchStart = null;
+    let touchTargetCard = null;
+    favRoutesList.addEventListener('touchstart', (e) => {
+      clearTimeout(touchTimer);
+      const card = e.target.closest('.fav-route-card');
+      if (!card) return;
+      touchTargetCard = card;
+      delete card.dataset.suppressNextClick;
+      if (e.touches && e.touches.length === 1) {
+        const t = e.touches[0];
+        routeTouchStart = { x: t.clientX, y: t.clientY };
+        touchTimer = setTimeout(() => {
+          touchTimer = null;
+          card.dataset.suppressNextClick = '1';
+          const route = (savedRoutes || []).find(r => String(r.id) === String(card.dataset.id));
+          if (route) showRouteContextMenu(route, t.clientX, t.clientY, map);
+        }, 450);
+      }
+    }, { passive: true });
+    favRoutesList.addEventListener('touchmove', (e) => {
+      if (touchTimer && routeTouchStart && e.touches?.[0]) {
+        const t = e.touches[0];
+        if (Math.hypot(t.clientX - routeTouchStart.x, t.clientY - routeTouchStart.y) > 10) {
+          clearTimeout(touchTimer);
+          touchTimer = null;
+        }
+      }
+    }, { passive: true });
+    favRoutesList.addEventListener('touchend', () => {
+      if (touchTimer) {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+        routeTouchStart = null;
+      }
+    }, { passive: true });
+    favRoutesList.addEventListener('touchcancel', () => {
+      if (touchTimer) {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+        routeTouchStart = null;
+      }
+      if (touchTargetCard) delete touchTargetCard.dataset.suppressNextClick;
+    }, { passive: true });
+  }
+
   const renderSavedRoutesList = () => {
     if (!favRoutesList) return;
-    favRoutesList.innerHTML = '';
+    ensureFavRoutesListDelegation();
     let routes = savedRoutes || [];
     if (currentFavSearchNormalized) {
       routes = routes.filter(r => (r.name || '').toLocaleLowerCase('zh-CN').includes(currentFavSearchNormalized));
@@ -7946,9 +8395,19 @@ function setupWaypointAndFavoritesSystem(map) {
     };
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
 
+    const existingCards = new Map();
+    favRoutesList.querySelectorAll('.fav-route-card').forEach(el => {
+      if (el.dataset.id) existingCards.set(el.dataset.id, el);
+    });
+
+    const activeIds = new Set();
+    const fragment = document.createDocumentFragment();
+
     routes.forEach((route) => {
-      const card = document.createElement('div');
-      card.className = 'fav-route-card';
+      const routeId = String(route.id);
+      activeIds.add(routeId);
+      let card = existingCards.get(routeId);
+
       const m = route.metrics || {};
       const distanceKm = Number(m.distKm);
       const ascent = Number(m.ascent);
@@ -7963,14 +8422,8 @@ function setupWaypointAndFavoritesSystem(map) {
           currentEditingSavedRouteId === route.id || routesRepresentSameRecord(route, { id: currentEditingSavedRouteId })
         )
       );
-      if (isCurrentRoute) {
-        card.classList.add(routeInteractionState === 'editing' ? 'is-editing-route' : 'is-viewing-route');
-      }
 
-      card.title = isCurrentRoute
-        ? (routeInteractionState === 'editing' ? '当前正在编辑此路线' : '当前正在查看此路线')
-        : '单击直接载入路线，右键可导出或删除';
-      card.innerHTML = `
+      const cardHtml = `
         <div class="fav-route-header">
           <div class="fav-route-title-box">
             <span class="fav-route-mode-tag mode-${route.mode || 'drive'}">
@@ -7995,264 +8448,36 @@ function setupWaypointAndFavoritesSystem(map) {
         </div>
       `;
 
-      const routeMoreBtn = card.querySelector('.fav-route-more-btn');
-      const openRouteMoreMenu = (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        const rect = routeMoreBtn.getBoundingClientRect();
-        showCardContextMenu(rect.left, rect.bottom + 4);
-      };
-      routeMoreBtn?.addEventListener('click', openRouteMoreMenu);
-      routeMoreBtn?.addEventListener('touchend', openRouteMoreMenu);
-
-      // 1. 单击默认跳转调出路线
-      let suppressNextRouteClick = false;
-      card.addEventListener('click', (e) => {
-        if (suppressNextRouteClick) {
-          suppressNextRouteClick = false;
-          e.preventDefault();
-          e.stopPropagation();
-          return;
+      const renderHash = `${route.name}_${route.mode}_${distStr}_${timeStr}_${climbStr}_${isCurrentRoute}_${routeInteractionState}`;
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'fav-route-card';
+        card.dataset.id = routeId;
+        card.dataset.renderedHash = renderHash;
+        card.innerHTML = cardHtml;
+      } else {
+        if (card.dataset.renderedHash !== renderHash) {
+          card.innerHTML = cardHtml;
+          card.dataset.renderedHash = renderHash;
         }
-        loadSavedRoute(route.id, map);
-      });
+      }
 
-      // 2. 右键弹出选项：重命名、导出、删除
-      const showCardContextMenu = (x, y) => {
-        document.querySelectorAll('.fav-point-type-menu, .fav-route-context-menu').forEach(m => m.remove());
-        smoothCloseContextMenu();
-        const menu = document.createElement('div');
-        // 路线与地点共用 Fluent 上下文菜单表面、动画、键盘/地图移动关闭逻辑。
-        menu.className = 'fluent-context-menu fav-route-context-menu';
+      card.className = 'fav-route-card';
+      if (isCurrentRoute) {
+        card.classList.add(routeInteractionState === 'editing' ? 'is-editing-route' : 'is-viewing-route');
+      }
+      card.title = isCurrentRoute
+        ? (routeInteractionState === 'editing' ? '当前正在编辑此路线' : '当前正在查看此路线')
+        : '单击直接载入路线，右键可导出或删除';
 
-        menu.innerHTML = `
-          <button type="button" class="ctx-item fav-route-context-item btn-ctx-rename">
-            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('edit', { size: 15 }) || ''}</span>
-            <span class="ctx-text">重命名</span>
-          </button>
-          <button type="button" class="ctx-item fav-route-context-item btn-ctx-edit">
-            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('route', { size: 15 }) || ''}</span>
-            <span class="ctx-text">编辑路线</span>
-          </button>
-          <button type="button" class="ctx-item fav-route-context-item btn-ctx-export">
-            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('export', { size: 15 }) || ''}</span>
-            <span class="ctx-text">导出路线</span>
-          </button>
-          <button type="button" class="ctx-item fav-route-context-item danger btn-ctx-del">
-            <span class="ctx-icon" aria-hidden="true">${window.OutmapFavoriteInteractions?.svg('trash', { size: 15, color: '#ef4444' }) || ''}</span>
-            <span class="ctx-text">删除路线</span>
-          </button>
-        `;
-        document.body.appendChild(menu);
-
-        const rect = menu.getBoundingClientRect();
-        const viewport = window.visualViewport;
-        const viewportLeft = viewport?.offsetLeft || 0;
-        const viewportTop = viewport?.offsetTop || 0;
-        const viewportRight = viewportLeft + Math.max(0, viewport?.width || window.innerWidth);
-        const viewportBottom = viewportTop + Math.max(0, viewport?.height || window.innerHeight);
-        const safeX = Math.max(viewportLeft + 10, Math.min(Number(x) || viewportLeft + 10, viewportRight - rect.width - 10));
-        let safeY;
-        if ((Number(y) || 0) + rect.height > viewportBottom - 16) {
-          safeY = Math.max(viewportTop + 10, (Number(y) || 0) - rect.height - 8);
-          if (safeY + rect.height > viewportBottom - 16) {
-            safeY = Math.max(viewportTop + 10, viewportBottom - rect.height - 16);
-          }
-        } else {
-          safeY = Math.max(viewportTop + 10, Math.min(Number(y) || viewportTop + 10, viewportBottom - rect.height - 10));
-        }
-        menu.style.left = `${safeX}px`;
-        menu.style.top = `${safeY}px`;
-        void menu.offsetWidth;
-        menu.classList.add('ctx-opening');
-
-        const closeMenu = () => {
-          if (!menu.isConnected || menu.classList.contains('ctx-closing')) return;
-          menu.classList.remove('ctx-opening');
-          menu.classList.add('ctx-closing');
-          setTimeout(() => menu.remove(), 150);
-          document.removeEventListener('click', onDocClick);
-          document.removeEventListener('keydown', onDocKey);
-          map.off('movestart', closeMenu);
-        };
-
-        const onDocClick = (e) => {
-          if (!menu.contains(e.target)) closeMenu();
-        };
-        const onDocKey = (e) => {
-          if (e.key === 'Escape') closeMenu();
-        };
-
-        const triggerRouteRename = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          closeMenu();
-          showFluentPrompt({
-            title: '重命名收藏路线',
-            initialValue: route.name || '',
-            placeholder: '请输入路线名称',
-            onConfirm: async (newName) => {
-              const trimmed = newName.trim();
-              if (!trimmed || trimmed === route.name) return;
-              const routeIndex = savedRoutes.findIndex(candidate => (
-                candidate === route
-                || (route.id && candidate?.id && String(candidate.id) === String(route.id))
-                || routesRepresentSameRecord(candidate, route)
-              ));
-              if (routeIndex < 0) {
-                showToast('路线重命名失败：未找到路线');
-                return;
-              }
-
-              const currentRoute = savedRoutes[routeIndex];
-              const updatedAt = Math.max(Date.now(), (Number(currentRoute.updatedAt) || 0) + 1);
-              const updatedRoute = normalizeRoute({ ...currentRoute, name: trimmed, updatedAt });
-              const nextRoutes = savedRoutes.slice();
-              nextRoutes[routeIndex] = updatedRoute;
-              try {
-                // 先确保完整新数组成功写入，再替换运行时状态，避免刷新后恢复旧名。
-                localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
-              } catch (err) {
-                const reason = /quota|storage|exceed/i.test(String(err?.message || err || ''))
-                  ? '本地存储空间不足'
-                  : '无法写入本地数据';
-                showToast(`路线重命名失败：${reason}`);
-                return;
-              }
-              savedRoutes = nextRoutes;
-              renderSavedRoutesList();
-              renderSavedRoutesOnMap(map);
-
-              // 立即清除待触发的自动防抖同步，防止旧快照覆盖刚改名的本地路线
-              clearTimeout(cloudSyncDebounceTimer);
-              cloudSyncDebounceTimer = null;
-
-              const syncResult = await syncAndVerifySavedRouteName(updatedRoute);
-              if (!syncResult.success) {
-                const rawReason = String(syncResult.message || '未知原因').trim();
-                const reason = rawReason.length > 80 ? `${rawReason.slice(0, 77)}…` : rawReason;
-                showToast(`路线已在本地重命名，云端同步失败：${reason}`, 4500);
-                return;
-              }
-              if (syncResult.route) {
-                const applied = syncResult.route;
-                const syncedRoutes = savedRoutes.map(item => routesRepresentSameRecord(item, applied)
-                  ? { ...item, ...applied, name: applied.name, updatedAt: applied.updatedAt }
-                  : item);
-                try {
-                  localStorage.setItem('outmap_saved_routes', JSON.stringify(syncedRoutes));
-                  savedRoutes = syncedRoutes;
-                } catch (_) {}
-              }
-              showToast(`已重命名路线为“${trimmed}”`);
-            }
-          });
-        };
-        const renameBtn = menu.querySelector('.btn-ctx-rename');
-        renameBtn?.addEventListener('click', triggerRouteRename);
-        renameBtn?.addEventListener('touchend', triggerRouteRename);
-
-        const triggerRouteEdit = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          closeMenu();
-          const favDrawer = document.getElementById('favorites-drawer');
-          if (favDrawer) smoothClosePanel(favDrawer);
-          loadSavedRoute(route.id, map, 'editing');
-          showToast(`正在编辑路线“${route.name}”`);
-        };
-        const editBtn = menu.querySelector('.btn-ctx-edit');
-        editBtn?.addEventListener('click', triggerRouteEdit);
-        editBtn?.addEventListener('touchend', triggerRouteEdit);
-
-        const triggerRouteExport = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          closeMenu();
-          exportRouteToGpx(route, map);
-        };
-        const exportBtn = menu.querySelector('.btn-ctx-export');
-        exportBtn?.addEventListener('click', triggerRouteExport);
-        exportBtn?.addEventListener('touchend', triggerRouteExport);
-
-        const triggerRouteDelete = async (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          closeMenu();
-          if (await showFluentConfirm({ title: '删除收藏路线', message: `确定删除“${route.name}”？`, confirmText: '删除', danger: true })) {
-            addDeletedRouteTombstone(route);
-            if (currentEditingSavedRouteId && (currentEditingSavedRouteId === route.id || routesRepresentSameRecord(route, { id: currentEditingSavedRouteId }))) {
-              exitRouteEditMode(false);
-            }
-            const nextRoutes = savedRoutes.filter(r => (
-              r !== route
-              && (!route.id || !r.id || String(r.id) !== String(route.id))
-              && !routesRepresentSameRecord(r, route)
-            ));
-            try {
-              localStorage.setItem('outmap_saved_routes', JSON.stringify(nextRoutes));
-            } catch (err) {}
-            savedRoutes = nextRoutes;
-            renderSavedRoutesList();
-            renderSavedRoutesOnMap(map);
-            if (typeof window.triggerRealtimeCloudSync === 'function') {
-              window.triggerRealtimeCloudSync('delete_route', true);
-            }
-            showToast('已删除收藏路线');
-          }
-        };
-        const delBtn = menu.querySelector('.btn-ctx-del');
-        delBtn?.addEventListener('click', triggerRouteDelete);
-        delBtn?.addEventListener('touchend', triggerRouteDelete);
-
-        map.once('movestart', closeMenu);
-        setTimeout(() => {
-          document.addEventListener('click', onDocClick);
-          document.addEventListener('keydown', onDocKey);
-        }, 10);
-      };
-
-      card.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        showCardContextMenu(e.clientX, e.clientY);
-      });
-
-      // 移动端长按 450ms 触发菜单 (带 10px 触控微动容差)
-      let touchTimer = null;
-      let routeTouchStart = null;
-      card.addEventListener('touchstart', (e) => {
-        clearTimeout(touchTimer);
-        suppressNextRouteClick = false;
-        if (e.touches && e.touches.length === 1) {
-          const t = e.touches[0];
-          routeTouchStart = { x: t.clientX, y: t.clientY };
-          touchTimer = setTimeout(() => {
-            touchTimer = null;
-            suppressNextRouteClick = true;
-            showCardContextMenu(t.clientX, t.clientY);
-          }, 450);
-        }
-      }, { passive: true });
-      card.addEventListener('touchmove', (e) => {
-        if (touchTimer && routeTouchStart && e.touches?.[0]) {
-          const t = e.touches[0];
-          if (Math.hypot(t.clientX - routeTouchStart.x, t.clientY - routeTouchStart.y) > 10) {
-            clearTimeout(touchTimer);
-            touchTimer = null;
-          }
-        }
-      }, { passive: true });
-      card.addEventListener('touchend', () => {
-        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; routeTouchStart = null; }
-      }, { passive: true });
-      card.addEventListener('touchcancel', () => {
-        if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; routeTouchStart = null; }
-        suppressNextRouteClick = false;
-      }, { passive: true });
-
-      favRoutesList.appendChild(card);
+      fragment.appendChild(card);
     });
+
+    existingCards.forEach((el, id) => {
+      if (!activeIds.has(id)) el.remove();
+    });
+
+    favRoutesList.appendChild(fragment);
   };
   renderSavedRoutesListFn = renderSavedRoutesList;
 
@@ -8309,6 +8534,7 @@ function setupWaypointAndFavoritesSystem(map) {
               wp.updatedAt = Date.now();
             }
           });
+          touchSavedWaypoints();
           try {
             localStorage.setItem('outmap_custom_folders', JSON.stringify(customFolders));
             localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
@@ -8346,6 +8572,7 @@ function setupWaypointAndFavoritesSystem(map) {
         wp.folder = 'default';
       }
     });
+    touchSavedWaypoints();
 
     if (!tabItem.isBuiltin) {
       customFolders = customFolders.filter(f => f.id !== folderId && f.name !== name);
@@ -8851,6 +9078,7 @@ function setupWaypointAndFavoritesSystem(map) {
     try {
       const raw = localStorage.getItem('outmap_saved_waypoints');
       savedWaypoints = raw ? JSON.parse(raw) : [];
+      touchSavedWaypoints();
       const rawFolders = localStorage.getItem('outmap_custom_folders');
       customFolders = rawFolders ? sanitizeFolders(JSON.parse(rawFolders)) : [];
       const rawRoutes = localStorage.getItem('outmap_saved_routes');
@@ -8923,6 +9151,10 @@ function importWaypointsIntoFavorites(waypoints, sourceName, mapInstance) {
     });
     addedCount++;
   });
+
+  if (addedCount > 0) {
+    touchSavedWaypoints();
+  }
 
   if (addedCount === 0) {
     alert('文件中点位坐标无效，未能成功导入！');
@@ -9511,6 +9743,45 @@ function getVisibleRoutePointCoordinateKeys() {
   return keys;
 }
 
+function computeRoutePointsSignature() {
+  const parts = [];
+  parts.push(routeStartCoord ? `${routeStartCoord[0].toFixed(5)},${routeStartCoord[1].toFixed(5)}:${routeStartName || ''}` : 'null');
+  parts.push(routeEndCoord ? `${routeEndCoord[0].toFixed(5)},${routeEndCoord[1].toFixed(5)}:${routeEndName || ''}` : 'null');
+  parts.push(String(routeViaPoints.length));
+  for (let i = 0; i < routeViaPoints.length; i++) {
+    const v = routeViaPoints[i];
+    parts.push(v ? `${v.coords ? `${v.coords[0].toFixed(5)},${v.coords[1].toFixed(5)}` : ''}:${v.name || ''}` : 'null');
+  }
+  parts.push(routePointLayersVisible ? '1' : '0');
+  return parts.join('|');
+}
+
+let lastFavHiddenKeysSignature = null;
+function computeFavoriteRouteFilterSignature() {
+  const routeKeys = getVisibleRoutePointCoordinateKeys();
+  if (!Array.isArray(savedWaypoints) || savedWaypoints.length === 0 || routeKeys.size === 0) {
+    return '';
+  }
+  const matched = [];
+  for (let i = 0; i < savedWaypoints.length; i++) {
+    const wp = savedWaypoints[i];
+    if (wp && wp.lng != null && wp.lat != null) {
+      const k = outmapCoordinateKey(wp.lng, wp.lat);
+      if (routeKeys.has(k)) matched.push(k);
+    }
+  }
+  return matched.sort().join(';');
+}
+
+function shouldSyncFavoritesForRoutePoints() {
+  const sig = computeFavoriteRouteFilterSignature();
+  if (lastFavHiddenKeysSignature !== null && sig === lastFavHiddenKeysSignature) {
+    return false;
+  }
+  lastFavHiddenKeysSignature = sig;
+  return true;
+}
+
 function findRoutePointByFeature(feature) {
   if (!feature) return null;
   const role = feature.properties?.role;
@@ -10022,9 +10293,12 @@ function syncRouteMarkersVisualState(mapInstance, force = false, syncFavorites =
   }
   routePointLayerInitPending = false;
   bindRoutePointLayerEvents(m);
-  submitGeoJSONChanges(m.getSource(ROUTE_POINTS_SOURCE_ID), getRoutePointFeatures(), force);
-  // 收藏点与路线点来自两套原生 source；路线变化时同步刷新收藏 source 的跨层去重结果。
-  if (syncFavorites) window.renderWaypointMarkersOnMap?.();
+  const routePointsSig = computeRoutePointsSignature();
+  submitGeoJSONChanges(m.getSource(ROUTE_POINTS_SOURCE_ID), getRoutePointFeatures(), force, routePointsSig);
+  // 收藏点与路线点来自两套原生 source；仅在路线点重合发生变化时才触发收藏 source 的跨层去重刷新。
+  if (syncFavorites && (force || shouldSyncFavoritesForRoutePoints())) {
+    window.renderWaypointMarkersOnMap?.();
+  }
 }
 window.syncRouteMarkersVisualState = syncRouteMarkersVisualState;
 
