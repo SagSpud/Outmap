@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.59';
+const APP_VERSION = '2.0.60';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1656,7 +1656,7 @@ async function initApplication() {
     zoom: 4.45,
     pitch: 50,
     bearing: 0,
-    minZoom: 3.8, // 缩放锁定在中国大陆框架视野，防止无意义过度缩放至极小球体
+    minZoom: 2.0, // 支持大洲大洋宏观视野与全球自由漫游
     maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
     // 不在每次手势结束后让 MapLibre 重新反算 center/zoom。陡峭地形下该反算会把一次
     // 连续滚轮操作改成反向缩放或二次放大；飞掠仍通过 location-camera 的目标高程完成落地。
@@ -1665,7 +1665,7 @@ async function initApplication() {
     // 始终围绕屏幕中心缩放。MapLibre 6.9 对该路径有完整的地形高程冻结/恢复逻辑，
     // 也可避免光标位于屏幕边缘时连续缩放把目标横向带走。
     scrollZoom: { around: 'center' },
-    maxBounds: [[68.0, 10.0], [140.0, 56.0]], // 中国地理框架软约束，原生阻尼回弹防飘出
+    // 解除原中国地理框架 maxBounds 物理锁死，支持全球自由拖动漫游
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
     // Keep parent/child requests alive until their replacement tile is ready.
@@ -1677,7 +1677,7 @@ async function initApplication() {
     refreshExpiredTiles: false,
     localIdeographFontFamily: 'Microsoft YaHei, "PingFang SC", "Noto Sans CJK SC", sans-serif', // 本地系统字体瞬时光栅化，零延迟零丢字零闪烁
     attributionControl: false,
-    renderWorldCopies: false, // 禁用经度环绕复制，削减 50% 无效 Draw Call
+    renderWorldCopies: true, // 允许经度连续环绕，支持跨半球平滑漫游
     maxTileCacheSize: mapPerformance.tileCache,
     style: {
       version: 8,
@@ -2681,7 +2681,7 @@ async function queryLocationCandidates(keyword, owner = window) {
       const isDesktop = typeof window !== 'undefined' && Boolean(window.electronAPI);
       const onlineUrl = isDesktop
         ? `http://127.0.0.1:${localServerPort}/search?q=${encodeURIComponent(raw)}`
-        : `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+        : `https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&limit=10`;
 
       try {
         let resp;
@@ -2690,7 +2690,7 @@ async function queryLocationCandidates(keyword, owner = window) {
         } catch (netErr) {
           if (isDesktop && !ctrl.signal.aborted) {
             // 本地代理不可达时平滑回退直接连接
-            resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&bbox=73.5,18.0,135.1,53.6&limit=10`, { signal: ctrl.signal });
+            resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(raw)}&limit=10`, { signal: ctrl.signal });
           } else {
             throw netErr;
           }
@@ -2714,16 +2714,15 @@ async function queryLocationCandidates(keyword, owner = window) {
         const lat = Number(coords[1]);
         if (isNaN(lng) || isNaN(lat)) return;
 
-        // 严格边界与国家校验：仅限中国本土
-        const inChinaBbox = lng >= 73.0 && lng <= 136.0 && lat >= 18.0 && lat <= 54.0;
-        const isCountryCn = !p.countrycode || String(p.countrycode).toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
-        if (!inChinaBbox || !isCountryCn) return;
+        // 全球有效坐标校验
+        if (lng < -180 || lng > 180 || lat < -85 || lat > 85) return;
 
+        const isCountryCn = !p.countrycode || String(p.countrycode).toUpperCase() === 'CN' || p.country === 'China' || p.country === '中国';
         const name = String(p.name || p.street || p.city || raw);
-        const parts = [p.state, p.city, p.district, p.locality]
+        const parts = [isCountryCn ? null : p.country, p.state, p.city, p.district, p.locality]
           .filter(Boolean)
           .filter(s => s !== 'China' && s !== '中国');
-        const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : '中国地点');
+        const cleanDesc = parts.join(' · ') || (p.type ? `OSM ${p.type}` : (isCountryCn ? '中国地点' : '地点'));
         const desc = cleanDesc.replace(/^中国\s*[·,\-–]\s*/, '').replace(/China\s*[·,\-–]\s*/i, '');
 
         let type = 'poi';
@@ -6346,10 +6345,15 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
       foundProv = pName;
     }
   }
+  // 若距离最近中国地级市中心超过 3.2° (约 350km)，视为境外区域，不误冠国内城市名
+  if (minCityDist > 3.2) {
+    foundCity = '';
+    foundProv = '';
+  }
 
   // 3. 从渲染切片探查微观县/区/旗/镇/地标 (仅右键菜单需要精准县级，状态栏漫游跳过耗时查询)
   let foundCounty = '';
-  if (onlyCityCounty && point) {
+  if (point) {
     try {
       const bbox = [[point.x - 120, point.y - 120], [point.x + 120, point.y + 120]];
       const feats = map.queryRenderedFeatures(bbox, {
@@ -6360,15 +6364,15 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
         for (let i = 0; i < feats.length; i++) {
           const f = feats[i];
           const name = f.properties['name:zh'] || f.properties.name_zh || f.properties.name;
-          if (!name || name === foundCity || name === foundProv) continue;
+          if (!name || (foundCity && name === foundCity) || (foundProv && name === foundProv)) continue;
           let dist = 100;
           if (f.geometry && f.geometry.type === 'Point') {
             const p = map.project(f.geometry.coordinates);
             dist = Math.hypot(p.x - point.x, p.y - point.y);
           }
-          // 优先匹配县、区、旗、市、镇
+          // 优先匹配行政区名与知名地点
           const isCounty = /[县市区旗镇乡街道]$/.test(name);
-          const weight = isCounty ? dist : dist * 1.8;
+          const weight = isCounty ? dist : dist * 1.5;
           if (weight < bestDist) {
             bestDist = weight;
             foundCounty = name;
@@ -6378,7 +6382,7 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
     } catch (e) {}
   }
 
-  // 右键快捷菜单与途径点专用模式：绝不显示“省”，精准显示“市、县/区”两级
+  // 右键快捷菜单与途径点专用模式：精准显示“市、县/区”两级或境外地名
   if (onlyCityCounty) {
     if (foundCity && foundCounty) {
       if (foundCity.includes(foundCounty) || foundCounty.includes(foundCity)) {
@@ -6394,7 +6398,7 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
     }
   }
 
-  // 底部状态栏完整模式：区域: 省 · 市 · 县
+  // 底部状态栏完整模式：区域: 省 · 市 · 县 或 境外地点
   if (foundProv) {
     if (foundCity && foundCounty) {
       return `区域: ${foundProv} · ${foundCity} · ${foundCounty}`;
@@ -6404,9 +6408,11 @@ function resolveLocationInfo(map, lngLat, point, onlyCityCounty = false) {
       return `区域: ${foundProv} · ${foundCounty}`;
     }
     return `区域: ${foundProv}`;
+  } else if (foundCounty) {
+    return `区域: ${foundCounty}`;
   }
 
-  return '区域: 全国';
+  return zoom >= 5.0 ? '区域: 户外探索' : '区域: 全球总览';
 }
 window.resolveLocationInfo = resolveLocationInfo;
 

@@ -901,7 +901,7 @@ function startLocalTileServer() {
               ? AbortSignal.any([upstreamSearchController.signal, timeoutSignal])
               : upstreamSearchController.signal;
 
-            const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+            const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&limit=10`;
             const photonResp = await fetch(photonUrl, {
               signal: combinedSearchSignal,
               headers: { 'User-Agent': `Outmap/${app.getVersion()}` }
@@ -1143,28 +1143,7 @@ function startLocalTileServer() {
             if (error.code !== 'ENOENT') throw error;
           }
 
-          // 3. 瓦片策略限制：非中国区域，L1~L10 预览层级允许在线加载并缓存；
-          // L11~L14+ 缩放时禁止在线下载与写盘，避免过度占用磁盘空间
-          if (z >= 11 && !isTileInChina(z, x, y)) {
-            if (type === 'dem') {
-              res.writeHead(200, {
-                'Content-Type': 'image/png',
-                'Content-Length': EMPTY_DEM_TILE_BUFFER.length,
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'X-Tile-Status': 'non-china-highzoom-flat'
-              });
-              res.end(EMPTY_DEM_TILE_BUFFER);
-              return;
-            }
-            res.writeHead(204, {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'X-Tile-Status': 'non-china-highzoom-blocked'
-            });
-            res.end();
-            return;
-          }
-
-          // 4. 在线回源获取并静默写盘 (中国区域或 L1~L10 预览层级)
+          // 3. 在线回源获取并静默写盘 (支持全球任意区域与全层级，即看即缓存)
           // 具备 In-flight 并发去重 + 12秒超时 + 1次自动重试
           let buf = null;
           try {
@@ -1174,6 +1153,15 @@ function startLocalTileServer() {
           if (buf && buf.length > 0) {
             setCachedTile(cacheKey, buf);
             respondWithBuffer(req, res, cacheKey, buf, contentType, { 'X-Tile-Source': 'online-cached' });
+            return;
+          }
+
+          // 4. 若在线源无切片或开阔大洋 DEM 无高程，DEM 优雅回退为 0 米海平面切片
+          if (type === 'dem') {
+            setCachedTile(cacheKey, EMPTY_DEM_TILE_BUFFER);
+            respondWithBuffer(req, res, cacheKey, EMPTY_DEM_TILE_BUFFER, 'image/png', {
+              'X-Tile-Source': 'ocean-zero-elevation'
+            });
             return;
           }
         }
@@ -1583,19 +1571,7 @@ app.whenReady().then(async () => {
         }
       } catch (_) {}
 
-      // 4. 非中国区域 DEM 边界平滑补平
-      if (type === 'dem' && z >= 11 && !isTileInChina(z, x, y)) {
-        return new Response(EMPTY_DEM_TILE_BUFFER, {
-          status: 200,
-          headers: {
-            'Content-Type': 'image/png',
-            'Content-Length': String(EMPTY_DEM_TILE_BUFFER.length),
-            'Cache-Control': 'no-cache'
-          }
-        });
-      }
-
-      // 5. 在线回退：通过本地 HTTP 服务统一处理在线代理与增量缓存
+      // 4. 在线回退：通过本地 HTTP 服务统一处理在线代理与增量缓存（全球即看即缓存）
       const httpFallbackUrl = `http://127.0.0.1:${localServerPort}/${type}/${z}/${x}/${yFile}`;
       const httpResp = await fetch(httpFallbackUrl);
       const ab = await httpResp.arrayBuffer();
@@ -1935,7 +1911,7 @@ app.whenReady().then(async () => {
       : ctrl.signal;
 
     try {
-      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=73.5,18.0,135.1,53.6&limit=10`;
+      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10`;
       const resp = await fetch(photonUrl, {
         signal: combinedSignal,
         headers: { 'User-Agent': `Outmap/${app.getVersion()}` }
