@@ -203,10 +203,93 @@ async function run() {
   check(viewingModeTest.toastCount === 0, 'no 浏览模式 toasts should be fired');
   console.log('✓ Viewing mode zero-toast and flight auto-dismiss validated');
 
+  // Test 7: Context menu mutual exclusivity with inspect card
+  const contextMenuExclusivityTest = await win.webContents.executeJavaScript(`(() => {
+    const map = window.mapInstance;
+    const ctxMenu = document.getElementById('map-context-menu');
+
+    // 1. First trigger general context menu
+    window.showContextMenuForLocation({ lng: 120.15, lat: 30.25 }, { x: 200, y: 200 });
+    const ctxMenuOpenInitially = ctxMenu && ctxMenu.style.display !== 'none';
+
+    // 2. Now trigger route point inspect card
+    window.showRoutePointInspectCard(map, {
+      role: 'via',
+      index: 0,
+      coords: [120.16, 30.26],
+      name: '途径点 1 测试'
+    }, { x: 220, y: 220 });
+
+    const ctxMenuClosedNow = !ctxMenu || ctxMenu.style.display === 'none' || ctxMenu.classList.contains('ctx-closing');
+    const inspectCardOpen = Boolean(document.querySelector('.route-point-inspect-card'));
+
+    // 3. Now trigger general context menu again - inspect card should be hidden
+    window.showContextMenuForLocation({ lng: 120.15, lat: 30.25 }, { x: 200, y: 200 });
+    const inspectCardHidden = !document.querySelector('.route-point-inspect-card') || !document.querySelector('.route-point-inspect-card').classList.contains('visible');
+
+    // Cleanup
+    if (typeof window.smoothCloseContextMenu === 'function') window.smoothCloseContextMenu();
+    window.hideRoutePointInspectCard();
+
+    return {
+      ctxMenuOpenInitially,
+      ctxMenuClosedNow,
+      inspectCardOpen,
+      inspectCardHidden
+    };
+  })()`);
+  check(contextMenuExclusivityTest.ctxMenuOpenInitially, 'context menu must be open initially');
+  check(contextMenuExclusivityTest.ctxMenuClosedNow, 'context menu must be closed when inspect card opens');
+  check(contextMenuExclusivityTest.inspectCardOpen, 'inspect card must be open');
+  check(contextMenuExclusivityTest.inspectCardHidden, 'inspect card must be hidden when context menu opens');
+  console.log('✓ Context menu & inspect card mutual exclusivity validated');
+
+  // Test 8: Viewing mode routePanel strictly stays hidden
+  const viewingModePanelIsolationTest = await win.webContents.executeJavaScript(`(() => {
+    const map = window.mapInstance;
+    const routePanel = document.getElementById('route-panel');
+
+    // Simulate viewing a saved route snapshot
+    const sampleRoute = {
+      id: 'test_route_viewing',
+      name: '测试路线',
+      start: { coords: [120.10, 30.20], name: '测试起点' },
+      viaPoints: [{ coords: [120.15, 30.25], name: '途径点 1 卓达广场' }],
+      end: { coords: [120.20, 30.30], name: '测试终点' },
+      path: [[120.10, 30.20], [120.15, 30.25], [120.20, 30.30]]
+    };
+
+    window.applySavedRouteSnapshot(sampleRoute, map, 'viewing');
+    const panelHiddenAfterLoad = !routePanel || routePanel.style.display === 'none';
+
+    // Inspect waypoint on the map in viewing mode
+    window.showRoutePointInspectCard(map, {
+      role: 'via',
+      index: 0,
+      coords: [120.15, 30.25],
+      name: '途径点 1 卓达广场'
+    });
+
+    const panelStillHiddenAfterInspect = !routePanel || routePanel.style.display === 'none';
+
+    // Exit
+    if (typeof window.exitRouteEditMode === 'function') window.exitRouteEditMode(false);
+
+    return {
+      panelHiddenAfterLoad,
+      panelStillHiddenAfterInspect
+    };
+  })()`);
+  check(viewingModePanelIsolationTest.panelHiddenAfterLoad, 'route-panel must be hidden when viewing saved route');
+  check(viewingModePanelIsolationTest.panelStillHiddenAfterInspect, 'route-panel must stay hidden when inspecting via points in viewing mode');
+  console.log('✓ Viewing mode routePanel isolation validated');
+
   clearTimeout(watchdog);
   console.log('[Route Point Inspect Test] All tests passed 100%!');
-  win.close();
-  app.quit();
+  try { win.destroy(); } catch (_) {}
+  setTimeout(() => {
+    process.exit(0);
+  }, 100);
 }
 
 app.whenReady().then(run).catch(err => {

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.58';
+const APP_VERSION = '2.0.59';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -3164,7 +3164,10 @@ function setupOfficeHeaderInteractions(map) {
   }
 
   // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (全量流体平滑动效退出)
-  map.on('click', () => {
+  map.on('click', e => {
+    if (e?.originalEvent?._outmapHandled) return;
+    const activeRouteLayers = ROUTE_POINT_LAYER_IDS.filter(id => map.getLayer(id));
+    if (e?.point && activeRouteLayers.length && map.queryRenderedFeatures(e.point, { layers: activeRouteLayers }).length) return;
     if (pickingRoutePt) return;
 
     if (typeof hideRoutePointInspectCard === 'function') {
@@ -6590,6 +6593,7 @@ function updateRouteEditUIState(routeOrNull) {
     if (routeEditingBanner) routeEditingBanner.style.display = 'flex';
     if (routeEditingNameTxt) routeEditingNameTxt.innerText = route.name || '已保存路线';
 
+    const routePanel = document.getElementById('route-panel');
     if (routeInteractionState === 'viewing') {
       if (routeEditingBadge) {
         routeEditingBadge.innerText = '查看中';
@@ -6604,6 +6608,8 @@ function updateRouteEditUIState(routeOrNull) {
         btnSaveRouteTrigger.title = '进入编辑模式以修改路线点位';
       }
       if (btnSaveAsNewRoute) btnSaveAsNewRoute.style.display = 'none';
+      // 查看模式下严格保持收起路线编辑面板，纯净浏览地图
+      if (routePanel) routePanel.style.display = 'none';
     } else { // editing
       if (routeEditingBadge) {
         routeEditingBadge.innerText = '编辑中';
@@ -6620,6 +6626,11 @@ function updateRouteEditUIState(routeOrNull) {
       if (btnSaveAsNewRoute) btnSaveAsNewRoute.style.display = 'inline-block';
       if (modalTitleEl) modalTitleEl.innerText = '编辑保存路线';
       if (btnConfirmSaveRoute) btnConfirmSaveRoute.innerText = '保存修改';
+      // 仅在明确进入编辑模式时才展开编辑面板
+      if (routePanel && routePanel.style.display === 'none') {
+        closeConflictingBottomPanels('route-panel');
+        showElement(routePanel, 'flex');
+      }
     }
   } else {
     routeInteractionState = 'idle';
@@ -6949,9 +6960,15 @@ function ensureSavedRouteLayers(map) {
         }
       });
       map.on('click', layerId, event => {
+        if (event.originalEvent?._outmapHandled) return;
         if (isPickingPoint || pickingRoutePt) return;
+        const activeRouteLayers = ROUTE_POINT_LAYER_IDS.filter(id => map.getLayer(id));
+        if (activeRouteLayers.length && map.queryRenderedFeatures(event.point, { layers: activeRouteLayers }).length) return;
         const routeId = event.features?.[0]?.properties?.id;
-        if (routeId) loadSavedRoute(routeId, map);
+        if (routeId) {
+          event.originalEvent._outmapHandled = true;
+          loadSavedRoute(routeId, map, 'viewing');
+        }
       });
     });
   }
@@ -10085,6 +10102,9 @@ function showRoutePointInspectCard(map, pointInfo, screenPoint) {
     routePointInspectCardEl.className = 'route-point-inspect-card';
     map.getContainer().appendChild(routePointInspectCardEl);
   }
+  if (typeof smoothCloseContextMenu === 'function') {
+    smoothCloseContextMenu();
+  }
 
   currentInspectedPoint = { coords, role, index: pointInfo.index, progress: pointInfo.progress, name, ele };
 
@@ -10476,11 +10496,15 @@ function bindRoutePointLayerEvents(map) {
     });
     map.on('click', layerId, e => {
       if (suppressNextClick) { suppressNextClick = false; return; }
-      if (e.originalEvent) e.originalEvent._outmapHandled = true;
+      if (e.originalEvent) {
+        e.originalEvent._outmapHandled = true;
+        e.originalEvent.stopPropagation?.();
+      }
       e.preventDefault?.();
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
       hideRoutePointInspectCard();
+      smoothCloseContextMenu();
       const curZoom = Number.isFinite(map?.getZoom?.()) ? map.getZoom() : 12.0;
       flyToLocationPrecisely(map, point.coords, {
         zoom: curZoom < 12.0 ? 12.0 : curZoom,
@@ -10488,15 +10512,20 @@ function bindRoutePointLayerEvents(map) {
         centered: true,
         elevation: point.ele ?? point.elevation
       });
-      // 处于浏览模式时：纯粹平滑聚焦飞掠，不弹出卡片遮挡视线
-      // 仅在明确的编辑模式下，点击点位才自动弹出编辑操作卡片（可执行移除途径点等）
-      if (routeInteractionState === 'editing') {
-        showRoutePointInspectCard(map, point, e.point);
+      // 浏览模式下确保路线编辑面板绝不被意外展开
+      if (routeInteractionState === 'viewing') {
+        const routePanel = document.getElementById('route-panel');
+        if (routePanel) routePanel.style.display = 'none';
       }
+      showRoutePointInspectCard(map, point, e.point);
     });
     map.on('contextmenu', layerId, e => {
-      if (e.originalEvent) e.originalEvent._outmapHandled = true;
+      if (e.originalEvent) {
+        e.originalEvent._outmapHandled = true;
+        e.originalEvent.stopPropagation?.();
+      }
       e.preventDefault?.();
+      smoothCloseContextMenu();
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
       showRoutePointInspectCard(map, point, e.point);
@@ -11119,28 +11148,28 @@ function renderViaList(mapInstance) {
 }
 
 // 添加途径点并自动刷新规划 (高德 / Apple Maps 递进模式：弱化固定终点，支持在末尾持续追加点)
-function addViaPoint(map, coords, label, zoom = null) {
+function addViaPoint(map, coords, label, zoom = null, options = {}) {
   if (typeof window.clearLandingMarker === 'function') window.clearLandingMarker();
   const m = map || currentOutdoorMap;
   const targetZoom = Number.isFinite(zoom) ? Math.min(12.0, zoom) : 12.0;
 
   // 1. 若起点尚未设定且传入了有效坐标，直接作为起点建立路线之首
   if (!routeStartCoord && coords) {
-    setRouteStartPoint(m, coords, label, targetZoom);
+    setRouteStartPoint(m, coords, label, targetZoom, options);
     return;
   }
 
   // 2. 若已有起点，但尚未设定终点且当前没有途径点，且传入了有效坐标：
   //    此点即为当前二点航段的终点（预览规划时以最后一点为终点）
   if (coords && !routeEndCoord && (!routeViaPoints || routeViaPoints.length === 0)) {
-    setRouteEndPoint(m, coords, label, targetZoom, true);
+    setRouteEndPoint(m, coords, label, targetZoom, true, options);
     return;
   }
 
   // 3. 若已有起终点（或已有有效终点），用户再次添加有效点时（高德 / Apple Maps 顺延递进逻辑）：
   //    弱化终点的固定概念：原终点顺延沉淀为途径点，新添加的有效点接替成为最新终点！
   //    使得路线始终单向向前延伸：起 -> 途1 -> 途2 -> ... -> 最新终点
-  if (coords && routeEndCoord) {
+  if (coords && (routeEndCoord || (routeViaPoints && routeViaPoints.length > 0))) {
     const prevEndCoord = routeEndCoord;
     const prevEndName = routeEndName;
     const prevEndZoom = routeEndZoom;
@@ -11164,7 +11193,7 @@ function addViaPoint(map, coords, label, zoom = null) {
     });
 
     routeEndMarker = null; // 旧 marker 已安全移交途径点
-    setRouteEndPoint(m, coords, label, targetZoom, true);
+    setRouteEndPoint(m, coords, label, targetZoom, true, options);
     return;
   }
 
@@ -11181,9 +11210,11 @@ function addViaPoint(map, coords, label, zoom = null) {
 
   renderViaList(m);
   syncRouteMarkersVisualState(m);
-  closeConflictingBottomPanels('route-panel');
-  const routePanel = document.getElementById('route-panel');
-  showElement(routePanel, 'flex');
+  if (options.showPanel !== false && routeInteractionState !== 'viewing') {
+    closeConflictingBottomPanels('route-panel');
+    const routePanel = document.getElementById('route-panel');
+    showElement(routePanel, 'flex');
+  }
 
   // 自动平滑滚动到底部最新添加的途径点处，彻底免除多途径点时手动滚动翻找
   const pointsBox = document.querySelector('.route-points-box');
@@ -11227,8 +11258,10 @@ function setRouteStartPoint(map, coords, label, zoom = null, options = {}) {
   if (startInput) startInput.value = routeStartName;
   if (routeStartMarker) routeStartMarker.remove();
   routeStartMarker = null;
-  closeConflictingBottomPanels('route-panel');
-  showElement(routePanel, 'flex');
+  if (options.showPanel !== false && routeInteractionState !== 'viewing') {
+    closeConflictingBottomPanels('route-panel');
+    showElement(routePanel, 'flex');
+  }
   bindStartAndEndRowsDrag(m);
   syncRouteMarkersVisualState(m);
   if (m && options.schedule !== false) scheduleRoutePlan(m);
@@ -11278,8 +11311,10 @@ function setRouteEndPoint(map, coords, label, zoom = null, isFromVia = false, op
   routeEndMarker = null;
   renderViaList(m);
   syncRouteMarkersVisualState(m);
-  closeConflictingBottomPanels('route-panel');
-  showElement(routePanel, 'flex');
+  if (options.showPanel !== false && routeInteractionState !== 'viewing') {
+    closeConflictingBottomPanels('route-panel');
+    showElement(routePanel, 'flex');
+  }
   bindStartAndEndRowsDrag(m);
   if (m && options.schedule !== false) scheduleRoutePlan(m);
 }
@@ -13171,19 +13206,19 @@ function applySavedRouteSnapshot(routeSnapshot, map, initialMode = 'viewing', or
 
   // 还原起点
   if (route.start && route.start.coords) {
-    setRouteStartPoint(map, route.start.coords, route.start.name || '起点');
+    setRouteStartPoint(map, route.start.coords, route.start.name || '起点', null, { schedule: false, showPanel: initialMode === 'editing' });
   }
 
   // 还原途径点
   if (route.viaPoints && route.viaPoints.length > 0) {
     route.viaPoints.forEach((via, i) => {
-      addViaPoint(map, via.coords, via.name || `途径点 ${i + 1}`);
+      addViaPoint(map, via.coords, via.name || `途径点 ${i + 1}`, null, { schedule: false, showPanel: initialMode === 'editing' });
     });
   }
 
   // 还原终点
   if (route.end && route.end.coords) {
-    setRouteEndPoint(map, route.end.coords, route.end.name || '终点');
+    setRouteEndPoint(map, route.end.coords, route.end.name || '终点', null, false, { schedule: false, showPanel: initialMode === 'editing' });
   }
 
   // 关键：彻底取消因设置起点/途径点/终点而排队的后台自动重新算路定时器，
@@ -13206,10 +13241,14 @@ function applySavedRouteSnapshot(routeSnapshot, map, initialMode = 'viewing', or
   clearTimeout(routePlanTimer);
   routePlanTimer = null;
 
-  // 关闭其余右下角抽屉，展开路线规划面板
-  closeConflictingBottomPanels('route-panel');
+  // 仅在明确处于编辑模式时展开路线规划编辑面板；浏览模式下保持收起，纯净浏览地图
   const routePanel = document.getElementById('route-panel');
-  showElement(routePanel, 'flex');
+  if (routeInteractionState === 'editing') {
+    closeConflictingBottomPanels('route-panel');
+    showElement(routePanel, 'flex');
+  } else if (routePanel) {
+    routePanel.style.display = 'none';
+  }
 
   // 标定查看状态并更新顶部提示条与保存按钮视觉反馈
   updateRouteEditUIState(route);
@@ -14112,6 +14151,11 @@ function setupMapContextMenu(map) {
       clearLandingMarker();
     }
 
+    // 关闭路线点查看卡片，防止与右键上下文菜单重叠
+    if (typeof hideRoutePointInspectCard === 'function') {
+      hideRoutePointInspectCard();
+    }
+
     // 同时关闭已展开的搜索浮窗与搜索面板
     const searchPop = document.getElementById('search-popover');
     if (searchPop && searchPop.style.display !== 'none') {
@@ -14176,6 +14220,24 @@ function setupMapContextMenu(map) {
         map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-icons'] }).length) return;
     if (map.getLayer('outmap-favorite-clusters') &&
         map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-clusters'] }).length) return;
+    // 路线点有专属卡片，阻断普通地点菜单唤起，彻底杜绝与地点菜单重叠
+    const activeRouteLayers = ROUTE_POINT_LAYER_IDS.filter(id => map.getLayer(id));
+    if (activeRouteLayers.length) {
+      const routeFeatures = map.queryRenderedFeatures(e.point, { layers: activeRouteLayers });
+      if (routeFeatures.length > 0) {
+        if (e.originalEvent) {
+          e.originalEvent._outmapHandled = true;
+          e.originalEvent.stopPropagation?.();
+        }
+        e.preventDefault?.();
+        const point = findRoutePointByFeature(routeFeatures[0]);
+        if (point?.coords) {
+          smoothCloseContextMenu();
+          showRoutePointInspectCard(map, point, e.point);
+        }
+        return;
+      }
+    }
     if (typeof window.clearLandingMarker === 'function') {
       window.clearLandingMarker();
     } else if (typeof clearLandingMarker === 'function') {
@@ -14203,6 +14265,8 @@ function setupMapContextMenu(map) {
     // 收藏点有自己的长按菜单，不能再叠加普通地图菜单。
     if (map.getLayer('outmap-favorite-icons') &&
         map.queryRenderedFeatures(e.point, { layers: ['outmap-favorite-icons'] }).length) return;
+    const activeRouteLayers = ROUTE_POINT_LAYER_IDS.filter(id => map.getLayer(id));
+    if (activeRouteLayers.length && map.queryRenderedFeatures(e.point, { layers: activeRouteLayers }).length) return;
     if (e.points && e.points.length > 1) {
       if (longPressTimer) clearTimeout(longPressTimer);
       longPressTimer = null;
