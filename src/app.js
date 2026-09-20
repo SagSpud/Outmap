@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.57';
+const APP_VERSION = '2.0.58';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2894,8 +2894,11 @@ function flyToLocationPrecisely(map, targetCoords, options = {}) {
   const webMode = typeof window !== 'undefined' && !window.electronAPI;
 
   if (window.OutmapLocationCamera?.fly) {
+    const curZoom = Number.isFinite(map.getZoom?.()) ? map.getZoom() : 12.0;
+    const targetZoom = Number.isFinite(flyOpts.zoom) ? flyOpts.zoom : (curZoom < 12.0 ? 12.0 : curZoom);
     window.OutmapLocationCamera.fly(map, [lng, lat], {
       ...flyOpts,
+      zoom: targetZoom,
       prepareTerrain: flyOpts.prepareTerrain || window.OutmapPrepareTerrainAt,
       resolveTerrainElevation: flyOpts.resolveTerrainElevation || window.OutmapResolvePreparedTerrainElevation,
       coldDuration: flyOpts.coldDuration || (webMode ? 1300 : 1100),
@@ -7379,10 +7382,11 @@ function setupWaypointAndFavoritesSystem(map) {
       }
       selectedFavoriteFeatureId = feature.id;
       map.setFeatureState({ source: FAVORITES_SOURCE_ID, id: feature.id }, { selected: true });
+      const curZoom = Number.isFinite(map?.getZoom?.()) ? map.getZoom() : 12.0;
       flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-        zoom: 12.0,
+        zoom: curZoom < 12.0 ? 12.0 : curZoom,
         pitch: isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52),
-        centered: false,
+        centered: true,
         elevation: wp.ele ?? wp.elevation
       });
       // 所有平台的普通单击/轻触都只负责定位。管理菜单严格由桌面右键或
@@ -7966,10 +7970,11 @@ function setupWaypointAndFavoritesSystem(map) {
       if (!wp) return;
       const startFavoriteFlight = () => {
         const curPitch = isPitchLocked ? map.getPitch() : Math.min(map.getPitch() ?? 50, 52);
+        const curZoom = Number.isFinite(map?.getZoom?.()) ? map.getZoom() : 12.0;
         flyToLocationPrecisely(map, [wp.lng, wp.lat], {
-          zoom: 12.0,
+          zoom: curZoom < 12.0 ? 12.0 : curZoom,
           pitch: curPitch,
-          centered: false,
+          centered: true,
           elevation: wp.ele ?? wp.elevation
         });
       };
@@ -10167,10 +10172,11 @@ function showRoutePointInspectCard(map, pointInfo, screenPoint) {
   routePointInspectCardEl.querySelector('.btn-inspect-focus')?.addEventListener('click', (e) => {
     e.stopPropagation();
     hideRoutePointInspectCard();
+    const curZoom = Number.isFinite(map?.getZoom?.()) ? map.getZoom() : 12.0;
     flyToLocationPrecisely(map, coords, {
-      zoom: 12.0,
+      zoom: curZoom < 12.0 ? 12.0 : curZoom,
       pitch: map.getPitch() ?? 50,
-      centered: false,
+      centered: true,
       elevation: ele
     });
   });
@@ -10475,10 +10481,11 @@ function bindRoutePointLayerEvents(map) {
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
       hideRoutePointInspectCard();
+      const curZoom = Number.isFinite(map?.getZoom?.()) ? map.getZoom() : 12.0;
       flyToLocationPrecisely(map, point.coords, {
-        zoom: 12.0,
+        zoom: curZoom < 12.0 ? 12.0 : curZoom,
         pitch: map.getPitch() ?? 50,
-        centered: false,
+        centered: true,
         elevation: point.ele ?? point.elevation
       });
       // 处于浏览模式时：纯粹平滑聚焦飞掠，不弹出卡片遮挡视线
@@ -11076,10 +11083,11 @@ function renderViaList(mapInstance) {
     if (isNew) {
       tagEl.addEventListener('click', () => {
         if (row._map && row._via.coords) {
+          const curZoom = Number.isFinite(row._map?.getZoom?.()) ? row._map.getZoom() : 12.0;
           flyToLocationPrecisely(row._map, row._via.coords, {
-            zoom: 12.0,
+            zoom: curZoom < 12.0 ? 12.0 : curZoom,
             pitch: row._map.getPitch() ?? 50,
-            centered: false,
+            centered: true,
             elevation: row._via?.ele ?? row._via?.elevation
           });
         }

@@ -65,19 +65,37 @@
     const distKm = Math.hypot(dLngKm, dLatKm);
     const deltaZoom = Math.abs(curZoom - targetZoom);
 
-    // 2. 屏幕像素视口距离判定
+    // 2. 屏幕像素视口距离判定与局部平移判断
     let isLocalPan = false;
+    let isTargetInViewport = false;
     try {
       if (typeof map.project === 'function') {
         const p1 = map.project(curCenter);
         const p2 = map.project(targetCoords);
-        const screenDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
         const container = map.getContainer?.();
-        const viewDiag = container
-          ? Math.hypot(container.clientWidth || 800, container.clientHeight || 600)
-          : 1000;
-        // 若在当前屏幕视野内 (0.45对角线) 且缩放级差很小，视为局部平移微调
-        isLocalPan = screenDist < viewDiag * 0.45 && deltaZoom < 0.8;
+        const width = container?.clientWidth || 800;
+        const height = container?.clientHeight || 600;
+        const viewDiag = Math.hypot(width, height);
+        const screenDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+
+        // 目标点是否在当前视野或其邻域内 (20% 边缘裕度)
+        isTargetInViewport = (
+          p2.x >= -width * 0.2 &&
+          p2.x <= width * 1.2 &&
+          p2.y >= -height * 0.2 &&
+          p2.y <= height * 1.2
+        );
+
+        // 判定是否为局部平移微调/近距平滑滑行：
+        // 必须在近距地理范围 (distKm <= 35km) 内，且：
+        // (1) 目标点在屏幕视野内且缩放级差 <= 2.0；或
+        // (2) 屏幕像素距离在 1.2 倍对角线以内且缩放级差 <= 1.5；或
+        // (3) 超近距微调 (distKm < 2km && deltaZoom <= 2.5)
+        if (distKm <= 35) {
+          isLocalPan = (isTargetInViewport && deltaZoom <= 2.0) ||
+                       (screenDist < viewDiag * 1.2 && deltaZoom <= 1.5) ||
+                       (distKm < 2.0 && deltaZoom <= 2.5);
+        }
       }
     } catch (_) {}
 
@@ -94,6 +112,7 @@
       distKm,
       deltaZoom,
       isLocalPan,
+      isTargetInViewport,
       duration: adaptiveDuration
     };
   }
@@ -160,6 +179,7 @@
     const bearing = Number.isFinite(options.bearing) ? options.bearing : map.getBearing();
     const reduced = global.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const flight = computeAdaptiveFlight(map, coords, zoom);
+    const nearby = flight.isLocalPan || (flight.distKm <= 35 && (flight.isTargetInViewport || flight.deltaZoom <= 1.5));
     const duration = reduced ? 0 : Math.max(0, Number.isFinite(options.duration) ? options.duration : flight.duration);
     const desiredAnchor = anchor(map, options.centered);
     let terrain;
@@ -259,7 +279,9 @@
         // anchor against 3D ground. The reference height is immutable and the
         // correction converges once; there is no final resample or second move
         // that can pull the camera after arrival.
-        if (easingProgress > 0.72
+        // 近距/视野内平滑滑行（nearby）完全依托 MapLibre 原生相机解算器，杜绝高频 setLocationAtPoint 导致镜头落地抽搐抖动
+        if (!nearby
+          && easingProgress > 0.72
           && typeof transform.setLocationAtPoint === 'function'
           && typeof transform.locationToScreenPoint === 'function') {
           try {
@@ -322,7 +344,6 @@
       dispose(true);
     });
 
-    const nearby = flight.isLocalPan || (flight.distKm < 1.2 && flight.deltaZoom < 0.6);
     const needsLoadingState = flight.distKm > 200 || flight.deltaZoom > 3.5;
     if (needsLoadingState) setFlightLoadState(true);
 
