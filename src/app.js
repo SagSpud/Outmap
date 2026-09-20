@@ -6967,6 +6967,7 @@ if (typeof window !== 'undefined') {
   window.geoJSONRenderCache = geoJSONRenderCache;
   window.savedRouteGeometryCache = savedRouteGeometryCache;
   window.routeOverlapDegreeCache = routeOverlapDegreeCache;
+  window.savedRoutesFeatureCollection = savedRoutesFeatureCollection;
 }
 
 function renderSavedRoutesOnMap(mapInstance = currentOutdoorMap) {
@@ -8091,6 +8092,7 @@ function setupWaypointAndFavoritesSystem(map) {
 
     favList.appendChild(fragment);
   };
+  window.renderFavoritesList = renderFavoritesList;
 
   // 2. 收藏路线右键菜单与容器级事件委托
   const showRouteContextMenu = (route, x, y, mapInstance) => {
@@ -12893,6 +12895,17 @@ if (typeof window !== 'undefined') {
     savedRoutes = Array.isArray(list) ? list : [];
     if (typeof renderSavedRoutesOnMap === 'function') {
       try { renderSavedRoutesOnMap(); } catch (_) {}
+    }
+  };
+  window.getSavedWaypoints = () => savedWaypoints;
+  window.setSavedWaypoints = list => {
+    savedWaypoints = Array.isArray(list) ? list : [];
+    touchSavedWaypoints();
+    if (typeof window.renderWaypointMarkersOnMap === 'function') {
+      try { window.renderWaypointMarkersOnMap(); } catch (_) {}
+    }
+    if (typeof window.renderFavoritesList === 'function') {
+      try { window.renderFavoritesList(); } catch (_) {}
     }
   };
 }
