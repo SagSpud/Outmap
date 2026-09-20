@@ -3153,6 +3153,34 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   transition: transform 0.08s ease;
 }
 
+/* 收藏路线查看态：保留玻璃质感与浏览交互，只弱化真正会修改路线的控件。 */
+.route-viewing-readonly .route-pt-input[readonly] {
+  color: #334155;
+  cursor: default;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.route-viewing-readonly .route-mode-btn:disabled,
+.route-viewing-readonly .btn-drag-handle:disabled,
+.route-viewing-readonly .btn-via-del:disabled,
+.route-viewing-readonly #btn-pick-via-inline:disabled,
+.route-viewing-readonly #btn-calc-route:disabled,
+.route-viewing-readonly #btn-route-import-trigger:disabled,
+.route-viewing-readonly #btn-add-via-inline.is-disabled,
+.route-viewing-readonly .via-drag-handle.is-disabled {
+  opacity: 0.46;
+  cursor: default !important;
+  pointer-events: none;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.route-viewing-readonly .route-mode-btn.active:disabled {
+  opacity: 0.72;
+  color: #0369a1;
+  background: rgba(255, 255, 255, 0.86);
+}
+
 #btn-save-route-trigger.is-editing {
   background: #2563eb !important;
   color: #ffffff !important;
@@ -4302,6 +4330,16 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   border-color: #2563eb;
   background: rgba(37, 99, 235, 0.03);
   box-shadow: 0 0 0 1px #2563eb;
+}
+
+.fav-route-card.is-viewing-route {
+  border-color: rgba(2, 132, 199, 0.58);
+  background: rgba(2, 132, 199, 0.035);
+  box-shadow: 0 0 0 1px rgba(2, 132, 199, 0.32);
+}
+
+.fav-route-card.is-viewing-route .fav-route-editing-indicator {
+  background: #0284c7;
 }
 
 .fav-route-editing-indicator {
@@ -7231,6 +7269,4 @@ body.dark-mode .fav-hover-tooltip .fav-tooltip-ele {
   border-bottom-left-radius: 12px !important;
   border-bottom-right-radius: 12px !important;
 }
-
-
 

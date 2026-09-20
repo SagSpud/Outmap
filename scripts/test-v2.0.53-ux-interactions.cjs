@@ -111,11 +111,13 @@ async function runTests() {
       // 输入关键字 "黄山"
       searchInput.value = '黄山';
       searchInput.dispatchEvent(new Event('input'));
+      await new Promise(resolve => requestAnimationFrame(() => resolve()));
       const ptsCountAfterSearch = document.querySelectorAll('#fav-items-list .fav-item-card').length;
       const isClearBtnVisible = btnClear.style.display !== 'none';
 
       // 清空搜索
       btnClear.click();
+      await new Promise(resolve => requestAnimationFrame(() => resolve()));
       const ptsCountAfterClear = document.querySelectorAll('#fav-items-list .fav-item-card').length;
 
       return {

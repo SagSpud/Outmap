@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.53';
+const APP_VERSION = '2.0.54';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -3367,6 +3367,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnStart) {
       btnStart.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!guardRouteMutationWhileViewing()) return;
         clearLandingMarker();
         setRouteStartPoint(map, validCoords, title);
       });
@@ -3377,6 +3378,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnVia) {
       btnVia.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!guardRouteMutationWhileViewing()) return;
         clearLandingMarker();
         addViaPoint(map, validCoords, title);
       });
@@ -3387,6 +3389,7 @@ function setupOfficeHeaderInteractions(map) {
     if (btnEnd) {
       btnEnd.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!guardRouteMutationWhileViewing()) return;
         clearLandingMarker();
         setRouteEndPoint(map, validCoords, title);
       });
@@ -6476,10 +6479,65 @@ let currentEditingSavedRouteId = null; // 当前正在查看或编辑的收藏�
 let routeInteractionState = 'idle'; // 'idle' | 'viewing' | 'editing'
 let currentRouteSnapshot = null; // 原始快照，用于放弃本次修改时一键还原
 let currentFavSearchQuery = ''; // 收藏夹即时搜索关键词
+let currentFavSearchNormalized = '';
 let currentPlannedRouteCoords = []; // 当前规划的完整经纬度坐标
 let currentRouteMetrics = null; // 当前规划的核心指标 (距离、爬升等)
 let renderSavedRoutesListFn = null;
 let customFolders = []; // 用户持久化自定义收藏夹分类
+
+function isRouteViewingReadOnly() {
+  return routeInteractionState === 'viewing' && Boolean(currentEditingSavedRouteId);
+}
+
+function guardRouteMutationWhileViewing() {
+  if (!isRouteViewingReadOnly()) return true;
+  showToast('当前为路线查看模式，点击“编辑路线”后可修改');
+  return false;
+}
+
+// 查看收藏路线时统一锁住所有修改入口。这里只使用原生 readonly / disabled，
+// 不额外拦截地图渲染或相机交互，因此查看、缩放、3D 旋转仍保持完整性能。
+function setRouteControlsReadOnly(readOnly = isRouteViewingReadOnly()) {
+  const routePanel = document.getElementById('route-panel');
+  routePanel?.classList.toggle('route-viewing-readonly', readOnly);
+
+  routePanel?.querySelectorAll('#route-start-input, #route-end-input, .via-name-input').forEach(input => {
+    input.readOnly = readOnly;
+    input.setAttribute('aria-readonly', String(readOnly));
+  });
+
+  routePanel?.querySelectorAll([
+    '.route-mode-btn',
+    '#btn-pick-via-inline',
+    '#btn-add-via-point',
+    '#btn-swap-route-pts',
+    '#btn-swap-route-pts-2',
+    '#btn-calc-route',
+    '#btn-route-import-trigger',
+    '.btn-via-del'
+  ].join(',')).forEach(control => {
+    control.disabled = readOnly;
+    control.setAttribute('aria-disabled', String(readOnly));
+  });
+
+  routePanel?.querySelectorAll('#btn-add-via-inline, .via-drag-handle').forEach(control => {
+    control.classList.toggle('is-disabled', readOnly);
+    control.setAttribute('aria-disabled', String(readOnly));
+  });
+
+  if (readOnly) {
+    hideRouteFloatingDropdown();
+    window.exitRoutePickingMode?.();
+    if (activeRouteDragSession) {
+      activeRouteDragSession.cancel?.();
+      activeRouteDragSession = null;
+    }
+    if (activeRouteMapDrag) {
+      activeRouteMapDrag.cancel?.();
+      activeRouteMapDrag = null;
+    }
+  }
+}
 
 function updateRouteEditUIState(routeOrNull) {
   const routeEditingBanner = document.getElementById('route-editing-banner');
@@ -6547,6 +6605,8 @@ function updateRouteEditUIState(routeOrNull) {
     if (modalTitleEl) modalTitleEl.innerText = '保存路线';
     if (btnConfirmSaveRoute) btnConfirmSaveRoute.innerText = '保存路线';
   }
+
+  setRouteControlsReadOnly();
 
   if (typeof renderSavedRoutesListFn === 'function') {
     try { renderSavedRoutesListFn(); } catch (_) {}
@@ -6909,18 +6969,29 @@ function setupWaypointAndFavoritesSystem(map) {
   const favSearchInput = document.getElementById('fav-search-input');
   const btnClearFavSearch = document.getElementById('btn-clear-fav-search');
 
+  let favoritesSearchRenderFrame = 0;
+  const scheduleVisibleFavoritesSearchRender = () => {
+    if (favoritesSearchRenderFrame) return;
+    favoritesSearchRenderFrame = requestAnimationFrame(() => {
+      favoritesSearchRenderFrame = 0;
+      // 搜索时只更新当前可见页签，避免每次按键重建两套完整 DOM 和事件监听。
+      if (currentFavTabMode === 'routes') renderSavedRoutesList();
+      else renderFavoritesList();
+    });
+  };
+
   favSearchInput?.addEventListener('input', () => {
     currentFavSearchQuery = (favSearchInput.value || '').trim();
+    currentFavSearchNormalized = currentFavSearchQuery.toLocaleLowerCase('zh-CN');
     if (btnClearFavSearch) btnClearFavSearch.style.display = currentFavSearchQuery ? 'flex' : 'none';
-    renderFavoritesList();
-    renderSavedRoutesList();
+    scheduleVisibleFavoritesSearchRender();
   });
   btnClearFavSearch?.addEventListener('click', () => {
     if (favSearchInput) favSearchInput.value = '';
     currentFavSearchQuery = '';
+    currentFavSearchNormalized = '';
     btnClearFavSearch.style.display = 'none';
-    renderFavoritesList();
-    renderSavedRoutesList();
+    scheduleVisibleFavoritesSearchRender();
     favSearchInput?.focus();
   });
 
@@ -7737,12 +7808,15 @@ function setupWaypointAndFavoritesSystem(map) {
       );
     }
 
-    if (currentFavSearchQuery) {
-      const q = currentFavSearchQuery.toLowerCase();
-      filtered = filtered.filter(w => (w.name || '').toLowerCase().includes(q) || (w.folder || '').toLowerCase().includes(q));
-    }
-
+    // 页签数字代表当前文件夹总量；输入搜索词只过滤列表，不让总数随每个按键跳动。
     if (favPtsCount) favPtsCount.innerText = filtered.length;
+
+    if (currentFavSearchNormalized) {
+      filtered = filtered.filter(w => (
+        (w.name || '').toLocaleLowerCase('zh-CN').includes(currentFavSearchNormalized)
+        || (w.folder || '').toLocaleLowerCase('zh-CN').includes(currentFavSearchNormalized)
+      ));
+    }
 
     if (filtered.length === 0) {
       const emptyTip = currentFavSearchQuery
@@ -7852,11 +7926,10 @@ function setupWaypointAndFavoritesSystem(map) {
     if (!favRoutesList) return;
     favRoutesList.innerHTML = '';
     let routes = savedRoutes || [];
-    if (currentFavSearchQuery) {
-      const q = currentFavSearchQuery.toLowerCase();
-      routes = routes.filter(r => (r.name || '').toLowerCase().includes(q));
+    if (currentFavSearchNormalized) {
+      routes = routes.filter(r => (r.name || '').toLocaleLowerCase('zh-CN').includes(currentFavSearchNormalized));
     }
-    if (favRoutesCount) favRoutesCount.innerText = routes.length;
+    if (favRoutesCount) favRoutesCount.innerText = savedRoutes.length;
 
     if (routes.length === 0) {
       const emptyTip = currentFavSearchQuery
@@ -7873,7 +7946,7 @@ function setupWaypointAndFavoritesSystem(map) {
     };
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
 
-    savedRoutes.forEach((route) => {
+    routes.forEach((route) => {
       const card = document.createElement('div');
       card.className = 'fav-route-card';
       const m = route.metrics || {};
@@ -7885,16 +7958,18 @@ function setupWaypointAndFavoritesSystem(map) {
       const viaCount = route.viaPoints ? route.viaPoints.length : 0;
       const viaText = viaCount > 0 ? `途经点 ${viaCount}个` : '直达路线';
 
-      const isCurrentlyEditing = Boolean(
+      const isCurrentRoute = Boolean(
         currentEditingSavedRouteId && (
           currentEditingSavedRouteId === route.id || routesRepresentSameRecord(route, { id: currentEditingSavedRouteId })
         )
       );
-      if (isCurrentlyEditing) {
-        card.classList.add('is-editing-route');
+      if (isCurrentRoute) {
+        card.classList.add(routeInteractionState === 'editing' ? 'is-editing-route' : 'is-viewing-route');
       }
 
-      card.title = isCurrentlyEditing ? '当前正在路线规划面板中编辑此路线' : '单击直接载入路线，右键可导出或删除';
+      card.title = isCurrentRoute
+        ? (routeInteractionState === 'editing' ? '当前正在编辑此路线' : '当前正在查看此路线')
+        : '单击直接载入路线，右键可导出或删除';
       card.innerHTML = `
         <div class="fav-route-header">
           <div class="fav-route-title-box">
@@ -7902,7 +7977,7 @@ function setupWaypointAndFavoritesSystem(map) {
               ${modeIcons[route.mode] || (window.OutmapFavoriteInteractions?.svg('route', { size: 13 }) || '')}
               <span>${modeNames[route.mode] || '路线'}</span>
             </span>
-            ${isCurrentlyEditing ? '<span class="fav-route-editing-indicator">编辑中</span>' : ''}
+            ${isCurrentRoute ? `<span class="fav-route-editing-indicator">${routeInteractionState === 'editing' ? '编辑中' : '查看中'}</span>` : ''}
             <span class="fav-route-name">${escapeHtml(route.name || '未命名路线')}</span>
           </div>
           <div style="display:flex;align-items:center;gap:4px;">
@@ -9101,6 +9176,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   let requestSequence = 0;
 
   const triggerMapPick = () => {
+    if (!guardRouteMutationWhileViewing()) return;
     hideRouteFloatingDropdown();
     const map = getMap();
     if (pointType === 'via') {
@@ -9115,6 +9191,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
 
   const selectCandidate = (item) => {
     if (!item) return;
+    if (!guardRouteMutationWhileViewing()) return;
     ++requestSequence;
     clearTimeout(searchTimer);
     inputEl.value = item.name;
@@ -9254,6 +9331,7 @@ function bindRoutePointInput(inputEl, dropdownEl, pointType, viaIndex = null, ma
   };
 
   inputEl.addEventListener('input', () => {
+    if (isRouteViewingReadOnly()) return;
     const val = (inputEl.value || '').trim();
     clearTimeout(searchTimer);
     activeQuery = val;
@@ -9531,6 +9609,68 @@ function ensureRoutePointLayers(map) {
   return true;
 }
 
+function buildRouteScreenProjection(map, coords, maxSegments = Number.POSITIVE_INFINITY) {
+  if (!map || !Array.isArray(coords) || coords.length < 2) return null;
+  const segmentCount = Math.max(1, coords.length - 1);
+  const stride = Number.isFinite(maxSegments) && maxSegments > 0
+    ? Math.max(1, Math.ceil(segmentCount / maxSegments))
+    : 1;
+  const points = [];
+  for (let index = 0; index < coords.length; index += stride) {
+    const coord = coords[index];
+    if (!Array.isArray(coord) || !Number.isFinite(coord[0]) || !Number.isFinite(coord[1])) continue;
+    const projected = map.project(coord);
+    points.push({ x: projected.x, y: projected.y, routeIndex: index });
+  }
+  let lastIndex = coords.length - 1;
+  while (lastIndex >= 0 && (!Array.isArray(coords[lastIndex]) || !Number.isFinite(coords[lastIndex][0]) || !Number.isFinite(coords[lastIndex][1]))) {
+    lastIndex--;
+  }
+  if (lastIndex >= 0 && points[points.length - 1]?.routeIndex !== lastIndex) {
+    const projected = map.project(coords[lastIndex]);
+    points.push({ x: projected.x, y: projected.y, routeIndex: lastIndex });
+  }
+  return points.length >= 2 ? { points, coords } : null;
+}
+
+// 使用 MapLibre 的公开 project/unproject 在当前 2D/3D 相机下求最近线段，
+// 避免经纬度欧氏距离在稀疏、折返或自交路线中选错顶点。
+function projectScreenPointOntoRoute(map, screenPoint, projection) {
+  if (!map || !projection?.points || projection.points.length < 2 || !screenPoint) return null;
+  let best = null;
+  for (let index = 0; index < projection.points.length - 1; index++) {
+    const a = projection.points[index];
+    const b = projection.points[index + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSq = dx * dx + dy * dy;
+    const t = lengthSq > 0
+      ? Math.max(0, Math.min(1, ((screenPoint.x - a.x) * dx + (screenPoint.y - a.y) * dy) / lengthSq))
+      : 0;
+    const x = a.x + dx * t;
+    const y = a.y + dy * t;
+    const distSq = (screenPoint.x - x) ** 2 + (screenPoint.y - y) ** 2;
+    if (!best || distSq < best.distSq) {
+      best = {
+        x,
+        y,
+        distSq,
+        progress: a.routeIndex + (b.routeIndex - a.routeIndex) * t
+      };
+    }
+  }
+  if (!best) return null;
+  const snapped = map.unproject([best.x, best.y]);
+  return {
+    ...best,
+    coords: [snapped.lng, snapped.lat]
+  };
+}
+if (typeof window !== 'undefined') {
+  window.buildRouteScreenProjection = buildRouteScreenProjection;
+  window.projectScreenPointOntoRoute = projectScreenPointOntoRoute;
+}
+
 function bindRoutePointLayerEvents(map) {
   if (!map || routePointLayerEventsBound) return;
   routePointLayerEventsBound = true;
@@ -9547,7 +9687,8 @@ function bindRoutePointLayerEvents(map) {
     const point = findRoutePointByFeature(feature);
     if (!feature || !point?.coords) return;
     e.preventDefault?.();
-    map.dragPan.disable();
+    const dragPanWasEnabled = map.dragPan.isEnabled?.() !== false;
+    if (dragPanWasEnabled) map.dragPan.disable();
     const featureId = feature.id;
     const origin = e.point;
     let moved = false;
@@ -9579,7 +9720,7 @@ function bindRoutePointLayerEvents(map) {
       if (marker && map.getSource(ROUTE_POINTS_SOURCE_ID)) {
         map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: false });
       }
-      map.dragPan.enable();
+      if (dragPanWasEnabled) map.dragPan.enable();
       map.getCanvas().style.cursor = '';
       if (!commit || !moved || !final) return;
       suppressNextClick = true;
@@ -9629,6 +9770,8 @@ function bindRoutePointLayerEvents(map) {
     const featureId = feature.id;
     const startX = touch.clientX;
     const startY = touch.clientY;
+    const dragPanWasEnabled = map.dragPan.isEnabled?.() !== false;
+    let dragPanDisabled = false;
     let moved = false;
     let marker = null;
     const dragSession = { featureId, marker: null, finish: null, cancel: null };
@@ -9642,7 +9785,10 @@ function bindRoutePointLayerEvents(map) {
       dragSession.marker = marker;
       map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
       document.body.classList.add('route-point-is-dragging');
-      map.dragPan.disable();
+      if (dragPanWasEnabled) {
+        map.dragPan.disable();
+        dragPanDisabled = true;
+      }
     };
 
     const finish = ({ commit = true } = {}) => {
@@ -9651,13 +9797,14 @@ function bindRoutePointLayerEvents(map) {
       window.removeEventListener('touchmove', onTouchMove, { passive: false });
       window.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('touchcancel', onTouchCancel);
+      window.removeEventListener('blur', onWindowBlur);
       const final = marker?.getLngLat();
       marker?.remove();
       activeRouteMapDrag = null;
       if (marker && map.getSource(ROUTE_POINTS_SOURCE_ID)) {
         map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: false });
       }
-      map.dragPan.enable();
+      if (dragPanWasEnabled && dragPanDisabled) map.dragPan.enable();
       if (!commit || !moved || !final) return;
       suppressNextClick = true;
       const coords = [final.lng, final.lat];
@@ -9696,10 +9843,12 @@ function bindRoutePointLayerEvents(map) {
 
     const onTouchEnd = () => finish({ commit: true });
     const onTouchCancel = () => finish({ commit: false });
+    const onWindowBlur = () => finish({ commit: false });
 
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('touchend', onTouchEnd, { passive: true });
     window.addEventListener('touchcancel', onTouchCancel, { passive: true });
+    window.addEventListener('blur', onWindowBlur, { once: true });
   };
 
   // 圆点本身覆盖完整命中区域；文字与光晕和它重叠时不能重复绑定，
@@ -9739,6 +9888,10 @@ function bindRoutePointLayerEvents(map) {
 
   // 路线上直接悬浮提示与单击插入途经点
   let routeInsertMarker = null;
+  let routeInsertMarkerAttached = false;
+  let routeInsertProjection = null;
+  let routeInsertMoveFrame = 0;
+  let pendingRouteInsertPoint = null;
   const ensureRouteInsertMarker = () => {
     if (!routeInsertMarker) {
       const el = document.createElement('div');
@@ -9749,15 +9902,46 @@ function bindRoutePointLayerEvents(map) {
   };
 
   const removeRouteInsertMarker = () => {
+    if (routeInsertMoveFrame) cancelAnimationFrame(routeInsertMoveFrame);
+    routeInsertMoveFrame = 0;
+    pendingRouteInsertPoint = null;
     if (routeInsertMarker) {
       routeInsertMarker.remove();
+      routeInsertMarkerAttached = false;
     }
   };
+
+  const showRouteInsertMarker = screenPoint => {
+    pendingRouteInsertPoint = { x: screenPoint.x, y: screenPoint.y };
+    if (routeInsertMoveFrame) return;
+    routeInsertMoveFrame = requestAnimationFrame(() => {
+      routeInsertMoveFrame = 0;
+      if (!pendingRouteInsertPoint || routeInteractionState === 'viewing') return;
+      if (!routeInsertProjection || routeInsertProjection.coords !== currentPlannedRouteCoords) {
+        // 悬浮预览限制投影段数，超长 GPX 也不会因鼠标移动阻塞主线程。
+        routeInsertProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords, 8000);
+      }
+      const projected = projectScreenPointOntoRoute(map, pendingRouteInsertPoint, routeInsertProjection);
+      if (!projected) return;
+      const marker = ensureRouteInsertMarker();
+      marker.setLngLat(projected.coords);
+      if (!routeInsertMarkerAttached) {
+        marker.addTo(map);
+        routeInsertMarkerAttached = true;
+      }
+    });
+  };
+
+  map.on('movestart', () => {
+    routeInsertProjection = null;
+    removeRouteInsertMarker();
+  });
 
   ['outdoor-route-casing'].forEach(layerId => {
     map.on('mouseenter', layerId, () => {
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
       if (routeInteractionState !== 'viewing') {
+        routeInsertProjection = null;
         map.getCanvas().style.cursor = 'copy';
       }
     });
@@ -9768,12 +9952,12 @@ function bindRoutePointLayerEvents(map) {
         return;
       }
       map.getCanvas().style.cursor = 'copy';
-      const m = ensureRouteInsertMarker();
-      m.setLngLat(e.lngLat).addTo(map);
+      showRouteInsertMarker(e.point);
     });
 
     map.on('mouseleave', layerId, () => {
       removeRouteInsertMarker();
+      routeInsertProjection = null;
       if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
         map.getCanvas().style.cursor = '';
       }
@@ -9788,33 +9972,19 @@ function bindRoutePointLayerEvents(map) {
       }
       if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
 
-      const clickCoords = [e.lngLat.lng, e.lngLat.lat];
-      let bestIdx = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i < currentPlannedRouteCoords.length; i++) {
-        const d = Math.hypot(currentPlannedRouteCoords[i][0] - clickCoords[0], currentPlannedRouteCoords[i][1] - clickCoords[1]);
-        if (d < bestDist) {
-          bestDist = d;
-          bestIdx = i;
-        }
-      }
-
+      const fullProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords);
+      const projectedClick = projectScreenPointOntoRoute(map, e.point, fullProjection);
+      if (!projectedClick) return;
+      const clickCoords = projectedClick.coords;
       const viaIndices = routeViaPoints.map(via => {
-        let vIdx = 0;
-        let vDist = Infinity;
-        for (let i = 0; i < currentPlannedRouteCoords.length; i++) {
-          const d = Math.hypot(currentPlannedRouteCoords[i][0] - via.coords[0], currentPlannedRouteCoords[i][1] - via.coords[1]);
-          if (d < vDist) {
-            vDist = d;
-            vIdx = i;
-          }
-        }
-        return vIdx;
+        if (!Array.isArray(via?.coords)) return Number.POSITIVE_INFINITY;
+        const point = map.project(via.coords);
+        return projectScreenPointOntoRoute(map, point, fullProjection)?.progress ?? Number.POSITIVE_INFINITY;
       });
 
       let insertIdx = viaIndices.length;
       for (let i = 0; i < viaIndices.length; i++) {
-        if (bestIdx < viaIndices[i]) {
+        if (projectedClick.progress < viaIndices[i]) {
           insertIdx = i;
           break;
         }
@@ -9976,6 +10146,7 @@ function bindStopRowDrag(handleEl, rowEl, fromIndex, mapInstance, onClickFallbac
 
   const onPointerDown = (e) => {
     if (e.button !== 0) return;
+    if (!guardRouteMutationWhileViewing()) return;
     if (activeRouteDragSession) {
       activeRouteDragSession.cancel();
       activeRouteDragSession = null;
@@ -10330,6 +10501,7 @@ function renderViaList(mapInstance) {
 
   bindStartAndEndRowsDrag(map);
   syncRouteMarkersVisualState(map);
+  setRouteControlsReadOnly();
 }
 
 // 添加途径点并自动刷新规划 (高德 / Apple Maps 递进模式：弱化固定终点，支持在末尾持续追加点)
@@ -10803,6 +10975,40 @@ function sampleRouteElevationData(map, sampledCoords) {
   return finalEle;
 }
 
+function getRouteFitBoundsPadding(map, routePanel = document.getElementById('route-panel')) {
+  const container = map?.getContainer?.();
+  const rect = container?.getBoundingClientRect?.() || {
+    width: window.innerWidth,
+    height: window.innerHeight,
+    left: 0,
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight
+  };
+  const padding = { top: 80, bottom: 90, left: 36, right: 36 };
+  if (!routePanel || routePanel.style.display === 'none' || routePanel.classList.contains('panel-closing')) return padding;
+
+  const panelRect = routePanel.getBoundingClientRect();
+  const overlapsMap = panelRect.right > rect.left && panelRect.left < rect.right
+    && panelRect.bottom > rect.top && panelRect.top < rect.bottom;
+  if (!overlapsMap || panelRect.width <= 0 || panelRect.height <= 0) return padding;
+
+  if (window.innerWidth <= 768) {
+    padding.top = 60;
+    padding.left = 20;
+    padding.right = 20;
+    const desiredBottom = Math.max(90, Math.round(rect.bottom - Math.max(rect.top, panelRect.top) + 24));
+    const minVisibleHeight = Math.min(240, Math.max(150, Math.round(rect.height * 0.34)));
+    padding.bottom = Math.max(40, Math.min(desiredBottom, Math.round(rect.height - padding.top - minVisibleHeight)));
+  } else {
+    const desiredRight = Math.max(36, Math.round(rect.right - Math.max(rect.left, panelRect.left) + 28));
+    const minVisibleWidth = Math.min(300, Math.max(220, Math.round(rect.width * 0.30)));
+    padding.right = Math.max(36, Math.min(desiredRight, Math.round(rect.width - padding.left - minVisibleWidth)));
+  }
+  return padding;
+}
+if (typeof window !== 'undefined') window.getRouteFitBoundsPadding = getRouteFitBoundsPadding;
+
 function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSec, isRealRoad, shouldFitBounds) {
   const currentFingerprint = computeRouteElevationFingerprint(pathCoords);
   lastElevationProfileFingerprint = currentFingerprint;
@@ -10907,28 +11113,9 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
 
   if (shouldFitBounds && pathCoords.length > 0) {
     const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
-    const container = map.getContainer?.();
-    const rect = container ? container.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight, left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
-    let bPadding = 90;
-    let tPadding = 80;
-    let lPadding = 36;
-    let rPadding = 36;
-
-    const routePanel = document.getElementById('route-panel');
-    if (routePanel && routePanel.style.display !== 'none') {
-      const panelRect = routePanel.getBoundingClientRect();
-      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-        bPadding = Math.max(90, Math.round(rect.bottom - panelRect.top + 24));
-        tPadding = 60;
-        lPadding = 20;
-        rPadding = 20;
-      } else {
-        // 桌面端路线规划面板悬浮在右侧 (350px 宽 + 68px 右边距)，计算右侧安全视口避让
-        rPadding = Math.max(36, Math.round(rect.right - panelRect.left + 28));
-      }
-    }
+    const padding = getRouteFitBoundsPadding(map);
     map.fitBounds(bounds, {
-      padding: { top: tPadding, bottom: bPadding, left: lPadding, right: rPadding },
+      padding,
       pitch: Math.min(map.getPitch() ?? 50, 52),
       duration: 1200
     });
@@ -11440,6 +11627,7 @@ function setupOutdoorRouteSystem(map) {
   // 出行方式切换 (自驾、骑行、徒步)
   document.querySelectorAll('.route-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (!guardRouteMutationWhileViewing()) return;
       document.querySelectorAll('.route-mode-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeRouteMode = btn.getAttribute('data-mode');
@@ -11493,6 +11681,7 @@ function setupOutdoorRouteSystem(map) {
   const btnPickViaInline = document.getElementById('btn-pick-via-inline');
 
   const handleAddVia = () => {
+    if (!guardRouteMutationWhileViewing()) return;
     addViaPoint(map, null, '');
     const container = document.getElementById('route-via-list');
     if (container) {
@@ -11517,6 +11706,7 @@ function setupOutdoorRouteSystem(map) {
   window.exitRoutePickingMode = exitRoutePickingMode;
 
   const triggerInlineMapPick = () => {
+    if (!guardRouteMutationWhileViewing()) return;
     hideRouteFloatingDropdown();
     // 如果已经在连续选点状态，再次点击按钮即“完成选点”
     if (pickingRoutePt === 'via' && targetViaIndexForPick === null) {
@@ -11550,6 +11740,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 对调起终点按钮绑定 (点击 ⇅ 键对调起终点并反转途径点)
   const swapStartAndEndRoutePoints = () => {
+    if (!guardRouteMutationWhileViewing()) return;
     routeEndIsFromVia = false;
     const tCoord = routeStartCoord;
     const tName = routeStartName;
@@ -11604,6 +11795,10 @@ function setupOutdoorRouteSystem(map) {
     const cleanLocation = resolveLocationInfo(map, e.lngLat, e.point, true);
 
     if (!pickingRoutePt) return;
+    if (!guardRouteMutationWhileViewing()) {
+      exitRoutePickingMode();
+      return;
+    }
 
     if (pickingRoutePt === 'start') {
       setRouteStartPoint(map, [lng, lat], cleanLocation || '起点');
@@ -11647,6 +11842,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 1. 规划按钮 (纯文本无冗余图标)
   btnCalcRoute?.addEventListener('click', () => {
+    if (!guardRouteMutationWhileViewing()) return;
     exitRoutePickingMode();
     const validVias = routeViaPoints.filter(v => v && v.coords);
     const hasEnoughPoints = (routeStartCoord && (routeEndCoord || validVias.length > 0)) ||
@@ -11860,8 +12056,9 @@ function setupOutdoorRouteSystem(map) {
       danger: true
     });
     if (ok) {
-      loadSavedRoute(currentRouteSnapshot.id, map);
-      showToast(`已恢复“${currentRouteSnapshot.name || '路线'}”原始数据`);
+      const snapshot = JSON.parse(JSON.stringify(currentRouteSnapshot));
+      applySavedRouteSnapshot(snapshot, map, 'editing', snapshot);
+      showToast(`已恢复“${snapshot.name || '路线'}”原始数据`);
     }
   });
 
@@ -12336,10 +12533,12 @@ function exportRouteToGpx(routeData, map) {
   }, 100);
 }
 
-// 调出保存的路线并在 3D 地图上完美复原 (零重复网络请求，零相机飞掠掉帧)
-function loadSavedRoute(routeId, map, initialMode = 'viewing') {
-  const route = savedRoutes.find(r => r.id === routeId);
-  if (!route) return;
+// 直接从不可变快照恢复路线，避免编辑期间的同步或保存改变 savedRoutes 后，
+// “还原”又读到新数据而无法真正回到打开路线时的状态。
+function applySavedRouteSnapshot(routeSnapshot, map, initialMode = 'viewing', originalSnapshot = routeSnapshot) {
+  if (!routeSnapshot) return false;
+  const route = JSON.parse(JSON.stringify(routeSnapshot));
+  const pristineSnapshot = JSON.parse(JSON.stringify(originalSnapshot || routeSnapshot));
 
   const btnClear = document.getElementById('btn-clear-route');
   if (btnClear) btnClear.click();
@@ -12347,7 +12546,7 @@ function loadSavedRoute(routeId, map, initialMode = 'viewing') {
   // 标定当前正在查看/编辑的收藏路线 ID 并备份快照，防止误修改
   currentEditingSavedRouteId = route.id;
   routeInteractionState = initialMode === 'editing' ? 'editing' : 'viewing';
-  currentRouteSnapshot = JSON.parse(JSON.stringify(route));
+  currentRouteSnapshot = pristineSnapshot;
 
   // 还原出行模式
   activeRouteMode = route.mode || 'drive';
@@ -12399,9 +12598,18 @@ function loadSavedRoute(routeId, map, initialMode = 'viewing') {
 
   // 标定查看状态并更新顶部提示条与保存按钮视觉反馈
   updateRouteEditUIState(route);
+  return true;
+}
+
+// 调出保存的路线并在 3D 地图上完美复原 (零重复网络请求，零相机飞掠掉帧)
+function loadSavedRoute(routeId, map, initialMode = 'viewing') {
+  const route = savedRoutes.find(r => r.id === routeId);
+  if (!route) return false;
+  return applySavedRouteSnapshot(route, map, initialMode, route);
 }
 if (typeof window !== 'undefined') {
   window.loadSavedRoute = loadSavedRoute;
+  window.applySavedRouteSnapshot = applySavedRouteSnapshot;
   window.getCurrentEditingSavedRouteId = () => currentEditingSavedRouteId;
   window.getRouteInteractionState = () => routeInteractionState;
   window.updateRouteEditUIState = updateRouteEditUIState;
@@ -13003,7 +13211,7 @@ function displayImportedTrack(map, trackData) {
   // 5. 视角对齐整条轨迹全貌
   const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
   map.fitBounds(bounds, {
-    padding: { top: 90, bottom: 200, left: 50, right: 50 },
+    padding: getRouteFitBoundsPadding(map),
     pitch: Math.min(map.getPitch() ?? 50, 52),
     duration: 1400
   });
@@ -13258,6 +13466,8 @@ function setupMapContextMenu(map) {
       }
       closeConflictingBottomPanels('waypoint-modal');
       showElement(wpModal, 'flex');
+    } else if (!guardRouteMutationWhileViewing()) {
+      return;
     } else if (action === 'route-start') {
       setRouteStartPoint(map, [point.lng, point.lat], point.placeName);
     } else if (action === 'route-via') {
