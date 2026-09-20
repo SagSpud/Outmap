@@ -48,8 +48,8 @@ app.whenReady().then(async () => {
       localStorage.setItem('outmap_saved_routes', JSON.stringify(savedRoutes));
       renderSavedRoutesListFn();
 
-      // 阶段 1: 验证载入路线后，顶部 Banner、按钮文字、收藏夹卡片编辑态
-      window.loadSavedRoute('route_deep_test_001', window.mapInstance);
+      // 阶段 1: 验证载入路线后，进入编辑态
+      window.loadSavedRoute('route_deep_test_001', window.mapInstance, 'editing');
       await sleep(100);
 
       check(window.getCurrentEditingSavedRouteId() === 'route_deep_test_001', 'currentEditingSavedRouteId mismatch');
@@ -148,7 +148,7 @@ app.whenReady().then(async () => {
       check(editingCards.length === 0, 'no cards should have is-editing-route after exit');
 
       // 阶段 5: 测试【清空】重置
-      window.loadSavedRoute(oldRoute.id, window.mapInstance);
+      window.loadSavedRoute(oldRoute.id, window.mapInstance, 'editing');
       await sleep(50);
       check(window.getCurrentEditingSavedRouteId() === oldRoute.id, 'route should be editing again');
       const btnClear = document.getElementById('btn-clear-route');

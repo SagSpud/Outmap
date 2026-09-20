@@ -3,8 +3,8 @@
  * 默认风格：Outmap 自然绿白地势 + 亚米级高清卫星影像 + 全量微观路网/建筑/山峰/POI
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
-
-const APP_VERSION = '2.0.52';
+// Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
+const APP_VERSION = '2.0.53';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -6472,7 +6472,10 @@ function setupStatusBar(map) {
 // =========================================================
 let savedWaypoints = [];
 let savedRoutes = []; // 本地持久化收藏路线列表
-let currentEditingSavedRouteId = null; // 当前正在编辑的收藏路线 ID（若有，保存时就地更新原路线）
+let currentEditingSavedRouteId = null; // 当前正在查看或编辑的收藏路线 ID
+let routeInteractionState = 'idle'; // 'idle' | 'viewing' | 'editing'
+let currentRouteSnapshot = null; // 原始快照，用于放弃本次修改时一键还原
+let currentFavSearchQuery = ''; // 收藏夹即时搜索关键词
 let currentPlannedRouteCoords = []; // 当前规划的完整经纬度坐标
 let currentRouteMetrics = null; // 当前规划的核心指标 (距离、爬升等)
 let renderSavedRoutesListFn = null;
@@ -6480,7 +6483,11 @@ let customFolders = []; // 用户持久化自定义收藏夹分类
 
 function updateRouteEditUIState(routeOrNull) {
   const routeEditingBanner = document.getElementById('route-editing-banner');
+  const routeEditingBadge = document.getElementById('route-editing-badge');
   const routeEditingNameTxt = document.getElementById('route-editing-name-txt');
+  const btnStartRouteEdit = document.getElementById('btn-start-route-edit');
+  const btnRestoreRouteEdit = document.getElementById('btn-restore-route-edit');
+  const btnExitRouteEdit = document.getElementById('btn-exit-route-edit');
   const btnSaveRouteTrigger = document.getElementById('btn-save-route-trigger');
   const btnSaveAsNewRoute = document.getElementById('btn-save-as-new-route');
   const saveRouteModal = document.getElementById('save-route-modal');
@@ -6494,15 +6501,40 @@ function updateRouteEditUIState(routeOrNull) {
   if (route && currentEditingSavedRouteId) {
     if (routeEditingBanner) routeEditingBanner.style.display = 'flex';
     if (routeEditingNameTxt) routeEditingNameTxt.innerText = route.name || '已保存路线';
-    if (btnSaveRouteTrigger) {
-      btnSaveRouteTrigger.innerText = '保存修改';
-      btnSaveRouteTrigger.classList.add('is-editing');
-      btnSaveRouteTrigger.title = '保存对当前路线的修改（将更新原路线）';
+
+    if (routeInteractionState === 'viewing') {
+      if (routeEditingBadge) {
+        routeEditingBadge.innerText = '查看中';
+        routeEditingBadge.className = 'route-viewing-badge';
+      }
+      if (btnStartRouteEdit) btnStartRouteEdit.style.display = 'inline-block';
+      if (btnRestoreRouteEdit) btnRestoreRouteEdit.style.display = 'none';
+      if (btnExitRouteEdit) btnExitRouteEdit.innerText = '关闭';
+      if (btnSaveRouteTrigger) {
+        btnSaveRouteTrigger.innerText = '编辑';
+        btnSaveRouteTrigger.classList.remove('is-editing');
+        btnSaveRouteTrigger.title = '进入编辑模式以修改路线点位';
+      }
+      if (btnSaveAsNewRoute) btnSaveAsNewRoute.style.display = 'none';
+    } else { // editing
+      if (routeEditingBadge) {
+        routeEditingBadge.innerText = '编辑中';
+        routeEditingBadge.className = 'route-editing-badge';
+      }
+      if (btnStartRouteEdit) btnStartRouteEdit.style.display = 'none';
+      if (btnRestoreRouteEdit) btnRestoreRouteEdit.style.display = currentRouteSnapshot ? 'inline-block' : 'none';
+      if (btnExitRouteEdit) btnExitRouteEdit.innerText = '退出编辑';
+      if (btnSaveRouteTrigger) {
+        btnSaveRouteTrigger.innerText = '保存修改';
+        btnSaveRouteTrigger.classList.add('is-editing');
+        btnSaveRouteTrigger.title = '保存对当前路线的修改（将更新原路线）';
+      }
+      if (btnSaveAsNewRoute) btnSaveAsNewRoute.style.display = 'inline-block';
+      if (modalTitleEl) modalTitleEl.innerText = '编辑保存路线';
+      if (btnConfirmSaveRoute) btnConfirmSaveRoute.innerText = '保存修改';
     }
-    if (btnSaveAsNewRoute) btnSaveAsNewRoute.style.display = 'inline-block';
-    if (modalTitleEl) modalTitleEl.innerText = '编辑保存路线';
-    if (btnConfirmSaveRoute) btnConfirmSaveRoute.innerText = '保存修改';
   } else {
+    routeInteractionState = 'idle';
     if (routeEditingBanner) routeEditingBanner.style.display = 'none';
     if (routeEditingNameTxt) routeEditingNameTxt.innerText = '--';
     if (btnSaveRouteTrigger) {
@@ -6522,14 +6554,16 @@ function updateRouteEditUIState(routeOrNull) {
 }
 
 function exitRouteEditMode(notify = false) {
-  if (!currentEditingSavedRouteId) return;
+  if (!currentEditingSavedRouteId && routeInteractionState === 'idle') return;
   currentEditingSavedRouteId = null;
+  routeInteractionState = 'idle';
+  currentRouteSnapshot = null;
   updateRouteEditUIState(null);
   if (typeof renderSavedRoutesOnMap === 'function') {
     try { renderSavedRoutesOnMap(); } catch (_) {}
   }
   if (notify && typeof showToast === 'function') {
-    showToast('已退出原路线编辑，后续保存将新建独立路线');
+    showToast('已退出原路线模式，后续保存将新建独立路线');
   }
 }
 let isPickingPoint = false;
@@ -6872,6 +6906,23 @@ function setupWaypointAndFavoritesSystem(map) {
   const btnCloseFav = document.getElementById('btn-close-favorites-drawer');
   const favTabs = document.getElementById('fav-folder-tabs');
   const favList = document.getElementById('fav-items-list');
+  const favSearchInput = document.getElementById('fav-search-input');
+  const btnClearFavSearch = document.getElementById('btn-clear-fav-search');
+
+  favSearchInput?.addEventListener('input', () => {
+    currentFavSearchQuery = (favSearchInput.value || '').trim();
+    if (btnClearFavSearch) btnClearFavSearch.style.display = currentFavSearchQuery ? 'flex' : 'none';
+    renderFavoritesList();
+    renderSavedRoutesList();
+  });
+  btnClearFavSearch?.addEventListener('click', () => {
+    if (favSearchInput) favSearchInput.value = '';
+    currentFavSearchQuery = '';
+    btnClearFavSearch.style.display = 'none';
+    renderFavoritesList();
+    renderSavedRoutesList();
+    favSearchInput?.focus();
+  });
 
   // 读取本地持久化收藏夹、自定义分类与收藏路线
   try {
@@ -7686,8 +7737,18 @@ function setupWaypointAndFavoritesSystem(map) {
       );
     }
 
+    if (currentFavSearchQuery) {
+      const q = currentFavSearchQuery.toLowerCase();
+      filtered = filtered.filter(w => (w.name || '').toLowerCase().includes(q) || (w.folder || '').toLowerCase().includes(q));
+    }
+
+    if (favPtsCount) favPtsCount.innerText = filtered.length;
+
     if (filtered.length === 0) {
-      favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:20px 0;">该文件夹下暂无收藏地点<br>可在地图上右键选择“收藏”</div>`;
+      const emptyTip = currentFavSearchQuery
+        ? `未找到包含“${escapeHtml(currentFavSearchQuery)}”的地点`
+        : '该文件夹下暂无收藏地点<br>可在地图上右键选择“收藏”';
+      favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:20px 0;">${emptyTip}</div>`;
       return;
     }
 
@@ -7790,10 +7851,18 @@ function setupWaypointAndFavoritesSystem(map) {
   const renderSavedRoutesList = () => {
     if (!favRoutesList) return;
     favRoutesList.innerHTML = '';
-    if (favRoutesCount) favRoutesCount.innerText = savedRoutes.length;
+    let routes = savedRoutes || [];
+    if (currentFavSearchQuery) {
+      const q = currentFavSearchQuery.toLowerCase();
+      routes = routes.filter(r => (r.name || '').toLowerCase().includes(q));
+    }
+    if (favRoutesCount) favRoutesCount.innerText = routes.length;
 
-    if (!savedRoutes || savedRoutes.length === 0) {
-      favRoutesList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:30px 10px; font-size:12px; line-height:1.8;">暂无保存的路线<br>在“路线规划”面板中生成路线后<br>点击“收藏”即可保存在此</div>`;
+    if (routes.length === 0) {
+      const emptyTip = currentFavSearchQuery
+        ? `未找到包含“${escapeHtml(currentFavSearchQuery)}”的路线`
+        : '暂无保存的路线<br>在“路线规划”面板中生成路线后<br>点击“收藏”即可保存在此';
+      favRoutesList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:30px 10px; font-size:12px; line-height:1.8;">${emptyTip}</div>`;
       return;
     }
 
@@ -8014,7 +8083,7 @@ function setupWaypointAndFavoritesSystem(map) {
           closeMenu();
           const favDrawer = document.getElementById('favorites-drawer');
           if (favDrawer) smoothClosePanel(favDrawer);
-          loadSavedRoute(route.id, map);
+          loadSavedRoute(route.id, map, 'editing');
           showToast(`正在编辑路线“${route.name}”`);
         };
         const editBtn = menu.querySelector('.btn-ctx-edit');
@@ -9470,6 +9539,10 @@ function bindRoutePointLayerEvents(map) {
 
   const handleRoutePointMouseDown = e => {
     if (e.originalEvent?.button !== 0 || pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
+    if (routeInteractionState === 'viewing') {
+      showToast('当前处于浏览模式，请点击“编辑路线”以修改点位');
+      return;
+    }
     const feature = e.features?.[0];
     const point = findRoutePointByFeature(feature);
     if (!feature || !point?.coords) return;
@@ -9541,6 +9614,94 @@ function bindRoutePointLayerEvents(map) {
     window.addEventListener('blur', onWindowBlur, { once: true });
   };
 
+  const handleRoutePointTouchStart = e => {
+    if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
+    const touch = e.originalEvent?.touches?.[0];
+    if (!touch) return;
+    if (routeInteractionState === 'viewing') {
+      showToast('当前处于浏览模式，请点击“编辑路线”以修改点位');
+      return;
+    }
+    const feature = e.features?.[0];
+    const point = findRoutePointByFeature(feature);
+    if (!feature || !point?.coords) return;
+
+    const featureId = feature.id;
+    const startX = touch.clientX;
+    const startY = touch.clientY;
+    let moved = false;
+    let marker = null;
+    const dragSession = { featureId, marker: null, finish: null, cancel: null };
+
+    const beginVisualDrag = () => {
+      if (marker) return;
+      const el = document.createElement('div');
+      el.className = point.role === 'start' ? 'route-start-marker-pin' : point.role === 'end' ? 'route-end-marker-pin' : 'route-via-marker-pin';
+      el.innerText = feature.properties?.label || '';
+      marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(point.coords).addTo(map);
+      dragSession.marker = marker;
+      map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: true });
+      document.body.classList.add('route-point-is-dragging');
+      map.dragPan.disable();
+    };
+
+    const finish = ({ commit = true } = {}) => {
+      if (activeRouteMapDrag !== dragSession) return;
+      document.body.classList.remove('route-point-is-dragging');
+      window.removeEventListener('touchmove', onTouchMove, { passive: false });
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchCancel);
+      const final = marker?.getLngLat();
+      marker?.remove();
+      activeRouteMapDrag = null;
+      if (marker && map.getSource(ROUTE_POINTS_SOURCE_ID)) {
+        map.setFeatureState({ source: ROUTE_POINTS_SOURCE_ID, id: featureId }, { dragging: false });
+      }
+      map.dragPan.enable();
+      if (!commit || !moved || !final) return;
+      suppressNextClick = true;
+      const coords = [final.lng, final.lat];
+      if (point.role === 'start') routeStartCoord = coords;
+      else if (point.role === 'end') routeEndCoord = coords;
+      else if (routeViaPoints[point.index]) routeViaPoints[point.index].coords = coords;
+      syncRouteMarkersVisualState(map);
+      renderViaList(map);
+      scheduleRoutePlan(map, 60);
+    };
+
+    dragSession.finish = finish;
+    dragSession.cancel = () => finish({ commit: false });
+    activeRouteMapDrag = dragSession;
+
+    const onTouchMove = moveEvent => {
+      if (activeRouteMapDrag !== dragSession) return;
+      const curTouch = moveEvent.touches?.[0];
+      if (!curTouch) return;
+      if (Math.hypot(curTouch.clientX - startX, curTouch.clientY - startY) > 6) {
+        if (!moved) {
+          moved = true;
+          beginVisualDrag();
+        }
+      }
+      if (moved) {
+        moveEvent.preventDefault();
+        const mapContainerRect = map.getContainer().getBoundingClientRect();
+        const screenPoint = new maplibregl.Point(curTouch.clientX - mapContainerRect.left, curTouch.clientY - mapContainerRect.top);
+        try {
+          const lngLat = map.unproject(screenPoint);
+          marker?.setLngLat(lngLat);
+        } catch (_) {}
+      }
+    };
+
+    const onTouchEnd = () => finish({ commit: true });
+    const onTouchCancel = () => finish({ commit: false });
+
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', onTouchCancel, { passive: true });
+  };
+
   // 圆点本身覆盖完整命中区域；文字与光晕和它重叠时不能重复绑定，
   // 否则一次按下会创建两次拖动会话、一次点击会连续发起两次飞掠。
   const pointLayers = ['outmap-route-point-circles'];
@@ -9573,6 +9734,102 @@ function bindRoutePointLayerEvents(map) {
       });
     });
     map.on('mousedown', layerId, handleRoutePointMouseDown);
+    map.on('touchstart', layerId, handleRoutePointTouchStart);
+  });
+
+  // 路线上直接悬浮提示与单击插入途经点
+  let routeInsertMarker = null;
+  const ensureRouteInsertMarker = () => {
+    if (!routeInsertMarker) {
+      const el = document.createElement('div');
+      el.className = 'route-insert-hover-marker';
+      routeInsertMarker = new maplibregl.Marker({ element: el, anchor: 'center' });
+    }
+    return routeInsertMarker;
+  };
+
+  const removeRouteInsertMarker = () => {
+    if (routeInsertMarker) {
+      routeInsertMarker.remove();
+    }
+  };
+
+  ['outdoor-route-casing'].forEach(layerId => {
+    map.on('mouseenter', layerId, () => {
+      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
+      if (routeInteractionState !== 'viewing') {
+        map.getCanvas().style.cursor = 'copy';
+      }
+    });
+
+    map.on('mousemove', layerId, e => {
+      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag || routeInteractionState === 'viewing') {
+        removeRouteInsertMarker();
+        return;
+      }
+      map.getCanvas().style.cursor = 'copy';
+      const m = ensureRouteInsertMarker();
+      m.setLngLat(e.lngLat).addTo(map);
+    });
+
+    map.on('mouseleave', layerId, () => {
+      removeRouteInsertMarker();
+      if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
+        map.getCanvas().style.cursor = '';
+      }
+    });
+
+    map.on('click', layerId, e => {
+      removeRouteInsertMarker();
+      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
+      if (routeInteractionState === 'viewing') {
+        showToast('当前处于浏览模式，请点击“编辑路线”以在线路上插入途径点');
+        return;
+      }
+      if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
+
+      const clickCoords = [e.lngLat.lng, e.lngLat.lat];
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < currentPlannedRouteCoords.length; i++) {
+        const d = Math.hypot(currentPlannedRouteCoords[i][0] - clickCoords[0], currentPlannedRouteCoords[i][1] - clickCoords[1]);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+
+      const viaIndices = routeViaPoints.map(via => {
+        let vIdx = 0;
+        let vDist = Infinity;
+        for (let i = 0; i < currentPlannedRouteCoords.length; i++) {
+          const d = Math.hypot(currentPlannedRouteCoords[i][0] - via.coords[0], currentPlannedRouteCoords[i][1] - via.coords[1]);
+          if (d < vDist) {
+            vDist = d;
+            vIdx = i;
+          }
+        }
+        return vIdx;
+      });
+
+      let insertIdx = viaIndices.length;
+      for (let i = 0; i < viaIndices.length; i++) {
+        if (bestIdx < viaIndices[i]) {
+          insertIdx = i;
+          break;
+        }
+      }
+
+      const newVia = {
+        coords: clickCoords,
+        name: `途径点 ${insertIdx + 1}`
+      };
+      routeViaPoints.splice(insertIdx, 0, newVia);
+      syncRouteMarkersVisualState(map);
+      renderViaList(map);
+      scheduleRoutePlan(map, 60);
+      showToast(`已在路线上添加途径点`);
+    });
   });
 }
 
@@ -10650,20 +10907,30 @@ function updateProfileAndMetrics(map, pathCoords, roadDistanceKm, roadDurationSe
 
   if (shouldFitBounds && pathCoords.length > 0) {
     const bounds = pathCoords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pathCoords[0], pathCoords[0]));
+    const container = map.getContainer?.();
+    const rect = container ? container.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight, left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
     let bPadding = 90;
     let tPadding = 80;
-    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-      const routePanel = document.getElementById('route-panel');
-      if (routePanel && routePanel.style.display !== 'none') {
-        const panelH = routePanel.getBoundingClientRect().height;
-        bPadding = Math.max(90, Math.round(panelH) + 24);
+    let lPadding = 36;
+    let rPadding = 36;
+
+    const routePanel = document.getElementById('route-panel');
+    if (routePanel && routePanel.style.display !== 'none') {
+      const panelRect = routePanel.getBoundingClientRect();
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        bPadding = Math.max(90, Math.round(rect.bottom - panelRect.top + 24));
+        tPadding = 60;
+        lPadding = 20;
+        rPadding = 20;
+      } else {
+        // 桌面端路线规划面板悬浮在右侧 (350px 宽 + 68px 右边距)，计算右侧安全视口避让
+        rPadding = Math.max(36, Math.round(rect.right - panelRect.left + 28));
       }
-      tPadding = 60;
     }
     map.fitBounds(bounds, {
-      padding: { top: tPadding, bottom: bPadding, left: 36, right: 36 },
+      padding: { top: tPadding, bottom: bPadding, left: lPadding, right: rPadding },
       pitch: Math.min(map.getPitch() ?? 50, 52),
-      duration: 1400
+      duration: 1200
     });
   }
 }
@@ -11572,7 +11839,32 @@ function setupOutdoorRouteSystem(map) {
     smoothClosePanel(routePanel);
   });
 
-  // 正在编辑的原路线提示条上的【退出编辑】按钮
+  // 正在查看/编辑的原路线提示条上的操作按钮
+  const btnStartRouteEdit = document.getElementById('btn-start-route-edit');
+  btnStartRouteEdit?.addEventListener('click', () => {
+    routeInteractionState = 'editing';
+    const route = currentEditingSavedRouteId
+      ? savedRoutes.find(r => r.id === currentEditingSavedRouteId || routesRepresentSameRecord(r, { id: currentEditingSavedRouteId }))
+      : null;
+    updateRouteEditUIState(route);
+    showToast('已进入路线编辑模式，可在地图上拖动或点击增删点位');
+  });
+
+  const btnRestoreRouteEdit = document.getElementById('btn-restore-route-edit');
+  btnRestoreRouteEdit?.addEventListener('click', async () => {
+    if (!currentRouteSnapshot) return;
+    const ok = await showFluentConfirm({
+      title: '还原路线',
+      message: `确定放弃当前修改，恢复路线“${currentRouteSnapshot.name || '已保存路线'}”的原始状态？`,
+      confirmText: '还原',
+      danger: true
+    });
+    if (ok) {
+      loadSavedRoute(currentRouteSnapshot.id, map);
+      showToast(`已恢复“${currentRouteSnapshot.name || '路线'}”原始数据`);
+    }
+  });
+
   const btnExitRouteEdit = document.getElementById('btn-exit-route-edit');
   btnExitRouteEdit?.addEventListener('click', () => {
     exitRouteEditMode(true);
@@ -11597,6 +11889,10 @@ function setupOutdoorRouteSystem(map) {
 
   // 点击【收藏】/【保存修改】路线按钮 (在下方顺滑展开/收起保存路线卡片)
   btnSaveRouteTrigger?.addEventListener('click', () => {
+    if (routeInteractionState === 'viewing') {
+      btnStartRouteEdit?.click();
+      return;
+    }
     closeRouteExportMenu();
     const isSaveModalOpen = saveRouteModal && saveRouteModal.style.display !== 'none' && !saveRouteModal.classList.contains('panel-closing');
     if (isSaveModalOpen) {
@@ -12041,15 +12337,17 @@ function exportRouteToGpx(routeData, map) {
 }
 
 // 调出保存的路线并在 3D 地图上完美复原 (零重复网络请求，零相机飞掠掉帧)
-function loadSavedRoute(routeId, map) {
+function loadSavedRoute(routeId, map, initialMode = 'viewing') {
   const route = savedRoutes.find(r => r.id === routeId);
   if (!route) return;
 
   const btnClear = document.getElementById('btn-clear-route');
   if (btnClear) btnClear.click();
 
-  // 标定当前正在编辑的收藏路线 ID
+  // 标定当前正在查看/编辑的收藏路线 ID 并备份快照，防止误修改
   currentEditingSavedRouteId = route.id;
+  routeInteractionState = initialMode === 'editing' ? 'editing' : 'viewing';
+  currentRouteSnapshot = JSON.parse(JSON.stringify(route));
 
   // 还原出行模式
   activeRouteMode = route.mode || 'drive';
@@ -12099,12 +12397,13 @@ function loadSavedRoute(routeId, map) {
   const routePanel = document.getElementById('route-panel');
   showElement(routePanel, 'flex');
 
-  // 标定编辑状态并更新顶部提示条与保存按钮视觉反馈
+  // 标定查看状态并更新顶部提示条与保存按钮视觉反馈
   updateRouteEditUIState(route);
 }
 if (typeof window !== 'undefined') {
   window.loadSavedRoute = loadSavedRoute;
   window.getCurrentEditingSavedRouteId = () => currentEditingSavedRouteId;
+  window.getRouteInteractionState = () => routeInteractionState;
   window.updateRouteEditUIState = updateRouteEditUIState;
   window.exitRouteEditMode = exitRouteEditMode;
   window.getSavedRoutes = () => savedRoutes;

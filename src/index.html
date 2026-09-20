@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.52" />
+  <link rel="stylesheet" href="style.css?v=2.0.53" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.52</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.53</span>
                 </div>
               </div>
             </div>
@@ -319,13 +319,17 @@
         </div>
 
         <div class="panel-body">
-          <!-- 正在编辑已有路线时的顶部提示条 -->
+          <!-- 正在查看/编辑已有路线时的顶部提示条 -->
           <div id="route-editing-banner" class="route-editing-banner" style="display: none;">
             <div class="route-editing-info">
-              <span class="route-editing-badge">编辑中</span>
+              <span class="route-editing-badge" id="route-editing-badge">查看中</span>
               <span class="route-editing-name" id="route-editing-name-txt">--</span>
             </div>
-            <button type="button" class="btn-exit-route-edit" id="btn-exit-route-edit" title="退出编辑原路线模式，后续保存将新建独立路线">退出编辑</button>
+            <div class="route-editing-actions">
+              <button type="button" class="btn-start-route-edit" id="btn-start-route-edit" style="display: none;" title="编辑当前路线的点位与规划">编辑路线</button>
+              <button type="button" class="btn-restore-route-edit" id="btn-restore-route-edit" style="display: none;" title="放弃本次修改并还原原路线">还原</button>
+              <button type="button" class="btn-exit-route-edit" id="btn-exit-route-edit" title="退出编辑原路线模式，后续保存将新建独立路线">退出编辑</button>
+            </div>
           </div>
 
           <!-- 出行方式切换 -->
@@ -521,6 +525,15 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M20 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6 17h5a4 4 0 0 0 4-4V9a4 4 0 0 1 4-4h1"/></svg>
               <span>收藏路线 (<span id="fav-routes-count">0</span>)</span>
             </button>
+          </div>
+
+          <!-- 收藏夹即时搜索框 -->
+          <div class="fav-search-wrap" id="fav-search-wrap">
+            <span class="fav-search-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </span>
+            <input type="text" id="fav-search-input" placeholder="搜索地点或路线名称..." autocomplete="off" />
+            <button type="button" class="btn-clear-fav-search" id="btn-clear-fav-search" style="display: none;" title="清空搜索">✕</button>
           </div>
 
           <!-- 1. 地点分类容器 -->
@@ -777,6 +790,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.52"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.53"></script>
 </body>
 </html>

@@ -3026,6 +3026,133 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   border-color: #cbd5e1;
 }
 
+.route-editing-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.route-viewing-badge {
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.btn-start-route-edit {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.btn-start-route-edit:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.btn-restore-route-edit {
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: #ffffff;
+  color: #ef4444;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.btn-restore-route-edit:hover {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+/* 收藏夹抽屉即时搜索框 */
+.fav-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 8px 0;
+  padding: 4px 8px;
+  background: rgba(241, 245, 249, 0.85);
+  border: 1px solid rgba(203, 213, 225, 0.7);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.fav-search-wrap:focus-within {
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+.fav-search-icon {
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+#fav-search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+  color: #1e293b;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+#fav-search-input::placeholder {
+  color: #94a3b8;
+}
+
+.btn-clear-fav-search {
+  border: none;
+  background: rgba(148, 163, 184, 0.2);
+  color: #64748b;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.btn-clear-fav-search:hover {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+/* 路线插点微端点指示器 */
+.route-insert-hover-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #0284c7;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.6);
+  pointer-events: none;
+  transition: transform 0.08s ease;
+}
+
 #btn-save-route-trigger.is-editing {
   background: #2563eb !important;
   color: #ffffff !important;
