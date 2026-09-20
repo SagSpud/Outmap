@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.55';
+const APP_VERSION = '2.0.56';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -3160,6 +3160,10 @@ function setupOfficeHeaderInteractions(map) {
   // 点击地图或空白区域自动收起已展开的底部抽屉与弹窗 (全量流体平滑动效退出)
   map.on('click', () => {
     if (pickingRoutePt) return;
+
+    if (typeof hideRoutePointInspectCard === 'function') {
+      hideRoutePointInspectCard();
+    }
 
     // 1. 右键菜单平滑收起
     smoothCloseContextMenu();
@@ -6634,6 +6638,7 @@ function updateRouteEditUIState(routeOrNull) {
 }
 
 function exitRouteEditMode(notify = false) {
+  if (typeof hideRoutePointInspectCard === 'function') hideRoutePointInspectCard();
   if (!currentEditingSavedRouteId && routeInteractionState === 'idle') return;
   currentEditingSavedRouteId = null;
   routeInteractionState = 'idle';
@@ -7641,6 +7646,38 @@ function setupWaypointAndFavoritesSystem(map) {
       window.triggerRealtimeCloudSync('add_waypoint', true);
     }
   });
+
+  const savePointToFavorites = ({ lng, lat, ele, name, type = 'view', folder = 'default' }) => {
+    const safeLng = Number(lng);
+    const safeLat = Number(lat);
+    const safeEle = Number.isFinite(Number(ele)) ? Math.round(Number(ele)) : 0;
+    const cleanName = (name || '收藏点').trim();
+    const newWp = {
+      id: 'wp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      name: cleanName,
+      type: type || 'view',
+      folder: folder || 'default',
+      lng: safeLng,
+      lat: safeLat,
+      ele: safeEle,
+      time: new Date().toLocaleDateString(),
+      updatedAt: Date.now()
+    };
+    savedWaypoints.push(newWp);
+    touchSavedWaypoints();
+    try {
+      localStorage.setItem('outmap_saved_waypoints', JSON.stringify(savedWaypoints));
+    } catch (e) {}
+    invalidateSearchMemoryCache();
+    renderWaypointMarkersOnMap({ add: [newWp] });
+    if (typeof renderFavoritesList === 'function') renderFavoritesList();
+    if (typeof window.triggerRealtimeCloudSync === 'function') {
+      window.triggerRealtimeCloudSync('add_waypoint', true);
+    }
+    showToast(`已将“${cleanName}”存入收藏夹`);
+    return newWp;
+  };
+  window.savePointToFavorites = savePointToFavorites;
 
   // 新建收藏夹内联操作 (替代被系统拦截的 prompt)
   btnAddFolder?.addEventListener('click', () => {
@@ -9944,6 +9981,278 @@ if (typeof window !== 'undefined') {
   window.projectScreenPointOntoRoute = projectScreenPointOntoRoute;
 }
 
+let routePointInspectCardEl = null;
+let currentInspectedPoint = null;
+let inspectCardMoveBound = false;
+
+function hideRoutePointInspectCard() {
+  if (routePointInspectCardEl && routePointInspectCardEl.classList.contains('visible')) {
+    routePointInspectCardEl.classList.remove('visible');
+    setTimeout(() => {
+      if (!currentInspectedPoint && routePointInspectCardEl) {
+        routePointInspectCardEl.style.display = 'none';
+      }
+    }, 160);
+  }
+  currentInspectedPoint = null;
+}
+
+function computeRouteCumulativeDistance(coords, targetProgressOrCoord) {
+  if (!Array.isArray(coords) || coords.length < 2) return 0;
+  let targetProgress = null;
+  if (typeof targetProgressOrCoord === 'number') {
+    targetProgress = targetProgressOrCoord;
+  } else if (Array.isArray(targetProgressOrCoord)) {
+    let bestDistSq = Infinity;
+    let bestIdx = 0;
+    for (let i = 0; i < coords.length; i++) {
+      const dSq = (coords[i][0] - targetProgressOrCoord[0]) ** 2 + (coords[i][1] - targetProgressOrCoord[1]) ** 2;
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        bestIdx = i;
+      }
+    }
+    targetProgress = bestIdx;
+  }
+  if (targetProgress === null) return 0;
+
+  const segIdx = Math.max(0, Math.min(coords.length - 1, Math.floor(targetProgress)));
+  const frac = Math.max(0, Math.min(1, targetProgress - segIdx));
+
+  let totalDist = 0;
+  for (let i = 0; i < segIdx; i++) {
+    totalDist += calculateDistanceKm(coords[i], coords[i + 1]);
+  }
+  if (frac > 0 && segIdx < coords.length - 1) {
+    totalDist += frac * calculateDistanceKm(coords[segIdx], coords[segIdx + 1]);
+  }
+  return totalDist;
+}
+
+function getActiveRouteDisplayName() {
+  if (currentEditingSavedRouteId) {
+    const r = (savedRoutes || []).find(item => item.id === currentEditingSavedRouteId || routesRepresentSameRecord(item, { id: currentEditingSavedRouteId }));
+    if (r?.name) return r.name;
+  }
+  const nameInput = document.getElementById('save-route-name-input');
+  if (nameInput && nameInput.value && nameInput.value.trim()) {
+    return nameInput.value.trim();
+  }
+  return null;
+}
+
+function showRoutePointInspectCard(map, pointInfo, screenPoint) {
+  if (!map || !pointInfo || !Array.isArray(pointInfo.coords)) return;
+
+  const coords = pointInfo.coords;
+  const role = pointInfo.role || 'track';
+  const ele = Number.isFinite(pointInfo.ele) ? Math.round(pointInfo.ele) : Math.round(getRealElevation(map, coords) || 0);
+
+  const totalDistKm = Number(currentRouteMetrics?.totalDistKm) || computeRouteCumulativeDistance(currentPlannedRouteCoords, currentPlannedRouteCoords.length - 1);
+  let distFromStartKm = 0;
+  if (role === 'start') {
+    distFromStartKm = 0;
+  } else if (role === 'end') {
+    distFromStartKm = totalDistKm;
+  } else {
+    distFromStartKm = computeRouteCumulativeDistance(currentPlannedRouteCoords, pointInfo.progress ?? coords);
+  }
+  const distRemainingKm = Math.max(0, totalDistKm - distFromStartKm);
+
+  let badgeText = '路线点';
+  let badgeClass = 'track';
+  if (role === 'start') {
+    badgeText = '起点';
+    badgeClass = 'start';
+  } else if (role === 'end') {
+    badgeText = '终点';
+    badgeClass = 'end';
+  } else if (role === 'via') {
+    badgeText = `途径点 ${Number.isFinite(pointInfo.index) ? pointInfo.index + 1 : ''}`;
+    badgeClass = 'via';
+  }
+
+  const defaultName = role === 'start' ? '起点' : role === 'end' ? '终点' : role === 'via' ? `途径点 ${Number.isFinite(pointInfo.index) ? pointInfo.index + 1 : ''}` : '路线上的点';
+  const name = pointInfo.name || defaultName;
+  const activeRouteName = getActiveRouteDisplayName();
+
+  if (!routePointInspectCardEl || !routePointInspectCardEl.isConnected) {
+    routePointInspectCardEl = document.createElement('div');
+    routePointInspectCardEl.className = 'route-point-inspect-card';
+    map.getContainer().appendChild(routePointInspectCardEl);
+  }
+
+  currentInspectedPoint = { coords, role, index: pointInfo.index, progress: pointInfo.progress, name, ele };
+
+  const coordStr = `${coords[0].toFixed(3)}°E, ${coords[1].toFixed(3)}°N`;
+  const eleStr = `${ele} m`;
+  const distStr = `${distFromStartKm.toFixed(1)} km`;
+  const remainStr = `${distRemainingKm.toFixed(1)} km`;
+
+  let actionBtnsHtml = '';
+  if (role === 'track') {
+    actionBtnsHtml = `
+      <button type="button" class="inspect-btn primary btn-inspect-add-via">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14 M5 12h14"/></svg>
+        <span>设为途径点</span>
+      </button>
+      <button type="button" class="inspect-btn btn-inspect-fav">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+        <span>收藏</span>
+      </button>
+    `;
+  } else {
+    const isEditing = routeInteractionState === 'editing';
+    const canDelete = isEditing && role === 'via';
+    actionBtnsHtml = `
+      <button type="button" class="inspect-btn btn-inspect-focus">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>聚焦</span>
+      </button>
+      <button type="button" class="inspect-btn btn-inspect-fav">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+        <span>收藏</span>
+      </button>
+      ${canDelete ? `
+        <button type="button" class="inspect-btn danger btn-inspect-del">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <span>移除</span>
+        </button>
+      ` : ''}
+    `;
+  }
+
+  routePointInspectCardEl.innerHTML = `
+    <div class="inspect-card-header">
+      <div class="inspect-title-wrap">
+        <span class="inspect-role-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+        <span class="inspect-card-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+      </div>
+      <button type="button" class="inspect-card-close" aria-label="关闭">✕</button>
+    </div>
+    ${activeRouteName ? `<div class="inspect-route-tag" title="路线：${escapeHtml(activeRouteName)}">路线：${escapeHtml(activeRouteName)}</div>` : ''}
+    <div class="inspect-metrics-grid">
+      <div class="inspect-metric-item">
+        <span class="inspect-metric-label">距起点</span>
+        <span class="inspect-metric-val dist">${distStr}</span>
+      </div>
+      <div class="inspect-metric-item">
+        <span class="inspect-metric-label">${role === 'end' ? '全程里程' : '剩余里程'}</span>
+        <span class="inspect-metric-val">${role === 'end' ? distStr : remainStr}</span>
+      </div>
+      <div class="inspect-metric-item">
+        <span class="inspect-metric-label">海拔高程</span>
+        <span class="inspect-metric-val ele">${eleStr}</span>
+      </div>
+      <div class="inspect-metric-item">
+        <span class="inspect-metric-label">位置坐标</span>
+        <span class="inspect-metric-val" style="font-size: 11px;">${coords[0].toFixed(2)}°, ${coords[1].toFixed(2)}°</span>
+      </div>
+    </div>
+    <div class="inspect-card-coords">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <span>${coordStr}</span>
+    </div>
+    <div class="inspect-actions-row">
+      ${actionBtnsHtml}
+    </div>
+  `;
+
+  // Bind close button
+  routePointInspectCardEl.querySelector('.inspect-card-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideRoutePointInspectCard();
+  });
+
+  // Bind Focus
+  routePointInspectCardEl.querySelector('.btn-inspect-focus')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    flyToLocationPrecisely(map, coords, {
+      zoom: 12.0,
+      pitch: map.getPitch() ?? 50,
+      centered: false,
+      elevation: ele
+    });
+  });
+
+  // Bind Fav
+  routePointInspectCardEl.querySelector('.btn-inspect-fav')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (typeof window.savePointToFavorites === 'function') {
+      window.savePointToFavorites({ lng: coords[0], lat: coords[1], ele, name });
+    }
+  });
+
+  // Bind Delete Via
+  routePointInspectCardEl.querySelector('.btn-inspect-del')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (Number.isFinite(pointInfo.index)) {
+      removeViaPoint(map, pointInfo.index);
+      hideRoutePointInspectCard();
+      showToast('已移除该途径点');
+    }
+  });
+
+  // Bind Add Via
+  routePointInspectCardEl.querySelector('.btn-inspect-add-via')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
+    const fullProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords);
+    const proj = projectScreenPointOntoRoute(map, map.project(coords), fullProjection);
+    const progress = proj?.progress ?? pointInfo.progress ?? 0;
+    const viaIndices = routeViaPoints.map(via => {
+      if (!Array.isArray(via?.coords)) return Number.POSITIVE_INFINITY;
+      const point = map.project(via.coords);
+      return projectScreenPointOntoRoute(map, point, fullProjection)?.progress ?? Number.POSITIVE_INFINITY;
+    });
+    let insertIdx = viaIndices.length;
+    for (let i = 0; i < viaIndices.length; i++) {
+      if (progress < viaIndices[i]) {
+        insertIdx = i;
+        break;
+      }
+    }
+    const newVia = {
+      coords: coords,
+      name: name && name !== '路线上的点' ? name : `途径点 ${insertIdx + 1}`
+    };
+    routeViaPoints.splice(insertIdx, 0, newVia);
+    syncRouteMarkersVisualState(map);
+    renderViaList(map);
+    scheduleRoutePlan(map, 60);
+    hideRoutePointInspectCard();
+    showToast('已将该点添加为途径点');
+  });
+
+  // Position
+  const pt = screenPoint || map.project(coords);
+  routePointInspectCardEl.style.left = `${Math.round(pt.x)}px`;
+  routePointInspectCardEl.style.top = `${Math.round(pt.y)}px`;
+  routePointInspectCardEl.style.display = 'block';
+
+  requestAnimationFrame(() => {
+    if (routePointInspectCardEl && currentInspectedPoint) {
+      routePointInspectCardEl.classList.add('visible');
+    }
+  });
+
+  if (!inspectCardMoveBound) {
+    inspectCardMoveBound = true;
+    map.on('move', () => {
+      if (currentInspectedPoint && routePointInspectCardEl && routePointInspectCardEl.style.display !== 'none') {
+        const p = map.project(currentInspectedPoint.coords);
+        routePointInspectCardEl.style.left = `${Math.round(p.x)}px`;
+        routePointInspectCardEl.style.top = `${Math.round(p.y)}px`;
+      }
+    });
+  }
+}
+if (typeof window !== 'undefined') {
+  window.showRoutePointInspectCard = showRoutePointInspectCard;
+  window.hideRoutePointInspectCard = hideRoutePointInspectCard;
+  window.computeRouteCumulativeDistance = computeRouteCumulativeDistance;
+}
+
 function bindRoutePointLayerEvents(map) {
   if (!map || routePointLayerEventsBound) return;
   routePointLayerEventsBound = true;
@@ -10146,6 +10455,8 @@ function bindRoutePointLayerEvents(map) {
     });
     map.on('click', layerId, e => {
       if (suppressNextClick) { suppressNextClick = false; return; }
+      if (e.originalEvent) e.originalEvent._outmapHandled = true;
+      e.preventDefault?.();
       const point = findRoutePointByFeature(e.features?.[0]);
       if (!point?.coords) return;
       flyToLocationPrecisely(map, point.coords, {
@@ -10154,6 +10465,7 @@ function bindRoutePointLayerEvents(map) {
         centered: false,
         elevation: point.ele ?? point.elevation
       });
+      showRoutePointInspectCard(map, point, e.point);
     });
     map.on('mousedown', layerId, handleRoutePointMouseDown);
     map.on('touchstart', layerId, handleRoutePointTouchStart);
@@ -10213,19 +10525,16 @@ function bindRoutePointLayerEvents(map) {
   ['outdoor-route-casing'].forEach(layerId => {
     map.on('mouseenter', layerId, () => {
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
-      if (routeInteractionState !== 'viewing') {
-        routeInsertProjection = null;
-        map.getCanvas().style.cursor = 'copy';
-      }
+      map.getCanvas().style.cursor = 'pointer';
     });
 
     map.on('mousemove', layerId, e => {
-      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag || routeInteractionState === 'viewing') {
+      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) {
         removeRouteInsertMarker();
         return;
       }
-      map.getCanvas().style.cursor = 'copy';
-      showRouteInsertMarker(e.point);
+      map.getCanvas().style.cursor = 'pointer';
+      removeRouteInsertMarker();
     });
 
     map.on('mouseleave', layerId, () => {
@@ -10238,40 +10547,23 @@ function bindRoutePointLayerEvents(map) {
 
     map.on('click', layerId, e => {
       removeRouteInsertMarker();
+      if (e.originalEvent?._outmapHandled) return;
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
-      if (routeInteractionState === 'viewing') {
-        showToast('当前处于浏览模式，请点击“编辑路线”以在线路上插入途径点');
-        return;
-      }
       if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
 
       const fullProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords);
       const projectedClick = projectScreenPointOntoRoute(map, e.point, fullProjection);
       if (!projectedClick) return;
-      const clickCoords = projectedClick.coords;
-      const viaIndices = routeViaPoints.map(via => {
-        if (!Array.isArray(via?.coords)) return Number.POSITIVE_INFINITY;
-        const point = map.project(via.coords);
-        return projectScreenPointOntoRoute(map, point, fullProjection)?.progress ?? Number.POSITIVE_INFINITY;
-      });
 
-      let insertIdx = viaIndices.length;
-      for (let i = 0; i < viaIndices.length; i++) {
-        if (projectedClick.progress < viaIndices[i]) {
-          insertIdx = i;
-          break;
-        }
-      }
+      if (e.originalEvent) e.originalEvent._outmapHandled = true;
+      e.preventDefault?.();
 
-      const newVia = {
-        coords: clickCoords,
-        name: `途径点 ${insertIdx + 1}`
-      };
-      routeViaPoints.splice(insertIdx, 0, newVia);
-      syncRouteMarkersVisualState(map);
-      renderViaList(map);
-      scheduleRoutePlan(map, 60);
-      showToast(`已在路线上添加途径点`);
+      showRoutePointInspectCard(map, {
+        role: 'track',
+        coords: projectedClick.coords,
+        progress: projectedClick.progress,
+        name: '路线上的点'
+      }, e.point);
     });
   });
 }
@@ -12261,6 +12553,7 @@ function setupOutdoorRouteSystem(map) {
 
   // 清空所有点与路线
   btnClearRoute?.addEventListener('click', () => {
+    if (typeof hideRoutePointInspectCard === 'function') hideRoutePointInspectCard();
     exitRoutePickingMode();
     currentRouteAbortController?.abort();
     currentRouteAbortController = null;

@@ -7065,6 +7065,262 @@ body.dark-mode .fav-hover-tooltip .fav-tooltip-ele {
   border-color: rgba(56, 189, 248, 0.25);
 }
 
+/* 路线点位 / 线上海拔点原生查看卡片 (Fluent Glassmorphism) */
+.route-point-inspect-card {
+  position: absolute;
+  z-index: 3450;
+  transform: translate(-50%, -100%) scale(0.96);
+  margin-top: -12px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
+  box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.18), 0 6px 14px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.7) inset;
+  padding: 12px 14px;
+  min-width: 220px;
+  max-width: 290px;
+  color: #0f172a;
+  opacity: 0;
+  pointer-events: auto;
+  transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+  user-select: none;
+}
+
+.route-point-inspect-card.visible {
+  opacity: 1;
+  transform: translate(-50%, -100%) scale(1);
+}
+
+.route-point-inspect-card .inspect-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.route-point-inspect-card .inspect-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.route-point-inspect-card .inspect-role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.route-point-inspect-card .inspect-role-badge.start { background: #16a34a; }
+.route-point-inspect-card .inspect-role-badge.via { background: #0284c7; }
+.route-point-inspect-card .inspect-role-badge.end { background: #ef4444; }
+.route-point-inspect-card .inspect-role-badge.track { background: #64748b; }
+
+.route-point-inspect-card .inspect-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-point-inspect-card .inspect-route-tag {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-point-inspect-card .inspect-card-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.route-point-inspect-card .inspect-card-close:hover {
+  color: #0f172a;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.route-point-inspect-card .inspect-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: rgba(241, 245, 249, 0.8);
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
+.route-point-inspect-card .inspect-metric-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.route-point-inspect-card .inspect-metric-label {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.route-point-inspect-card .inspect-metric-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.route-point-inspect-card .inspect-metric-val.ele {
+  color: #0284c7;
+}
+
+.route-point-inspect-card .inspect-metric-val.dist {
+  color: #16a34a;
+}
+
+.route-point-inspect-card .inspect-card-coords {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.route-point-inspect-card .inspect-actions-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.route-point-inspect-card .inspect-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.route-point-inspect-card .inspect-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.route-point-inspect-card .inspect-btn.primary {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.route-point-inspect-card .inspect-btn.primary:hover {
+  background: #0369a1;
+}
+
+.route-point-inspect-card .inspect-btn.danger {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.route-point-inspect-card .inspect-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* 深色模式兼容 */
+body.dark-mode .route-point-inspect-card {
+  background: rgba(30, 41, 59, 0.94);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.5), 0 6px 14px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .route-point-inspect-card .inspect-card-name {
+  color: #f8fafc;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-route-tag {
+  color: #94a3b8;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-card-close:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .route-point-inspect-card .inspect-metrics-grid {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+body.dark-mode .route-point-inspect-card .inspect-metric-label {
+  color: #94a3b8;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-metric-val {
+  color: #f8fafc;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-metric-val.ele {
+  color: #38bdf8;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-metric-val.dist {
+  color: #4ade80;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-card-coords {
+  color: #94a3b8;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-btn {
+  background: rgba(51, 65, 85, 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-btn:hover {
+  background: rgba(71, 85, 105, 0.9);
+  color: #ffffff;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-btn.primary {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+body.dark-mode .route-point-inspect-card .inspect-btn.primary:hover {
+  background: #38bdf8;
+}
+
 /* =========================================================
    3D 路线低空航拍漫游模拟器悬浮控制条 (Fluent Glassmorphism)
    ========================================================= */
