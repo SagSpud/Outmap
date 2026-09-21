@@ -5,6 +5,10 @@ const path = require('path');
 const zlib = require('zlib');
 const { PMTiles, zxyToTileId, Compression, TileType } = require('pmtiles');
 
+const PMTILES_HEADER_SIZE = 127;
+const PMTILES_INITIAL_FETCH_SIZE = 16 * 1024;
+const MAX_ROOT_DIRECTORY_BYTES = PMTILES_INITIAL_FETCH_SIZE - PMTILES_HEADER_SIZE - 128;
+
 class NodeFileSource {
   constructor(filePath) {
     this.filePath = path.resolve(filePath);
@@ -17,7 +21,10 @@ class NodeFileSource {
 
   async getBytes(offset, length) {
     if (this.fd === null) return { data: new ArrayBuffer(0) };
-    const buf = Buffer.allocUnsafe(length);
+    // Read directly into the ArrayBuffer returned to pmtiles. The previous
+    // Buffer -> ArrayBuffer.slice path copied every directory and tile once.
+    const data = new ArrayBuffer(length);
+    const buf = Buffer.from(data);
     const bytesRead = await new Promise((resolve, reject) => {
       fs.read(this.fd, buf, 0, length, offset, (err, nRead) => {
         if (err) reject(err);
@@ -25,7 +32,7 @@ class NodeFileSource {
       });
     });
     return {
-      data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead)
+      data: bytesRead === length ? data : data.slice(0, bytesRead)
     };
   }
 
@@ -86,8 +93,7 @@ function serializeDirectory(entries) {
   return zlib.gzipSync(buf.subarray(0, offset));
 }
 
-function deserializeDirectory(compressedBuf) {
-  const buf = zlib.gunzipSync(compressedBuf);
+function parseDirectoryBuffer(buf) {
   let pos = 0;
   function readVarint() {
     let res = 0n;
@@ -126,41 +132,175 @@ function deserializeDirectory(compressedBuf) {
   return entries;
 }
 
+function deserializeDirectory(compressedBuf) {
+  return parseDirectoryBuffer(zlib.gunzipSync(compressedBuf));
+}
+
+function normalizeBounds(bounds) {
+  if (!Array.isArray(bounds) || bounds.length < 4) return null;
+  const values = bounds.slice(0, 4).map(Number);
+  if (!values.every(Number.isFinite)) return null;
+  const [minLon, minLat, maxLon, maxLat] = values;
+  if (minLon >= maxLon || minLat >= maxLat) return null;
+  if (minLon < -180 || maxLon > 180 || minLat < -85.051129 || maxLat > 85.051129) return null;
+  return values;
+}
+
+function calculateTilesBounds(tiles) {
+  let minWorldX = Infinity;
+  let minWorldY = Infinity;
+  let maxWorldX = -Infinity;
+  let maxWorldY = -Infinity;
+  for (const tile of tiles || []) {
+    const z = Number(tile?.z);
+    const x = Number(tile?.x);
+    const y = Number(tile?.y);
+    if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 0 || z > 30) continue;
+    const n = 2 ** z;
+    minWorldX = Math.min(minWorldX, x / n);
+    maxWorldX = Math.max(maxWorldX, (x + 1) / n);
+    minWorldY = Math.min(minWorldY, y / n);
+    maxWorldY = Math.max(maxWorldY, (y + 1) / n);
+  }
+  if (![minWorldX, minWorldY, maxWorldX, maxWorldY].every(Number.isFinite)) return null;
+  const lon = worldX => worldX * 360 - 180;
+  const lat = worldY => Math.atan(Math.sinh(Math.PI * (1 - 2 * worldY))) * 180 / Math.PI;
+  const minLon = lon(minWorldX);
+  const maxLon = lon(maxWorldX);
+  const maxLat = lat(minWorldY);
+  const minLat = lat(maxWorldY);
+  return normalizeBounds([minLon, minLat, maxLon, maxLat]);
+}
+
+// PMTiles readers optimistically fetch only the first 16 KiB and expect the
+// complete root directory to fit there. Large Outmap archives previously put
+// every tile entry in the root. Split large indexes into leaf directories so
+// nationwide L14 archives remain standards-compliant and cheap to open.
+function buildDirectoryLayout(entries, maxRootBytes = MAX_ROOT_DIRECTORY_BYTES) {
+  const directRoot = serializeDirectory(entries);
+  if (directRoot.length <= maxRootBytes) {
+    return {
+      rootDirectory: directRoot,
+      leafDirectories: Buffer.alloc(0),
+      usesLeaves: false,
+      rootEntryCount: entries.length
+    };
+  }
+
+  let targetRootEntries = Math.min(512, Math.max(1, entries.length));
+  while (targetRootEntries >= 1) {
+    const chunkSize = Math.max(1, Math.ceil(entries.length / targetRootEntries));
+    const leafBuffers = [];
+    const rootEntries = [];
+    let leafOffset = 0;
+
+    for (let start = 0; start < entries.length; start += chunkSize) {
+      const chunk = entries.slice(start, Math.min(entries.length, start + chunkSize));
+      const leaf = serializeDirectory(chunk);
+      leafBuffers.push(leaf);
+      rootEntries.push({
+        tileId: chunk[0].tileId,
+        offset: leafOffset,
+        length: leaf.length,
+        runLength: 0
+      });
+      leafOffset += leaf.length;
+    }
+
+    const rootDirectory = serializeDirectory(rootEntries);
+    if (rootDirectory.length <= maxRootBytes || targetRootEntries === 1) {
+      return {
+        rootDirectory,
+        leafDirectories: Buffer.concat(leafBuffers),
+        usesLeaves: true,
+        rootEntryCount: rootEntries.length
+      };
+    }
+    targetRootEntries = Math.max(1, Math.floor(targetRootEntries / 2));
+  }
+
+  throw new Error('Unable to build bounded PMTiles root directory');
+}
+
+function parsePmtilesHeader(headerBuf) {
+  if (!headerBuf || headerBuf.length < PMTILES_HEADER_SIZE || headerBuf.toString('utf8', 0, 2) !== 'PM') {
+    throw new Error('Invalid PMTiles header');
+  }
+  return {
+    specVersion: headerBuf.readUInt8(7),
+    rootDirOffset: Number(headerBuf.readBigUInt64LE(8)),
+    rootDirLength: Number(headerBuf.readBigUInt64LE(16)),
+    jsonOffset: Number(headerBuf.readBigUInt64LE(24)),
+    jsonLength: Number(headerBuf.readBigUInt64LE(32)),
+    leafDirsOffset: Number(headerBuf.readBigUInt64LE(40)),
+    leafDirsLength: Number(headerBuf.readBigUInt64LE(48)),
+    dataOffset: Number(headerBuf.readBigUInt64LE(56)),
+    dataLength: Number(headerBuf.readBigUInt64LE(64)),
+    numTiles: Number(headerBuf.readBigUInt64LE(72)),
+    numEntries: Number(headerBuf.readBigUInt64LE(80)),
+    numContents: Number(headerBuf.readBigUInt64LE(88)),
+    clustered: headerBuf.readUInt8(96) === 1,
+    internalCompression: headerBuf.readUInt8(97),
+    tileCompression: headerBuf.readUInt8(98),
+    tileType: headerBuf.readUInt8(99),
+    minZoom: headerBuf.readUInt8(100),
+    maxZoom: headerBuf.readUInt8(101),
+    minLon: headerBuf.readInt32LE(102) / 1e7,
+    minLat: headerBuf.readInt32LE(106) / 1e7,
+    maxLon: headerBuf.readInt32LE(110) / 1e7,
+    maxLat: headerBuf.readInt32LE(114) / 1e7,
+    centerZoom: headerBuf.readUInt8(118),
+    centerLon: headerBuf.readInt32LE(119) / 1e7,
+    centerLat: headerBuf.readInt32LE(123) / 1e7
+  };
+}
+
+function readPmtilesHeader(filePath) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const headerBuf = Buffer.alloc(PMTILES_HEADER_SIZE);
+    fs.readSync(fd, headerBuf, 0, PMTILES_HEADER_SIZE, 0);
+    return parsePmtilesHeader(headerBuf);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function readPmtilesInfo(filePath) {
   const fd = fs.openSync(filePath, 'r');
   try {
-    const headerBuf = Buffer.alloc(127);
-    fs.readSync(fd, headerBuf, 0, 127, 0);
-    if (headerBuf.toString('utf8', 0, 2) !== 'PM') {
-      throw new Error('Not a PMTiles file: ' + filePath);
-    }
-    const rootDirOffset = Number(headerBuf.readBigUInt64LE(8));
-    const rootDirLength = Number(headerBuf.readBigUInt64LE(16));
-    const jsonOffset = Number(headerBuf.readBigUInt64LE(24));
-    const jsonLength = Number(headerBuf.readBigUInt64LE(32));
-    const dataOffset = Number(headerBuf.readBigUInt64LE(56));
-    const dataLength = Number(headerBuf.readBigUInt64LE(64));
-    const numTiles = Number(headerBuf.readBigUInt64LE(72));
-    const numEntries = Number(headerBuf.readBigUInt64LE(80));
-    const tileType = headerBuf.readUInt8(99);
-    const minZoom = headerBuf.readUInt8(100);
-    const maxZoom = headerBuf.readUInt8(101);
+    const headerBuf = Buffer.alloc(PMTILES_HEADER_SIZE);
+    fs.readSync(fd, headerBuf, 0, PMTILES_HEADER_SIZE, 0);
+    const header = parsePmtilesHeader(headerBuf);
 
-    const rootDirCompressed = Buffer.alloc(rootDirLength);
-    fs.readSync(fd, rootDirCompressed, 0, rootDirLength, rootDirOffset);
-    const entries = deserializeDirectory(rootDirCompressed);
+    const readDirectory = (offset, length, depth = 0) => {
+      if (depth > 3) throw new Error('PMTiles directory depth exceeds supported maximum');
+      const compressed = Buffer.alloc(length);
+      fs.readSync(fd, compressed, 0, length, offset);
+      const directory = deserializeDirectory(compressed);
+      const flattened = [];
+      for (const entry of directory) {
+        if (entry.runLength === 0) {
+          flattened.push(...readDirectory(header.leafDirsOffset + entry.offset, entry.length, depth + 1));
+        } else {
+          flattened.push(entry);
+        }
+      }
+      return flattened;
+    };
+    const entries = readDirectory(header.rootDirOffset, header.rootDirLength);
 
     let metadata = {};
-    if (jsonLength > 0) {
+    if (header.jsonLength > 0) {
       try {
-        const jsonCompressed = Buffer.alloc(jsonLength);
-        fs.readSync(fd, jsonCompressed, 0, jsonLength, jsonOffset);
+        const jsonCompressed = Buffer.alloc(header.jsonLength);
+        fs.readSync(fd, jsonCompressed, 0, header.jsonLength, header.jsonOffset);
         metadata = JSON.parse(zlib.gunzipSync(jsonCompressed).toString('utf8'));
       } catch (_) {}
     }
 
     return {
-      header: { rootDirOffset, rootDirLength, jsonOffset, jsonLength, dataOffset, dataLength, numTiles, numEntries, tileType, minZoom, maxZoom },
+      header,
       metadata,
       entries
     };
@@ -174,23 +314,32 @@ function buildPmtilesHeader({
   rootDirLength,
   jsonOffset,
   jsonLength,
+  leafDirsOffset = 0,
+  leafDirsLength = 0,
   dataOffset,
   dataLength,
   numTiles,
   numEntries,
   minZoom,
   maxZoom,
-  tileType
+  tileType,
+  bounds = [-180, -85.0511288, 180, 85.0511288],
+  center = null,
+  centerZoom = minZoom
 }) {
-  const header = Buffer.alloc(127);
+  const normalizedBounds = normalizeBounds(bounds) || [-180, -85.0511288, 180, 85.0511288];
+  const normalizedCenter = Array.isArray(center) && center.length >= 2 && center.every(Number.isFinite)
+    ? center
+    : [(normalizedBounds[0] + normalizedBounds[2]) / 2, (normalizedBounds[1] + normalizedBounds[3]) / 2];
+  const header = Buffer.alloc(PMTILES_HEADER_SIZE);
   header.write('PM', 0);
   header.writeUInt8(3, 7); // PMTiles v3 spec
   header.writeBigUInt64LE(BigInt(rootDirOffset), 8);
   header.writeBigUInt64LE(BigInt(rootDirLength), 16);
   header.writeBigUInt64LE(BigInt(jsonOffset), 24);
   header.writeBigUInt64LE(BigInt(jsonLength), 32);
-  header.writeBigUInt64LE(0n, 40); // leafDirsOffset
-  header.writeBigUInt64LE(0n, 48); // leafDirsLength
+  header.writeBigUInt64LE(BigInt(leafDirsOffset), 40);
+  header.writeBigUInt64LE(BigInt(leafDirsLength), 48);
   header.writeBigUInt64LE(BigInt(dataOffset), 56);
   header.writeBigUInt64LE(BigInt(dataLength), 64);
   header.writeBigUInt64LE(BigInt(numTiles), 72);
@@ -202,6 +351,13 @@ function buildPmtilesHeader({
   header.writeUInt8(tileType, 99);
   header.writeUInt8(minZoom, 100);
   header.writeUInt8(maxZoom, 101);
+  header.writeInt32LE(Math.round(normalizedBounds[0] * 1e7), 102);
+  header.writeInt32LE(Math.round(normalizedBounds[1] * 1e7), 106);
+  header.writeInt32LE(Math.round(normalizedBounds[2] * 1e7), 110);
+  header.writeInt32LE(Math.round(normalizedBounds[3] * 1e7), 114);
+  header.writeUInt8(Math.max(0, Math.min(30, Number(centerZoom) || 0)), 118);
+  header.writeInt32LE(Math.round(Math.max(-180, Math.min(180, normalizedCenter[0])) * 1e7), 119);
+  header.writeInt32LE(Math.round(Math.max(-85.0511288, Math.min(85.0511288, normalizedCenter[1])) * 1e7), 123);
   return header;
 }
 
@@ -237,7 +393,9 @@ function buildPmtilesBuffer(tiles, options = {}) {
   }
 
   const tileDataBuffer = Buffer.concat(tileBuffers);
-  const rootDirBuffer = serializeDirectory(entries);
+  const directoryLayout = buildDirectoryLayout(entries);
+  const rootDirBuffer = directoryLayout.rootDirectory;
+  const leafDirsBuffer = directoryLayout.leafDirectories;
 
   const metaObj = {
     name: options.name || 'Outmap PMTiles Archive',
@@ -250,12 +408,15 @@ function buildPmtilesBuffer(tiles, options = {}) {
   };
   const jsonMetaGz = zlib.gzipSync(Buffer.from(JSON.stringify(metaObj)));
 
-  const rootDirOffset = 127;
+  const rootDirOffset = PMTILES_HEADER_SIZE;
   const rootDirLength = rootDirBuffer.length;
   const jsonOffset = rootDirOffset + rootDirLength;
   const jsonLength = jsonMetaGz.length;
-  const dataOffset = jsonOffset + jsonLength;
+  const leafDirsOffset = jsonOffset + jsonLength;
+  const leafDirsLength = leafDirsBuffer.length;
+  const dataOffset = leafDirsOffset + leafDirsLength;
   const dataLength = tileDataBuffer.length;
+  const bounds = normalizeBounds(options.bounds) || calculateTilesBounds(sortedTiles) || [-180, -85.0511288, 180, 85.0511288];
 
   let pmtilesTileType = TileType.Mvt;
   if (options.tileType === 'webp' || options.type === 'dem') pmtilesTileType = TileType.Webp;
@@ -267,16 +428,109 @@ function buildPmtilesBuffer(tiles, options = {}) {
     rootDirLength,
     jsonOffset,
     jsonLength,
+    leafDirsOffset,
+    leafDirsLength,
     dataOffset,
     dataLength,
     numTiles: sortedTiles.length,
     numEntries: entries.length,
     minZoom,
     maxZoom,
-    tileType: pmtilesTileType
+    tileType: pmtilesTileType,
+    bounds,
+    center: options.center,
+    centerZoom: options.centerZoom ?? minZoom
   });
 
-  return Buffer.concat([header, rootDirBuffer, jsonMetaGz, tileDataBuffer]);
+  return Buffer.concat([header, rootDirBuffer, jsonMetaGz, leafDirsBuffer, tileDataBuffer]);
+}
+
+function decompressBuffer(data, compression) {
+  const input = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  if (compression === Compression.None || compression === Compression.Unknown) return Promise.resolve(input);
+  const fn = compression === Compression.Gzip
+    ? zlib.gunzip
+    : compression === Compression.Brotli
+      ? zlib.brotliDecompress
+      : null;
+  if (!fn) return Promise.reject(new Error(`Unsupported PMTiles compression: ${compression}`));
+  return new Promise((resolve, reject) => fn(input, (error, output) => error ? reject(error) : resolve(output)));
+}
+
+function findDirectoryEntry(entries, tileId) {
+  let low = 0;
+  let high = entries.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const delta = tileId - entries[mid].tileId;
+    if (delta > 0) low = mid + 1;
+    else if (delta < 0) high = mid - 1;
+    else return entries[mid];
+  }
+  if (high >= 0) {
+    const candidate = entries[high];
+    if (candidate.runLength > 0 && tileId - candidate.tileId < candidate.runLength) return candidate;
+  }
+  return null;
+}
+
+// Compatibility reader for early Outmap archives whose entire tile index was
+// stored in an oversized root directory. It is loaded lazily, so existing
+// archives keep working without delaying application startup or being rewritten.
+class LegacyFlatPmtilesArchive {
+  constructor(source, header) {
+    this.source = source;
+    this.header = header;
+    this.entriesPromise = null;
+  }
+
+  async getEntries() {
+    if (!this.entriesPromise) {
+      this.entriesPromise = (async () => {
+        const response = await this.source.getBytes(this.header.rootDirOffset, this.header.rootDirLength);
+        const raw = await decompressBuffer(response.data, this.header.internalCompression);
+        return parseDirectoryBuffer(raw);
+      })();
+    }
+    return this.entriesPromise;
+  }
+
+  async getZxy(z, x, y) {
+    const entries = await this.getEntries();
+    const entry = findDirectoryEntry(entries, zxyToTileId(z, x, y));
+    if (!entry || entry.runLength === 0) return undefined;
+    const response = await this.source.getBytes(this.header.dataOffset + entry.offset, entry.length);
+    const data = await decompressBuffer(response.data, this.header.tileCompression);
+    return { data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) };
+  }
+}
+
+function getArchiveTileRange(archive, z) {
+  if (!archive.bounds) return null;
+  archive.tileRangeCache ||= new Map();
+  if (archive.tileRangeCache.has(z)) return archive.tileRangeCache.get(z);
+  const [minLon, minLat, maxLon, maxLat] = archive.bounds;
+  const n = 2 ** z;
+  const xAt = lon => Math.max(0, Math.min(n - 1, Math.floor((lon + 180) / 360 * n)));
+  const yAt = lat => {
+    const clamped = Math.max(-85.0511288, Math.min(85.0511288, lat));
+    const rad = clamped * Math.PI / 180;
+    return Math.max(0, Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n)));
+  };
+  const range = {
+    minX: xAt(minLon),
+    maxX: xAt(maxLon - 1e-10),
+    minY: yAt(maxLat),
+    maxY: yAt(minLat - 1e-10)
+  };
+  archive.tileRangeCache.set(z, range);
+  return range;
+}
+
+function archiveMayContainTile(archive, z, x, y) {
+  const range = getArchiveTileRange(archive, z);
+  if (!range) return true;
+  return x >= range.minX && x <= range.maxX && y >= range.minY && y <= range.maxY;
 }
 
 class TileArchiveManager {
@@ -284,12 +538,20 @@ class TileArchiveManager {
     this.baseDir = options.baseDir || '';
     this.archivesDir = path.join(this.baseDir, 'archives');
     this.archives = []; // Array of { name, type, source, pmtiles, minZoom, maxZoom }
+    this.archivesByType = new Map();
     this.isOpen = false;
+    this._ready = Promise.resolve();
   }
 
-  async init() {
+  init() {
+    this._ready = this._initialize();
+    return this._ready;
+  }
+
+  async _initialize() {
     this.close();
     this.archives = [];
+    this.archivesByType = new Map();
 
     const candidateParent = this.baseDir ? path.dirname(this.baseDir) : '';
     const searchDirs = [
@@ -321,11 +583,32 @@ class TileArchiveManager {
           else if (lower.includes('sat') || lower.includes('imagery')) archiveType = 'sat';
           else if (lower.includes('vector') || lower.includes('osm')) archiveType = 'vector';
 
+          let source = null;
           try {
-            const source = new NodeFileSource(fullPath);
-            const pmtiles = new PMTiles(source);
-            const header = await pmtiles.getHeader();
-            this.archives.push({
+            source = new NodeFileSource(fullPath);
+            const rawHeader = readPmtilesHeader(fullPath);
+            let pmtiles = new PMTiles(source);
+            let header;
+            let legacyFlat = false;
+            const oversizedFlatRoot = rawHeader.leafDirsLength === 0
+              && rawHeader.rootDirLength > MAX_ROOT_DIRECTORY_BYTES;
+            if (oversizedFlatRoot) {
+              pmtiles = new LegacyFlatPmtilesArchive(source, rawHeader);
+              header = {
+                minZoom: rawHeader.minZoom,
+                maxZoom: rawHeader.maxZoom,
+                minLon: rawHeader.minLon,
+                minLat: rawHeader.minLat,
+                maxLon: rawHeader.maxLon,
+                maxLat: rawHeader.maxLat,
+                numAddressedTiles: rawHeader.numTiles
+              };
+              legacyFlat = true;
+            } else {
+              header = await pmtiles.getHeader();
+            }
+            const bounds = normalizeBounds([header.minLon, header.minLat, header.maxLon, header.maxLat]);
+            const archive = {
               name: file,
               path: fullPath,
               type: archiveType,
@@ -333,9 +616,15 @@ class TileArchiveManager {
               pmtiles,
               minZoom: header.minZoom,
               maxZoom: header.maxZoom,
-              tileCount: Number(header.numAddressedTiles || 0)
-            });
+              tileCount: Number(header.numAddressedTiles || 0),
+              bounds,
+              legacyFlat
+            };
+            this.archives.push(archive);
+            if (!this.archivesByType.has(archiveType)) this.archivesByType.set(archiveType, []);
+            this.archivesByType.get(archiveType).push(archive);
           } catch (err) {
+            source?.close?.();
             console.warn('[TileArchiveManager] Failed to load archive:', fullPath, err.message);
           }
         }
@@ -356,17 +645,24 @@ class TileArchiveManager {
       type: a.type,
       minZoom: a.minZoom,
       maxZoom: a.maxZoom,
-      tileCount: a.tileCount
+      tileCount: a.tileCount,
+      bounds: a.bounds,
+      legacyFlat: a.legacyFlat
     }));
   }
 
   async getTile(type, z, x, y) {
+    await this._ready.catch(() => {});
     if (!this.isOpen || this.archives.length === 0) return null;
     const targetType = String(type).toLowerCase();
+    const candidates = [
+      ...(this.archivesByType.get(targetType) || []),
+      ...(this.archivesByType.get('all') || [])
+    ];
 
-    for (const archive of this.archives) {
-      if (archive.type !== targetType && archive.type !== 'all') continue;
+    for (const archive of candidates) {
       if (z < archive.minZoom || z > archive.maxZoom) continue;
+      if (!archiveMayContainTile(archive, z, x, y)) continue;
 
       try {
         const resp = await archive.pmtiles.getZxy(z, x, y);
@@ -387,6 +683,7 @@ class TileArchiveManager {
       if (archive.source?.close) archive.source.close();
     }
     this.archives = [];
+    this.archivesByType = new Map();
     this.isOpen = false;
   }
 }
@@ -395,8 +692,12 @@ module.exports = {
   NodeFileSource,
   buildPmtilesBuffer,
   buildPmtilesHeader,
+  buildDirectoryLayout,
+  calculateTilesBounds,
   serializeDirectory,
   deserializeDirectory,
+  parsePmtilesHeader,
+  readPmtilesHeader,
   readPmtilesInfo,
   TileArchiveManager,
   zxyToTileId

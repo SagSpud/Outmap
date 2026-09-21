@@ -14,12 +14,13 @@ const packageLockJson = JSON.parse(fs.readFileSync(path.join(root, 'package-lock
 console.log('--- 1. Static Assertions for v2.0.65 Download Flow & Locating Transition ---');
 
 // Versioning
-assert.strictEqual(packageJson.version, '2.0.65', 'package.json version must be 2.0.65');
-assert.strictEqual(packageLockJson.version, '2.0.65', 'package-lock.json version must be 2.0.65');
-assert(indexHtml.includes('style.css?v=2.0.65'), 'index.html must link style.css?v=2.0.65');
-assert(indexHtml.includes('map-bootstrap.js?v=2.0.65'), 'index.html must link map-bootstrap.js?v=2.0.65');
-assert(indexHtml.includes('>v2.0.65</span>'), 'index.html brand badge must show v2.0.65');
-assert(appJs.includes("const APP_VERSION = '2.0.65';"), 'app.js must define APP_VERSION = 2.0.65');
+const [major, minor, patch] = packageJson.version.split('.').map(Number);
+assert(major > 2 || (major === 2 && (minor > 0 || (minor === 0 && patch >= 65))), 'package.json version must be >= 2.0.65');
+assert.strictEqual(packageJson.version, packageLockJson.version, 'package-lock.json version must match package.json');
+assert(indexHtml.includes(`style.css?v=${packageJson.version}`), 'index.html must link current style.css');
+assert(indexHtml.includes(`map-bootstrap.js?v=${packageJson.version}`), 'index.html must link current map-bootstrap.js');
+assert(indexHtml.includes(`>v${packageJson.version}</span>`), 'index.html brand badge must show current version');
+assert(appJs.includes(`const APP_VERSION = '${packageJson.version}';`), 'app.js must define matching APP_VERSION');
 
 // Backend I/O optimization: checkDirectoryFiles avoids readdir if dir doesn't exist
 assert(mainJs.includes('hasDemDir') && mainJs.includes('hasVecDir'), 'checkDirectoryFiles must cache existence of loose directories');

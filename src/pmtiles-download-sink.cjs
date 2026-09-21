@@ -8,6 +8,8 @@ const {
   serializeDirectory,
   deserializeDirectory,
   buildPmtilesHeader,
+  buildDirectoryLayout,
+  calculateTilesBounds,
   readPmtilesInfo
 } = require('./tile-archive.cjs');
 
@@ -229,7 +231,9 @@ class PmtilesDownloadSink {
     }
 
     const totalDataLength = currentDataOffset;
-    const rootDirBuffer = serializeDirectory(finalDirEntries);
+    const directoryLayout = buildDirectoryLayout(finalDirEntries);
+    const rootDirBuffer = directoryLayout.rootDirectory;
+    const leafDirsBuffer = directoryLayout.leafDirectories;
 
     const metaObj = {
       name: layer.defaultName,
@@ -245,20 +249,27 @@ class PmtilesDownloadSink {
     const rootDirLength = rootDirBuffer.length;
     const jsonOffset = rootDirOffset + rootDirLength;
     const jsonLength = jsonMetaGz.length;
-    const dataOffset = jsonOffset + jsonLength;
+    const leafDirsOffset = jsonOffset + jsonLength;
+    const leafDirsLength = leafDirsBuffer.length;
+    const dataOffset = leafDirsOffset + leafDirsLength;
+    const bounds = calculateTilesBounds(allTiles) || [-180, -85.0511288, 180, 85.0511288];
 
     const header = buildPmtilesHeader({
       rootDirOffset,
       rootDirLength,
       jsonOffset,
       jsonLength,
+      leafDirsOffset,
+      leafDirsLength,
       dataOffset,
       dataLength: totalDataLength,
       numTiles: allTiles.length,
       numEntries: finalDirEntries.length,
       minZoom,
       maxZoom,
-      tileType: layer.tileType
+      tileType: layer.tileType,
+      bounds,
+      centerZoom: minZoom
     });
 
     const tempTargetPath = layer.archivePath + '.' + process.pid + '.' + Date.now() + '.tmp';
@@ -267,6 +278,9 @@ class PmtilesDownloadSink {
     fs.writeSync(targetFd, header, 0, header.length);
     fs.writeSync(targetFd, rootDirBuffer, 0, rootDirBuffer.length);
     fs.writeSync(targetFd, jsonMetaGz, 0, jsonMetaGz.length);
+    if (leafDirsBuffer.length > 0) {
+      fs.writeSync(targetFd, leafDirsBuffer, 0, leafDirsBuffer.length);
+    }
 
     const copyBuf = Buffer.allocUnsafe(CHUNK_SIZE);
     let copyBufLen = 0;

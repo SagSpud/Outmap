@@ -11,7 +11,12 @@ try {
 } catch (_) {
   tileArchive = require('../src/tile-archive.cjs');
 }
-const { serializeDirectory, buildPmtilesHeader, buildPmtilesBuffer } = tileArchive;
+const {
+  buildPmtilesHeader,
+  buildPmtilesBuffer,
+  buildDirectoryLayout,
+  calculateTilesBounds
+} = tileArchive;
 
 async function convertDirectoryToPmtiles(options = {}) {
   const inputDir = path.resolve(options.inputDir);
@@ -110,7 +115,9 @@ async function convertDirectoryToPmtiles(options = {}) {
     currentOffset += t.size;
   }
 
-  const rootDirBuffer = serializeDirectory(entries);
+  const directoryLayout = buildDirectoryLayout(entries);
+  const rootDirBuffer = directoryLayout.rootDirectory;
+  const leafDirsBuffer = directoryLayout.leafDirectories;
 
   const metaObj = {
     name: options.name || path.basename(outputFile, '.pmtiles'),
@@ -127,8 +134,11 @@ async function convertDirectoryToPmtiles(options = {}) {
   const rootDirLength = rootDirBuffer.length;
   const jsonOffset = rootDirOffset + rootDirLength;
   const jsonLength = jsonMetaGz.length;
-  const dataOffset = jsonOffset + jsonLength;
+  const leafDirsOffset = jsonOffset + jsonLength;
+  const leafDirsLength = leafDirsBuffer.length;
+  const dataOffset = leafDirsOffset + leafDirsLength;
   const dataLength = totalBytes;
+  const bounds = calculateTilesBounds(tiles) || [-180, -85.0511288, 180, 85.0511288];
 
   let pmtilesTileType = TileType.Mvt;
   if (type === 'dem') pmtilesTileType = TileType.Webp;
@@ -139,13 +149,17 @@ async function convertDirectoryToPmtiles(options = {}) {
     rootDirLength,
     jsonOffset,
     jsonLength,
+    leafDirsOffset,
+    leafDirsLength,
     dataOffset,
     dataLength,
     numTiles: tiles.length,
     numEntries: entries.length,
     minZoom,
     maxZoom,
-    tileType: pmtilesTileType
+    tileType: pmtilesTileType,
+    bounds,
+    centerZoom: minZoom
   });
 
   // 4. Stream Direct-to-Disk Writing with 4MB Chunk Buffer
@@ -161,6 +175,7 @@ async function convertDirectoryToPmtiles(options = {}) {
   fs.writeSync(outFd, header);
   fs.writeSync(outFd, rootDirBuffer);
   fs.writeSync(outFd, jsonMetaGz);
+  if (leafDirsBuffer.length > 0) fs.writeSync(outFd, leafDirsBuffer);
 
   const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB write buffer
   const chunkBuf = Buffer.allocUnsafe(CHUNK_SIZE);

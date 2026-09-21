@@ -710,6 +710,79 @@ async function fetchTileWithDedupe(cacheKey, onlineUrl, localPath, localDir, z, 
   }
 }
 
+function prepareTileBuffer(type, buffer) {
+  if (!buffer) return buffer;
+  const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if ((type === 'vector' || type === 'contour') && data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
+    try { return zlib.gunzipSync(data); } catch (_) {}
+  }
+  return data;
+}
+
+// One authoritative tile resolver for the privileged desktop protocol. This
+// avoids the old protocol -> localhost HTTP fallback, which repeated memory,
+// PMTiles and loose-file lookups before it finally reached the network.
+async function resolveDesktopTile(type, z, x, yFile) {
+  const y = Number(String(yFile).split('.')[0]);
+  if (!Number.isInteger(y)) return null;
+
+  let localDir;
+  let contentType;
+  let onlineUrl = null;
+  if (type === 'dem') {
+    localDir = OFFLINE_DEM_DIR;
+    contentType = yFile.endsWith('.png') ? 'image/png' : 'image/webp';
+    onlineUrl = `https://tiles.mapterhorn.com/${z}/${x}/${yFile}`;
+  } else if (type === 'vector') {
+    localDir = OFFLINE_VEC_DIR;
+    contentType = 'application/vnd.mapbox-vector-tile';
+    onlineUrl = ofmTileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+  } else if (type === 'sat') {
+    localDir = OFFLINE_SAT_DIR;
+    contentType = 'image/jpeg';
+    onlineUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  } else if (type === 'contour') {
+    localDir = path.join(OFFLINE_CONTOUR_DIR, 'metric-v1');
+    contentType = 'application/vnd.mapbox-vector-tile';
+  } else {
+    return null;
+  }
+
+  const cacheKey = `${type}/${z}/${x}/${yFile}`;
+  const memory = getCachedTile(cacheKey);
+  if (memory) {
+    const data = prepareTileBuffer(type, memory);
+    if (data !== memory) setCachedTile(cacheKey, data);
+    return { data, contentType, source: 'memory-cache' };
+  }
+
+  try {
+    const archiveTile = await tileArchiveManager.getTile(type, z, x, y);
+    if (archiveTile?.data?.length > 0) {
+      const data = prepareTileBuffer(type, archiveTile.data);
+      setCachedTile(cacheKey, data);
+      return { data, contentType, source: 'archive-pmtiles', archiveName: archiveTile.archiveName };
+    }
+  } catch (_) {}
+
+  const localPath = path.join(localDir, String(z), String(x), yFile);
+  try {
+    const fileData = await fs.promises.readFile(localPath);
+    if (fileData.length > (type === 'vector' ? 0 : 20)) {
+      const data = prepareTileBuffer(type, fileData);
+      setCachedTile(cacheKey, data);
+      return { data, contentType, source: 'local-offline' };
+    }
+  } catch (_) {}
+
+  if (!onlineUrl) return null;
+  const downloaded = await fetchTileWithDedupe(cacheKey, onlineUrl, localPath, localDir, z, x);
+  if (!downloaded?.length) return null;
+  const data = prepareTileBuffer(type, downloaded);
+  setCachedTile(cacheKey, data);
+  return { data, contentType, source: 'online-cache' };
+}
+
 function startLocalTileServer() {
   return new Promise((resolve) => {
     resolveOfmTemplate();
@@ -1496,90 +1569,18 @@ app.whenReady().then(async () => {
         return new Response('Invalid tile coordinates', { status: 400 });
       }
 
-      let contentType = 'application/octet-stream';
-      if (type === 'dem') contentType = yFile.endsWith('.png') ? 'image/png' : 'image/webp';
-      else if (type === 'sat') contentType = 'image/jpeg';
-      else if (type === 'vector' || type === 'contour') contentType = 'application/vnd.mapbox-vector-tile';
-
-      const prepareTileBuffer = (b) => {
-        if (!b) return b;
-        if ((type === 'vector' || type === 'contour') && b.length > 2 && b[0] === 0x1f && b[1] === 0x8b) {
-          try {
-            const zlib = require('zlib');
-            return zlib.gunzipSync(b);
-          } catch (_) {}
-        }
-        return b;
-      };
-
-      const cacheKey = `${type}/${z}/${x}/${yFile}`;
-
-      // 1. 优先内存 LRU 零拷贝响应
-      let memory = getCachedTile(cacheKey);
-      if (memory) {
-        memory = prepareTileBuffer(memory);
-        return new Response(memory, {
-          status: 200,
-          headers: {
-            'Content-Type': contentType,
-            'Content-Length': String(memory.length),
-            'Cache-Control': 'public, max-age=31536000, immutable',
-            'X-Tile-Source': 'memory-cache'
-          }
-        });
+      const resolved = await resolveDesktopTile(type, z, x, yFile);
+      if (!resolved?.data) {
+        return new Response('Tile not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
       }
-
-      // 2. 优先单文件归档 (PMTiles) 毫秒级直接读取
-      try {
-        const archiveTile = await tileArchiveManager.getTile(type, z, x, y);
-        if (archiveTile && archiveTile.data && archiveTile.data.length > 0) {
-          const tileBuf = prepareTileBuffer(archiveTile.data);
-          setCachedTile(cacheKey, tileBuf);
-          return new Response(tileBuf, {
-            status: 200,
-            headers: {
-              'Content-Type': contentType,
-              'Content-Length': String(tileBuf.length),
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'X-Tile-Source': 'archive-pmtiles'
-            }
-          });
-        }
-      } catch (_) {}
-
-      // 3. 本地散列目录回退
-      let localDir = OFFLINE_VEC_DIR;
-      if (type === 'dem') localDir = OFFLINE_DEM_DIR;
-      else if (type === 'sat') localDir = OFFLINE_SAT_DIR;
-      else if (type === 'contour') localDir = path.join(OFFLINE_CONTOUR_DIR, 'metric-v1');
-      const localPath = path.join(localDir, String(z), String(x), yFile);
-
-      try {
-        let buf = await fs.promises.readFile(localPath);
-        if (buf.length > (type === 'vector' ? 0 : 20)) {
-          buf = prepareTileBuffer(buf);
-          setCachedTile(cacheKey, buf);
-          return new Response(buf, {
-            status: 200,
-            headers: {
-              'Content-Type': contentType,
-              'Content-Length': String(buf.length),
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'X-Tile-Source': 'local-offline'
-            }
-          });
-        }
-      } catch (_) {}
-
-      // 4. 在线回退：通过本地 HTTP 服务统一处理在线代理与增量缓存（全球即看即缓存）
-      const httpFallbackUrl = `http://127.0.0.1:${localServerPort}/${type}/${z}/${x}/${yFile}`;
-      const httpResp = await fetch(httpFallbackUrl);
-      const ab = await httpResp.arrayBuffer();
-      return new Response(ab, {
-        status: httpResp.status,
+      return new Response(resolved.data, {
+        status: 200,
         headers: {
-          'Content-Type': httpResp.headers.get('content-type') || contentType,
-          'Cache-Control': httpResp.headers.get('cache-control') || 'public, max-age=31536000, immutable'
+          'Content-Type': resolved.contentType,
+          'Content-Length': String(resolved.data.length),
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Tile-Source': resolved.source,
+          ...(resolved.archiveName ? { 'X-Archive-Name': resolved.archiveName } : {})
         }
       });
     } catch (err) {
