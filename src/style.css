@@ -1871,6 +1871,23 @@ body.web-mode #manage-modal {
   font-weight: 700;
 }
 
+.sb-item.interactive {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 5px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+
+.sb-item.interactive:hover {
+  background: rgba(2, 132, 199, 0.08);
+  color: #0284c7;
+}
+
+.sb-item.interactive:active {
+  background: rgba(2, 132, 199, 0.16);
+}
+
 /* =========================================================
    5. 瓦片金字塔多级离线下载器对话框 (Office 365 / Windows 11 Fluent 风格)
    ========================================================= */
@@ -2486,8 +2503,8 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   border-radius: 12px;
   box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(255, 255, 255, 0.7) inset !important;
   padding: 5px;
-  min-width: 110px;
-  max-width: 165px;
+  min-width: 130px;
+  max-width: 190px;
   width: max-content;
   z-index: 3500;
   transform-origin: top left;
@@ -2542,6 +2559,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: center;
   font-family: var(--font-mono);
 }
 
@@ -2750,6 +2768,17 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 .card-action-btn.btn-sync:hover {
   background: rgba(2, 132, 199, 0.15);
   border-color: rgba(2, 132, 199, 0.4);
+}
+
+.card-action-btn.btn-export {
+  color: #b45309;
+  background: rgba(180, 83, 9, 0.08);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+}
+
+.card-action-btn.btn-export:hover {
+  background: rgba(180, 83, 9, 0.15);
+  border-color: rgba(180, 83, 9, 0.4);
 }
 
 .card-body, .panel-body {
@@ -3431,6 +3460,11 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
 
 .btn-drag-handle:active {
   cursor: default !important;
+}
+
+.btn-drag-handle svg {
+  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .via-drag-handle {
@@ -7499,5 +7533,24 @@ body.dark-mode .route-point-inspect-card .inspect-btn.primary:hover {
   background: #f8fafc !important;
   border-bottom-left-radius: 12px !important;
   border-bottom-right-radius: 12px !important;
+}
+
+/* 全屏野外纯净沉浸勘察模式 (F11 呼出，Esc 退出，100% 沉浸视口) */
+body.app-immersive-mode #unified-header,
+body.app-immersive-mode #status-bar,
+body.app-immersive-mode #fab-dock {
+  display: none !important;
+}
+
+body.app-immersive-mode #app-container,
+body.app-immersive-mode #map-wrap {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  top: 0 !important;
+  bottom: 0 !important;
+}
+
+body.app-immersive-mode #map {
+  height: 100% !important;
 }
 

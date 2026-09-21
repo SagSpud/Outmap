@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.62" />
+  <link rel="stylesheet" href="style.css?v=2.0.63" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.62</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.63</span>
                 </div>
               </div>
             </div>
@@ -311,9 +311,10 @@
             <span>路线规划</span>
           </div>
           <div class="panel-header-actions">
-            <button class="card-action-btn btn-import" id="btn-route-import-trigger" title="导入路线轨迹文件 (GPX / KML / GeoJSON / TCX)">导入</button>
+            <button class="card-action-btn btn-import" id="btn-route-import-trigger" title="导入路线轨迹">导入</button>
             <input type="file" id="route-panel-import-input" accept=".gpx,.kml,.geojson,.json,.tcx" style="display: none;" />
-            <button class="card-action-btn btn-sync" id="btn-route-sync" title="与云端双向同步收藏路线与数据">同步</button>
+            <button class="card-action-btn btn-export" id="btn-export-gpx" title="导出 GPX">导出</button>
+            <button class="card-action-btn btn-sync" id="btn-route-sync" title="同步">同步</button>
             <button class="card-close" id="btn-close-route-panel">✕</button>
           </div>
         </div>
@@ -356,7 +357,9 @@
                 <input type="text" id="route-start-input" class="route-pt-input" placeholder="输入起点 (支持地名/城市/坐标)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-start-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-drag-handle" id="btn-swap-route-pts">⠿</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts" title="对调起终点">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m10 4v12m0 0l4-4m-4 4l-4-4"/></svg>
+              </button>
             </div>
 
             <!-- 中间动态途径点列表 (支持几十个点平滑衔接与上下拖拽排序) -->
@@ -380,7 +383,9 @@
                 <input type="text" id="route-end-input" class="route-pt-input" placeholder="输入终点 (支持地名/城市/坐标)..." autocomplete="off" />
                 <div class="route-search-dropdown" id="route-end-dropdown" style="display: none;"></div>
               </div>
-              <button class="btn-drag-handle" id="btn-swap-route-pts-2">⠿</button>
+              <button class="btn-drag-handle" id="btn-swap-route-pts-2" title="对调起终点">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4m10 4v12m0 0l4-4m-4 4l-4-4"/></svg>
+              </button>
             </div>
           </div>
 
@@ -565,16 +570,16 @@
       </div>
 
       <div class="sb-col-center">
-        <span class="sb-item" id="status-coords">坐标: 104.5000°E, 36.0000°N</span>
+        <span class="sb-item interactive" id="status-coords" title="点击复制当前坐标">坐标: 104.5000°E, 36.0000°N</span>
         <span class="sb-div">|</span>
         <span class="sb-item highlight" id="status-elevation">地表高程: 1520 m</span>
       </div>
 
       <div class="sb-col-right">
-        <span class="sb-item" id="status-pitch">俯仰: 50°</span>
+        <span class="sb-item interactive" id="status-pitch" title="点击切换 2D/3D 视角">俯仰: 50°</span>
         <span class="sb-item lock-indicator" id="status-pitch-lock" style="display: none;"></span>
         <span class="sb-div">|</span>
-        <span class="sb-item" id="status-bearing">航向: 0°</span>
+        <span class="sb-item interactive" id="status-bearing" title="点击正北归正">航向: 0°</span>
         <span class="sb-div">|</span>
         <span class="sb-item" id="status-zoom">层级: 4.5</span>
       </div>
@@ -785,6 +790,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.62"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.63"></script>
 </body>
 </html>

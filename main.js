@@ -1712,6 +1712,15 @@ app.whenReady().then(async () => {
       }
     } catch (_) {}
 
+    let freeBytes = 0;
+    try {
+      const targetDir = fs.existsSync(OFFLINE_ARCHIVES_DIR) ? OFFLINE_ARCHIVES_DIR : process.cwd();
+      const st = fs.statfsSync(targetDir);
+      if (st && st.bavail && st.bsize) {
+        freeBytes = Number(st.bavail) * Number(st.bsize);
+      }
+    } catch (_) {}
+
     return {
       archivesCount,
       archivesBytes,
@@ -1719,7 +1728,8 @@ app.whenReady().then(async () => {
       fragmentCount,
       fragmentBytes,
       archivesSummary: summary,
-      isDownloading: Boolean(activeDownloadAbort || offlineDownloadRunning)
+      isDownloading: Boolean(activeDownloadAbort || offlineDownloadRunning),
+      freeBytes
     };
   });
 

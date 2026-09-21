@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.62';
+const APP_VERSION = '2.0.63';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -2465,9 +2465,9 @@ function renderAllMapLabels(map) {
 // =========================================================
 let activeSearchAbort = null;
 
-// 坐标解析器 (支持 "117.12, 36.45" / "36.45, 117.12" / "117.12 36.45")
+// 坐标解析器 (支持 "117.12, 36.45" / "36.45, 117.12" / "117.12 36.45" / 中文逗号标点)
 function parseCoordinates(str) {
-  const clean = str.replace(/[°NSEWnsew,]/g, ' ').trim();
+  const clean = str.replace(/[°NSEWnsew,，、;；]/g, ' ').trim();
   const parts = clean.split(/\s+/).map(Number).filter(n => !isNaN(n));
   if (parts.length >= 2) {
     let [a, b] = parts;
@@ -3791,9 +3791,9 @@ function setupOfficeHeaderInteractions(map) {
       });
     }
 
-  // 快捷键 Ctrl+K / Cmd+K 快速呼出搜索
+  // 快捷键 Ctrl+K / Ctrl+F / Cmd+K / Cmd+F 快速呼出搜索
   document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'k' || e.key.toLowerCase() === 'f')) {
       e.preventDefault();
       if (searchPopover) {
         showElement(searchPopover, 'block');
@@ -4113,7 +4113,17 @@ function setupPyramidModal(map) {
 
   if (!modal || !btnOpen) return;
 
+  let cachedStorageFreeBytes = 0;
   const refreshStorageDirDisplay = async () => {
+    if (window.electronAPI?.getStorageHealth) {
+      try {
+        const health = await window.electronAPI.getStorageHealth();
+        if (health && typeof health.freeBytes === 'number' && health.freeBytes > 0) {
+          cachedStorageFreeBytes = health.freeBytes;
+          updateEstimation();
+        }
+      } catch (_) {}
+    }
     if (!window.electronAPI?.getOfflineDataDir) return;
     try {
       const res = await window.electronAPI.getOfflineDataDir();
@@ -4722,11 +4732,13 @@ function setupPyramidModal(map) {
         statCount.innerText = `${formatTileCount(totalTiles)} 块`;
         const avgBytes = 42 * 1024;
         const totalBytes = totalTiles * avgBytes;
-        if (totalBytes > 1024 * 1024 * 1024) {
-          statSize.innerText = `约 ${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-        } else {
-          statSize.innerText = `约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
+        let sizeText = totalBytes > 1024 * 1024 * 1024
+          ? `约 ${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+          : `约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
+        if (cachedStorageFreeBytes > 0) {
+          sizeText += ` (可用 ${(cachedStorageFreeBytes / (1024 ** 3)).toFixed(1)} GB)`;
         }
+        statSize.innerText = sizeText;
 
         if (provStatusTag) {
           provStatusTag.style.display = 'inline-flex';
@@ -6490,6 +6502,34 @@ function setupStatusBar(map) {
     });
   });
 
+  // 状态栏可交互项：点击复制坐标、点击归正正北、点击切换2D/3D
+  sCoords?.addEventListener('click', async () => {
+    let lng, lat;
+    if (latestMouseEvt?.lngLat) {
+      lng = latestMouseEvt.lngLat.lng.toFixed(5);
+      lat = latestMouseEvt.lngLat.lat.toFixed(5);
+    } else {
+      const center = map.getCenter();
+      lng = center.lng.toFixed(5);
+      lat = center.lat.toFixed(5);
+    }
+    const text = `${lng}, ${lat}`;
+    const success = await copyTextToClipboard(text);
+    if (success) {
+      showToast(`已复制 ${text}`);
+    }
+  });
+
+  sBearing?.addEventListener('click', () => {
+    map.easeTo({ bearing: 0, duration: 400 });
+  });
+
+  sPitch?.addEventListener('click', () => {
+    const cur = map.getPitch();
+    const target = cur > 20 ? 0 : 50;
+    map.easeTo({ pitch: target, duration: 400 });
+  });
+
   // Count actual map render events instead of running a permanent RAF loop.
   if (window.electronAPI && window.electronAPI.onPowerStateChange) {
     window.electronAPI.onPowerStateChange((info) => {
@@ -8097,9 +8137,9 @@ function setupWaypointAndFavoritesSystem(map) {
 
     if (filtered.length === 0) {
       const emptyTip = currentFavSearchQuery
-        ? `未找到包含“${escapeHtml(currentFavSearchQuery)}”的地点`
-        : '该文件夹下暂无收藏地点<br>可在地图上右键选择“收藏”';
-      favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:20px 0;">${emptyTip}</div>`;
+        ? `未找到“${escapeHtml(currentFavSearchQuery)}”`
+        : '暂无收藏地点';
+      favList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:24px 0; font-size:12px;">${emptyTip}</div>`;
       return;
     }
 
@@ -8447,9 +8487,9 @@ function setupWaypointAndFavoritesSystem(map) {
 
     if (routes.length === 0) {
       const emptyTip = currentFavSearchQuery
-        ? `未找到包含“${escapeHtml(currentFavSearchQuery)}”的路线`
-        : '暂无保存的路线<br>在“路线规划”面板中生成路线后<br>点击“收藏”即可保存在此';
-      favRoutesList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:30px 10px; font-size:12px; line-height:1.8;">${emptyTip}</div>`;
+        ? `未找到“${escapeHtml(currentFavSearchQuery)}”`
+        : '暂无收藏路线';
+      favRoutesList.innerHTML = `<div style="text-align:center; color:#94a3b8; padding:24px 0; font-size:12px;">${emptyTip}</div>`;
       return;
     }
 
@@ -12968,7 +13008,7 @@ function setupOutdoorRouteSystem(map) {
     const effectiveEndCoord = routeEndCoord || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].coords : null);
     const effectiveEndName = routeEndName || (routeViaPoints.length > 0 ? routeViaPoints[routeViaPoints.length - 1].name : '终点');
     if (!routeStartCoord || !effectiveEndCoord || !currentPlannedRouteCoords || currentPlannedRouteCoords.length === 0) {
-      alert('请先设定起点和终点（或途径点）并生成路线后再导出！');
+      showToast('请先规划路线');
       return;
     }
     const modeNames = { drive: '自驾', cycle: '骑行', hike: '徒步' };
@@ -14190,7 +14230,11 @@ function setupMapContextMenu(map) {
     };
 
     if (ctxPlaceName) ctxPlaceName.innerText = currentContextPoint.placeName;
-    if (ctxPlaceMeta) ctxPlaceMeta.innerText = '';
+    if (ctxPlaceMeta) {
+      const elePart = ele > 0 ? `${ele}m · ` : '';
+      ctxPlaceMeta.innerText = `${elePart}${lng.toFixed(4)}°, ${lat.toFixed(4)}°`;
+      ctxPlaceMeta.style.display = 'block';
+    }
 
     if (ctxMenu) {
       cancelPendingElementClose(ctxMenu);
@@ -14353,7 +14397,32 @@ function setupMapContextMenu(map) {
 // 全局统一键盘快捷键与 ESC 键层级防穿透调度系统 (确保严格按顶层可见窗口依次退出)
 function setupGlobalKeyboardDispatcher() {
   document.addEventListener('keydown', e => {
+    if (e.key === 'F11') {
+      e.preventDefault();
+      document.body.classList.toggle('app-immersive-mode');
+      if (typeof window !== 'undefined' && currentOutdoorMap) {
+        setTimeout(() => {
+          try { currentOutdoorMap.resize(); } catch (_) {}
+        }, 60);
+      }
+      return;
+    }
+
     if (e.key === 'Escape') {
+      // 0.000 全屏沉浸模式退出
+      if (document.body.classList.contains('app-immersive-mode')) {
+        document.body.classList.remove('app-immersive-mode');
+        if (typeof window !== 'undefined' && currentOutdoorMap) {
+          setTimeout(() => {
+            try { currentOutdoorMap.resize(); } catch (_) {}
+          }, 60);
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
       // 0.001 全局活动模态子弹窗最高优先调度 (存储体检 storageMaintenanceOverlay、Fluent Alert、输入 Prompt 与确认框)
       const activeUpper = hasActiveUpperModal();
       if (activeUpper) {

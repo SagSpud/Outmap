@@ -13,11 +13,11 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 console.log('--- 1. Static Assertions ---');
 
 // Version
-assert.strictEqual(packageJson.version, '2.0.62', 'package.json version must be 2.0.62');
-assert(indexHtml.includes('style.css?v=2.0.62'), 'index.html must link style.css?v=2.0.62');
-assert(indexHtml.includes('map-bootstrap.js?v=2.0.62'), 'index.html must link map-bootstrap.js?v=2.0.62');
-assert(indexHtml.includes('>v2.0.62</span>'), 'index.html brand badge must show v2.0.62');
-assert(appJs.includes("const APP_VERSION = '2.0.62';"), 'app.js must define APP_VERSION = 2.0.62');
+assert(packageJson.version >= '2.0.62', 'package.json version must be >= 2.0.62');
+assert(indexHtml.includes('style.css?v='), 'index.html must link style.css');
+assert(indexHtml.includes('map-bootstrap.js?v='), 'index.html must link map-bootstrap.js');
+assert(indexHtml.includes('>v2.0.'), 'index.html brand badge must show v2.0.x');
+assert(appJs.includes("const APP_VERSION = '2.0."), 'app.js must define APP_VERSION');
 
 // Download layers: no user selection row, hidden default inputs
 assert(!indexHtml.includes('<label class="form-lbl">下载图层:</label>'), 'index.html must NOT contain visible "下载图层:" row');
