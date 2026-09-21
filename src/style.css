@@ -2387,41 +2387,8 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   box-shadow: 0 2px 6px rgba(2, 132, 199, 0.16) !important;
 }
 
-#pyramid-modal .btn-check-tile-update {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 5px !important;
-  line-height: 1 !important;
-  vertical-align: middle !important;
-  background: rgba(255, 255, 255, 0.72) !important;
-  border: 1px solid rgba(203, 213, 225, 0.8) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #334155;
-  padding: 4px 8px;
-  cursor: pointer;
-  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
-}
-
-#pyramid-modal .btn-check-tile-update svg {
-  display: inline-block !important;
-  vertical-align: middle !important;
-  flex-shrink: 0 !important;
-}
-
-#pyramid-modal .btn-check-tile-update span {
-  display: inline-block !important;
-  vertical-align: middle !important;
-  line-height: 1 !important;
-}
-
-#pyramid-modal .btn-check-tile-update:hover {
-  background: rgba(255, 255, 255, 0.95) !important;
-  border-color: #0284c7 !important;
-  color: #0284c7 !important;
+#pyramid-modal #btn-check-tile-update {
+  margin-right: auto;
 }
 
 #pyramid-modal .stat-summary-box.dl-unified-box {

@@ -1,4 +1,4 @@
-﻿const assert = require('assert');
+const assert = require('assert');
 const fs = require('fs');
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -26,10 +26,10 @@ assert(app.includes('map.transform._calcMatrices()'), 'Must recalculate projecti
 assert(app.includes('(pitchRad / (Math.PI / 2)) * 0.08'), 'ratioY must scale up to ~0.63 in 50° pitch');
 assert(app.includes('ratioY = pitchRad === 0 ? 0.58 :'), '2D baseline ratioY must be 0.58');
 
-// 5. 检查更新按钮移至“下载图层”同一行复选框之后
-assert(html.includes('id="chk-dl-vec" checked /> OSM矢量图</label>') && html.includes('id="btn-check-tile-update"'), 'btn-check-tile-update must be in layers row');
-assert(html.indexOf('id="chk-dl-vec"') < html.indexOf('id="btn-check-tile-update"'), 'btn-check-tile-update must be after OSM vector checkbox');
-assert(css.includes('.check-group.inline-checks .btn-check-tile-update'), 'style.css must style inline check-update button on layers row');
+// 5. 检查更新按钮移至底部操作栏保持协调一致，下载图层默认全选
+assert(html.includes('id="btn-check-tile-update"'), 'index.html must have btn-check-tile-update');
+assert(html.includes('id="chk-dl-dem"') && html.includes('id="chk-dl-vec"'), 'index.html must maintain chk-dl inputs');
+assert(css.includes('#pyramid-modal #btn-check-tile-update'), 'style.css must style check-update button in modal footer');
 
 // 6. 延续 1.3.6 方案 A 增量更新机制
 assert(main.includes('CHINA_PROVINCE_BBOX_ENTRIES'));

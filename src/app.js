@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.61';
+const APP_VERSION = '2.0.62';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4153,12 +4153,7 @@ function setupPyramidModal(map) {
   // and infer a new province from the map center (which commonly matched Gansu).
   let selectedProvinceKeys = null;
 
-  const getRequestedLayers = () => {
-    const layers = [];
-    if (chkDem?.checked) layers.push('dem');
-    if (chkVec?.checked) layers.push('vector');
-    return layers;
-  };
+  const getRequestedLayers = () => ['dem', 'vector'];
   const isLayerLevelComplete = (state, layer, z) => {
     if (layer === 'dem' && z > 12) return true; // DEM 瓦片全球最高仅到 12 级
     return Boolean(state?.layers?.[layer]?.levels?.[z]?.complete);
@@ -4828,8 +4823,8 @@ function setupPyramidModal(map) {
           provinces,
           minZ: 0,
           maxZ,
-          downloadDem: chkDem.checked,
-          downloadVec: chkVec.checked,
+          downloadDem: true,
+          downloadVec: true,
           isVerify,
           isIncrementalUpdate
         });
@@ -4866,11 +4861,11 @@ function setupPyramidModal(map) {
             btnCheckUpdate.style.color = '#047857';
           }
         } else {
-          btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查图层更新</span>`;
+          btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查更新</span>`;
         }
       }
     } catch (e) {
-      btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查图层更新</span>`;
+      btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查更新</span>`;
     } finally {
       setTimeout(() => {
         btnCheckUpdate.disabled = false;
