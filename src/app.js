@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.63';
+const APP_VERSION = '2.0.64';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4113,17 +4113,7 @@ function setupPyramidModal(map) {
 
   if (!modal || !btnOpen) return;
 
-  let cachedStorageFreeBytes = 0;
   const refreshStorageDirDisplay = async () => {
-    if (window.electronAPI?.getStorageHealth) {
-      try {
-        const health = await window.electronAPI.getStorageHealth();
-        if (health && typeof health.freeBytes === 'number' && health.freeBytes > 0) {
-          cachedStorageFreeBytes = health.freeBytes;
-          updateEstimation();
-        }
-      } catch (_) {}
-    }
     if (!window.electronAPI?.getOfflineDataDir) return;
     try {
       const res = await window.electronAPI.getOfflineDataDir();
@@ -4732,13 +4722,11 @@ function setupPyramidModal(map) {
         statCount.innerText = `${formatTileCount(totalTiles)} 块`;
         const avgBytes = 42 * 1024;
         const totalBytes = totalTiles * avgBytes;
-        let sizeText = totalBytes > 1024 * 1024 * 1024
-          ? `约 ${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-          : `约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
-        if (cachedStorageFreeBytes > 0) {
-          sizeText += ` (可用 ${(cachedStorageFreeBytes / (1024 ** 3)).toFixed(1)} GB)`;
+        if (totalBytes > 1024 * 1024 * 1024) {
+          statSize.innerText = `约 ${(totalBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+        } else {
+          statSize.innerText = `约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
         }
-        statSize.innerText = sizeText;
 
         if (provStatusTag) {
           provStatusTag.style.display = 'inline-flex';
