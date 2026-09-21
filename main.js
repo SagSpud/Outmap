@@ -2027,8 +2027,13 @@ app.whenReady().then(async () => {
     // the main event loop. Normal resume only needs the directory index: the v4
     // inventory has already validated these file names, so avoid one stat call
     // per ready tile. Explicit verify/update operations still validate size.
+    const hasDemDir = fs.existsSync(OFFLINE_DEM_DIR);
+    const hasVecDir = fs.existsSync(OFFLINE_VEC_DIR);
     const dirFileSets = new Map();
     async function checkDirectoryFiles(dirPath) {
+      const isDem = dirPath.startsWith(OFFLINE_DEM_DIR);
+      if (isDem && !hasDemDir) return new Set();
+      if (!isDem && !hasVecDir) return new Set();
       let pending = dirFileSets.get(dirPath);
       if (!pending) {
         pending = fs.promises.readdir(dirPath).then(names => new Set(names)).catch(error => {
@@ -2036,7 +2041,7 @@ app.whenReady().then(async () => {
           return new Set();
         });
         dirFileSets.set(dirPath, pending);
-        if (dirFileSets.size > 128) dirFileSets.delete(dirFileSets.keys().next().value);
+        if (dirFileSets.size > 256) dirFileSets.delete(dirFileSets.keys().next().value);
       }
       return pending;
     }
@@ -2260,10 +2265,16 @@ app.whenReady().then(async () => {
     }
 
     function sendPlanningProgress(force = false) {
-      if (!normalResume || !mainWindow || mainWindow.isDestroyed() || completed > 0) return;
+      if (!normalResume || !mainWindow || mainWindow.isDestroyed()) return;
       const now = Date.now();
-      if (!force && now - lastPlanningProgressTime < 250) return;
+      if (!force && completed > 0 && (now - lastCompletedProgressTime < 350)) return;
+      if (!force && now - lastPlanningProgressTime < 200) return;
       lastPlanningProgressTime = now;
+      const curTiles = (baselineStats.totalTiles || 0) + newlySavedCount + newlyAddedCount;
+      const curBytes = (baselineStats.totalBytes || 0) + totalBytes;
+      const pct = (planningDone && discoveredMissing > 0)
+        ? Math.round(completed / discoveredMissing * 100)
+        : (discoveredMissing > 0 ? Math.round(completed / discoveredMissing * 100) : 0);
       mainWindow.webContents.send('download-progress', {
         completed,
         total: discoveredMissing,
@@ -2271,10 +2282,9 @@ app.whenReady().then(async () => {
         scannedCandidates: plannedCandidates,
         scannedColumns,
         savedCount,
+        newlySavedCount: newlySavedCount + newlyAddedCount,
         failedCount,
-        percent: planningDone && discoveredMissing > 0
-          ? Math.round(completed / discoveredMissing * 100)
-          : 0,
+        percent: pct,
         speed: 0,
         byteSpeed: 0,
         bytes: totalBytes,
@@ -2282,8 +2292,8 @@ app.whenReady().then(async () => {
         phase: planningDone ? 'downloading' : 'locating',
         isVerify: false,
         isIncrementalUpdate: false,
-        totalTiles: (baselineStats.totalTiles || 0) + newlySavedCount,
-        totalBytes: (baselineStats.totalBytes || 0) + totalBytes,
+        totalTiles: curTiles,
+        totalBytes: curBytes,
         currentProvince: activeProvName || provTasks[0]?.name || '',
         currentZ: activeZ,
         failureReason: getFailureSummary()
@@ -2296,7 +2306,7 @@ app.whenReady().then(async () => {
     let rangeWaiters = [];
     let planningError = null;
     const discoveryFlow = require('./src/download-flow.cjs').createDownloadFlow({
-      signal, shouldYield: () => (mapInteractionActive || framePressureActive), limit: 256
+      signal, shouldYield: () => (mapInteractionActive || framePressureActive), limit: 65536
     });
 
     function wakeRangeWaiters() {

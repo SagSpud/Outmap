@@ -15,7 +15,8 @@ async function collectAsync(iterator) {
 
 (async () => {
   const packageJson = require('../package.json');
-  assert(/^1\.9\.(?:1[3-9]|[2-9]\d)$/.test(packageJson.version), 'version must retain the v1.9.13 fixes or newer');
+  const [major, minor, patch] = packageJson.version.split('.').map(Number);
+  assert(major > 1 || (major === 1 && (minor > 9 || (minor === 9 && patch >= 13))), 'version must retain the v1.9.13 fixes or newer');
 
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf8');

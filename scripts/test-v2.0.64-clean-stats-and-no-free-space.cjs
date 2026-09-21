@@ -13,12 +13,13 @@ const packageLockJson = JSON.parse(fs.readFileSync(path.join(root, 'package-lock
 console.log('--- 1. Static Assertions for v2.0.64 Clean Stats & No Free Space ---');
 
 // Versioning
-assert.strictEqual(packageJson.version, '2.0.64', 'package.json version must be 2.0.64');
-assert.strictEqual(packageLockJson.version, '2.0.64', 'package-lock.json version must be 2.0.64');
-assert(indexHtml.includes('style.css?v=2.0.64'), 'index.html must link style.css?v=2.0.64');
-assert(indexHtml.includes('map-bootstrap.js?v=2.0.64'), 'index.html must link map-bootstrap.js?v=2.0.64');
-assert(indexHtml.includes('>v2.0.64</span>'), 'index.html brand badge must show v2.0.64');
-assert(appJs.includes("const APP_VERSION = '2.0.64';"), 'app.js must define APP_VERSION = 2.0.64');
+const [major, minor, patch] = packageJson.version.split('.').map(Number);
+assert(major > 2 || (major === 2 && (minor > 0 || (minor === 0 && patch >= 64))), 'package.json version must be >= 2.0.64');
+assert.strictEqual(packageJson.version, packageLockJson.version, 'package-lock.json version must match package.json');
+assert(indexHtml.includes(`style.css?v=${packageJson.version}`), 'index.html must link current style.css');
+assert(indexHtml.includes(`map-bootstrap.js?v=${packageJson.version}`), 'index.html must link current map-bootstrap.js');
+assert(indexHtml.includes(`>v${packageJson.version}</span>`), 'index.html brand badge must show current version');
+assert(appJs.includes(`const APP_VERSION = '${packageJson.version}';`), 'app.js must define matching APP_VERSION');
 
 // Verify removal of free space string and variable
 assert(!appJs.includes('cachedStorageFreeBytes'), 'app.js must not contain cachedStorageFreeBytes');

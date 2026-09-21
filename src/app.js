@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.64';
+const APP_VERSION = '2.0.65';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4168,9 +4168,9 @@ function setupPyramidModal(map) {
     })
   );
 
-  const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false, phase = '') => {
+  const formatNetworkSpeed = (byteSpeed, isVerify = false, isExisting = false, phase = '', completed = 0) => {
     if (isVerify) return '本地校验中';
-    if (phase === 'locating' && (!byteSpeed || byteSpeed <= 0)) return '正在定位缺片';
+    if (phase === 'locating' && completed === 0 && (!byteSpeed || byteSpeed <= 0)) return '正在定位缺片';
     if (!byteSpeed || byteSpeed <= 0) {
       return isExisting ? '本地已就绪' : '0 KB/s';
     }
@@ -4901,7 +4901,8 @@ function setupPyramidModal(map) {
   if (window.electronAPI && window.electronAPI.onDownloadProgress) {
     window.electronAPI.onDownloadProgress(data => {
       const isLocating = data.phase === 'locating';
-      progressFill.style.setProperty('--progress', String(isLocating ? 0 : Math.max(0, Math.min(1, Number(data.percent || 0) / 100))));
+      const hasCompleted = Number(data.completed || 0) > 0;
+      progressFill.style.setProperty('--progress', String((isLocating && !hasCompleted) ? 0 : Math.max(0, Math.min(1, Number(data.percent || 0) / 100))));
       const maxZ = parseInt(zoomInput ? zoomInput.value : '10') || 10;
       const provName = data.currentProvince || '目标省份';
       const zStr = data.currentZ ? ` · L${data.currentZ}` : ` · L${maxZ}`;
@@ -4937,7 +4938,7 @@ function setupPyramidModal(map) {
           progressTask.innerText = `增量更新: ${provName}${zStr}`;
         } else if (data.isVerify) {
           progressTask.innerText = `正在校验: ${provName}${zStr}`;
-        } else if (isLocating) {
+        } else if (isLocating && !hasCompleted) {
           progressTask.innerText = `定位缺片: ${provName}${zStr}`;
         } else {
           progressTask.innerText = `${taskPrefix}: ${provName}${zStr}`;
@@ -4960,7 +4961,16 @@ function setupPyramidModal(map) {
         const saved = Number(data.newlySavedCount ?? data.savedCount ?? 0);
         const failed = Number(data.failedCount || 0);
         const unavailable = Number(data.unavailableCount || 0);
-        if (found > 0) {
+        if (hasCompleted) {
+          mainText = `${formatTileCount(data.completed)} / ${formatTileCount(found || data.total || data.completed)} 瓦片`;
+          const subParts = [];
+          if (saved > 0 || unavailable > 0 || failed > 0) {
+            subParts.push(`已补齐 ${formatTileCount(saved)} 块`);
+            if (unavailable > 0) subParts.push(`源站空白 ${formatTileCount(unavailable)} 块`);
+            if (failed > 0) subParts.push(`失败 ${formatTileCount(failed)} 块${failurePart}`);
+          }
+          subText = subParts.join(' · ');
+        } else if (found > 0) {
           mainText = `已定位 ${formatTileCount(found)} 块缺片`;
           const subParts = [];
           subParts.push(`已补齐 ${formatTileCount(saved)} 块`);
@@ -5034,8 +5044,8 @@ function setupPyramidModal(map) {
           ? '网络抖动，自愈重连中...'
           : (Number(data.failedCount || 0) > 0 && (!curByteSpeed || curByteSpeed <= 0)
             ? '请求失败，可继续补齐'
-            : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting, data.phase)));
-      progressPct.innerText = isLocating ? '定位中' : `${data.percent}%`;
+            : formatNetworkSpeed(curByteSpeed, data.isVerify, isExisting, data.phase, Number(data.completed || 0))));
+      progressPct.innerText = (isLocating && !hasCompleted) ? '定位中' : `${data.percent}%`;
 
       if (!data.done) {
         if (downloadDotState !== 'downloading') setDownloadDotState('downloading');
