@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.60';
+const APP_VERSION = '2.0.61';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4943,7 +4943,7 @@ function setupPyramidModal(map) {
         } else if (data.isVerify) {
           progressTask.innerText = `正在校验: ${provName}${zStr}`;
         } else if (isLocating) {
-          progressTask.innerText = `正在定位未下载部分: ${provName}${zStr}`;
+          progressTask.innerText = `定位缺片: ${provName}${zStr}`;
         } else {
           progressTask.innerText = `${taskPrefix}: ${provName}${zStr}`;
         }

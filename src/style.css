@@ -2022,7 +2022,7 @@ body.web-mode #manage-modal {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  flex: 0 0 170px;
+  flex: 0 0 148px;
   min-width: 0;
 }
 
@@ -2077,15 +2077,17 @@ body.web-mode #manage-modal {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-size: 11px;
   font-weight: 600;
   color: #0f172a;
 }
 
 .dl-unified-box .dl-progress-task {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   color: #1e293b;
   font-size: 11px;
   font-weight: 600;
@@ -2100,7 +2102,7 @@ body.web-mode #manage-modal {
   font-weight: 700;
   color: #0284c7;
   flex-shrink: 0;
-  margin-left: 8px;
+  white-space: nowrap;
 }
 
 .dl-unified-box .progress-bar-wrap {
@@ -2146,8 +2148,9 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   color: #475569;
   font-weight: 600;
   min-width: 0;
-  overflow: visible;
-  text-overflow: clip;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -6514,7 +6517,7 @@ body.map-is-moving #update-modal .modal-card {
    retain the same controls and acrylic treatment on normal-DPI screens. */
 @media (min-resolution: 144dpi) and (min-width: 420px) {
   #pyramid-modal .modal-card {
-    width: min(460px, calc(100vw - 48px));
+    width: min(500px, calc(100vw - 48px));
     max-height: calc(100vh - 48px);
   }
 }
