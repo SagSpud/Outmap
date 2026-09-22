@@ -3,6 +3,7 @@
   'use strict';
   const active = new WeakMap();
   const warmups = new WeakMap();
+  const terrainGuards = new WeakMap();
   function interactionSurfaceFor(map) {
     return [map.getContainer?.(), map.getCanvasContainer?.(), map.getCanvas?.()]
       .find(candidate => typeof candidate?.addEventListener === 'function') || null;
@@ -12,6 +13,70 @@
     // Native MapLibre 6.9 handles user zoom and 3D terrain collision natively.
     if (!map) return;
     try { map.setTransformCameraUpdate?.(null); } catch (_) {}
+    if (terrainGuards.has(map)) return;
+
+    let timer = 0;
+    let correcting = false;
+    const estimateCameraClearance = () => {
+      const container = map.getContainer?.();
+      const height = Math.max(1, Number(container?.clientHeight) || 1);
+      const zoom = Number(map.getZoom?.());
+      const pitch = Number(map.getPitch?.());
+      const fov = Number(map.getVerticalFieldOfView?.());
+      const latitude = Number(map.getCenter?.()?.lat);
+      if (![zoom, pitch, latitude].every(Number.isFinite)) return null;
+
+      const fovRadians = (Number.isFinite(fov) ? fov : 36.86989764584402) * Math.PI / 180;
+      const cameraDistancePixels = 0.5 * height / Math.tan(fovRadians / 2);
+      const worldSize = 512 * (2 ** zoom);
+      const latitudeScale = Math.max(0.01, Math.cos(latitude * Math.PI / 180));
+      const pixelsPerMeter = worldSize / (40075016.68557849 * latitudeScale);
+      return Math.max(0, Math.cos(pitch * Math.PI / 180) * cameraDistancePixels / pixelsPerMeter);
+    };
+    const verifyTerrainVisibility = () => {
+      timer = 0;
+      if (correcting || map.isMoving?.() || !map.getTerrain?.()) return;
+      let groundElevation = null;
+      try { groundElevation = map.queryTerrainElevation?.(map.getCenter?.()); } catch (_) {}
+      const centerElevation = Number(map.getCenterElevation?.());
+      const clearance = estimateCameraClearance();
+      if (![groundElevation, centerElevation, clearance].every(Number.isFinite)) return;
+
+      // Only intervene when the center mountain can physically cover the
+      // camera and the center height is clearly still the zero/lowland value
+      // from a cold target. Normal pointer zoom and already-grounded terrain
+      // stay entirely native, so there is no extra end-of-gesture correction.
+      if (centerElevation > 500 || groundElevation < 1000
+        || groundElevation - centerElevation < clearance * 0.94) return;
+      correcting = true;
+      try {
+        map.setCenterElevation?.(groundElevation);
+        map.triggerRepaint?.();
+      } catch (_) {
+      } finally {
+        correcting = false;
+      }
+    };
+    const scheduleVisibilityCheck = () => {
+      clearTimeout(timer);
+      timer = setTimeout(verifyTerrainVisibility, 48);
+    };
+    const onSourceData = event => {
+      if (event?.sourceId === 'terrain-dem' && event?.isSourceLoaded) scheduleVisibilityCheck();
+    };
+    const disposeGuard = () => {
+      clearTimeout(timer);
+      map.off?.('moveend', scheduleVisibilityCheck);
+      map.off?.('sourcedata', onSourceData);
+      map.off?.('terrain', scheduleVisibilityCheck);
+      map.off?.('remove', disposeGuard);
+      terrainGuards.delete(map);
+    };
+    map.on?.('moveend', scheduleVisibilityCheck);
+    map.on?.('sourcedata', onSourceData);
+    map.on?.('terrain', scheduleVisibilityCheck);
+    map.on?.('remove', disposeGuard);
+    terrainGuards.set(map, { dispose: disposeGuard, verify: verifyTerrainVisibility });
   }
 
   function restoreZoomGuard(map) {
@@ -136,6 +201,7 @@
     let flightLoadStateActive = false;
     let expectedMoveEnd = 0;
     let easingProgress = 0;
+    let terrainWarmSucceeded = false;
     const prepareController = typeof global.AbortController === 'function'
       ? new global.AbortController()
       : { signal: undefined, abort() {} };
@@ -148,6 +214,36 @@
       if (flightLoadStateActive === state) return;
       flightLoadStateActive = state;
       try { options.onFlightLoadStateChange?.(state); } catch (_) {}
+    };
+    const refreshDestinationElevation = () => {
+      if (Number.isFinite(destinationElevation)) return destinationElevation;
+      try { destinationElevation = options.resolveTerrainElevation?.(coords, zoom); } catch (_) {}
+      if (!Number.isFinite(destinationElevation)) {
+        try { destinationElevation = map.queryTerrainElevation?.(coords); } catch (_) {}
+      }
+      return destinationElevation;
+    };
+    const reconcileColdTerrainLanding = () => {
+      // If a cold DEM finishes after the visual flight, the native renderer has
+      // no camera frame left in which to adopt the new ground height.  Keeping
+      // the old location's elevation can put the camera inside a high mountain
+      // and leave only the background visible.  Correct only the public center
+      // elevation; center, zoom, pitch and bearing remain untouched.
+      if (!arrivalDelivered || !terrainWarmSucceeded) return;
+      let centerElevation = null;
+      try {
+        const center = map.getCenter?.();
+        centerElevation = options.resolveTerrainElevation?.(center, map.getZoom?.());
+      } catch (_) {}
+      if (!Number.isFinite(centerElevation)) centerElevation = refreshDestinationElevation();
+      if (!Number.isFinite(centerElevation)) return;
+
+      const currentElevation = Number(map.getCenterElevation?.());
+      if (Number.isFinite(currentElevation) && Math.abs(currentElevation - centerElevation) < 1) return;
+      try {
+        map.setCenterElevation?.(centerElevation);
+        map.triggerRepaint?.();
+      } catch (_) {}
     };
     const dispose = (keepTerrainWarm = false) => {
       if (disposed) return;
@@ -378,6 +474,9 @@
           signal: prepareController.signal
         })).then(() => {
           if (!prepareController.signal?.aborted) {
+            terrainWarmSucceeded = true;
+            refreshDestinationElevation();
+            reconcileColdTerrainLanding();
             try { map.triggerRepaint?.(); } catch (_) {}
           }
         }).catch(() => {}).finally(stopWarmup);
@@ -402,16 +501,31 @@
         begin();
       });
     } else {
-      let moveDuration = duration;
-      if (terrainWarmPromise && !nearby && duration > 0) {
-        let prepared = null;
-        try { prepared = options.resolveTerrainElevation?.(coords, zoom); } catch (_) {}
-        if (!Number.isFinite(prepared)) {
+      const beginAnimatedMove = async () => {
+        // Give local/offline DEM a very small head start.  This normally costs
+        // only a few milliseconds, but makes high-mountain landings start with
+        // their real center height instead of racing the last animation frame.
+        if (terrainWarmPromise && !nearby && !Number.isFinite(destinationElevation)) {
+          const startTimeout = Math.max(0, Math.min(500,
+            Number(options.terrainStartTimeout) || 220));
+          await Promise.race([
+            terrainWarmPromise,
+            new Promise(resolve => setTimeout(resolve, startTimeout))
+          ]);
+          if (disposed) return;
+          refreshDestinationElevation();
+        }
+
+        let moveDuration = duration;
+        if (terrainWarmPromise && !nearby && duration > 0 && !Number.isFinite(destinationElevation)) {
           // 冷启动未加载地形时轻微缓冲过渡，上限严格锁定在 1200ms 内，杜绝卡顿感
           moveDuration = Math.min(1200, Math.max(duration, Math.min(1200, Number(options.coldDuration) || (duration + 80))));
         }
-      }
-      startNativeMove(nearby ? 'easeTo' : 'flyTo', moveDuration);
+        startNativeMove(nearby ? 'easeTo' : 'flyTo', moveDuration);
+      };
+      beginAnimatedMove().catch(() => {
+        if (!disposed) startNativeMove(nearby ? 'easeTo' : 'flyTo', duration);
+      });
     }
   }
 

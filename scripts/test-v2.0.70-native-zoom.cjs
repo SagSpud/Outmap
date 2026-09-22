@@ -15,11 +15,11 @@ const app = text('src/app.js');
 const html = text('src/index.html');
 const bootstrap = text('src/map-bootstrap.js');
 
-assert.strictEqual(pkg.version, '2.0.70');
-assert.strictEqual(lock.version, '2.0.70');
-assert(app.includes("const APP_VERSION = '2.0.70';"));
-assert(html.includes('v2.0.70'));
-assert(bootstrap.includes('app.js?v=2.0.70'));
+assert(/^2\.0\.(?:[7-9]\d|\d{3,})$/.test(pkg.version));
+assert.strictEqual(lock.version, pkg.version);
+assert(app.includes(`const APP_VERSION = '${pkg.version}';`));
+assert(html.includes(`v${pkg.version}`));
+assert(bootstrap.includes(`app.js?v=${pkg.version}`));
 
 for (const file of ['maplibre-gl.mjs', 'maplibre-gl-shared.mjs']) {
   assert.strictEqual(

@@ -108,6 +108,7 @@ function createDelayedTerrainMap() {
   let ready = false;
   let zoom = 11;
   let pitch = 45;
+  let centerElevation = 0;
   let settled = false;
   const map = {
     easeCalls: 0,
@@ -133,6 +134,8 @@ function createDelayedTerrainMap() {
     getPitch: () => pitch,
     getBearing: () => 0,
     getZoom: () => zoom,
+    getCenterElevation: () => centerElevation,
+    setCenterElevation(value) { centerElevation = Number(value); },
     getCenter: () => ({ lng: 118.37, lat: 35.01 }),
     getTerrain: () => ({ source: 'terrain-dem', exaggeration: 1.5 }),
     isSourceLoaded: () => ready,
@@ -182,9 +185,12 @@ function createDelayedTerrainMap() {
       return new Promise(resolve => { resolveWarmup = resolve; });
     }
   });
-  assert.strictEqual(delayedMap.flyCalls, 1,
-    'DEM warm-up must never delay the first native flight call');
+  assert.strictEqual(delayedMap.flyCalls, undefined,
+    'Cold distant terrain should receive a bounded head start before native flight');
   assert.strictEqual(warmupStarted, 1, 'A cold distant terrain flight must start one shared warm-up');
+  await new Promise(resolve => setTimeout(resolve, 240));
+  assert.strictEqual(delayedMap.flyCalls, 1,
+    'Native flight must start after the bounded 220ms terrain head start');
   assert(typeof delayedMap.transformCallback === 'function',
     'Terrain flight must use one bounded transform for its 3D screen anchor');
   delayedMap.emit('moveend');
@@ -205,6 +211,8 @@ function createDelayedTerrainMap() {
   assert.strictEqual(delayedMap.easeCalls, 0, 'Late DEM must never create a settlement animation');
   assert.strictEqual(delayedMap.getZoom(), landedZoom, 'Late DEM must not change landed zoom');
   assert.strictEqual(delayedMap.getPitch(), landedPitch, 'Late DEM must not change landed pitch');
+  assert.strictEqual(delayedMap.getCenterElevation(), 4200,
+    'Late DEM must repair a stale cold-landing center elevation');
 
   const interruptedMap = createDelayedTerrainMap();
   let interruptedSignal = null;
