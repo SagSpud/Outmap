@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.67';
+const APP_VERSION = '2.0.68';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1657,14 +1657,14 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 2.0, // 支持大洲大洋宏观视野与全球自由漫游
-    maxZoom: 15, // 限制最大缩放层级为 15 级（已达建筑物与道路轮廓细节，杜绝深层切片过度拉伸与显存浪费，大幅提升流畅度）
+    maxZoom: 18, // 畅享微观矢量与卫星超高清切片，解除层级阻尼
     // 不在每次手势结束后让 MapLibre 重新反算 center/zoom。陡峭地形下该反算会把一次
     // 连续滚轮操作改成反向缩放或二次放大；飞掠仍通过 location-camera 的目标高程完成落地。
     centerClampedToGround: false,
     maxPitch: 72, // 收敛极限仰角至 72°，既保留强烈 3D 纵深视角，又彻底杜绝地平线远景网格视锥裁切脱节
-    // 始终围绕屏幕中心缩放。MapLibre 6.9 对该路径有完整的地形高程冻结/恢复逻辑，
-    // 也可避免光标位于屏幕边缘时连续缩放把目标横向带走。
-    scrollZoom: { around: 'center' },
+    // 恢复自然的光标锚定平滑缩放，缩放焦点始终跟随鼠标指针
+    scrollZoom: true,
+    aroundCenter: false, // 禁用右键极坐标转盘反转，恢复全局一致自然旋转
     // 解除原中国地理框架 maxBounds 物理锁死，支持全球自由拖动漫游
     fadeDuration: 180, // 使用 MapLibre 原生短淡入淡出，避免跨层级时标签硬切和闪现
     ...(constrainedWeb ? { pixelRatio: Math.min(window.devicePixelRatio || 1, 2) } : {}),
@@ -1703,8 +1703,8 @@ async function initApplication() {
   // Transform/Camera 方法，否则各状态会互相修正，表现为回弹、突然变大或陡坡近裁切。
   // 仅通过公开 API 轻微降低单个滚轮脉冲的增量，改善 L10+ 与高俯仰角下的细腻度；
   // 这不会改变 MapLibre 的相机状态链，也不会降低画质。
-  map.scrollZoom?.setWheelZoomRate?.(1 / 720);
-  map.scrollZoom?.setZoomRate?.(1 / 120);
+  map.scrollZoom?.setWheelZoomRate?.(1 / 450);
+  map.scrollZoom?.setZoomRate?.(1 / 100);
   window.OutmapLocationCamera?.install?.(map);
 
 
@@ -1802,7 +1802,8 @@ async function initApplication() {
 
     map.setTerrain({
       source: 'terrain-dem',
-      exaggeration: currentExaggeration
+      exaggeration: currentExaggeration,
+      qualityFactor: 4
     });
 
     // 地形 RTT 与中心地表高程都由 MapLibre 自身的生命周期管理。
@@ -3017,7 +3018,7 @@ function setupOfficeHeaderInteractions(map) {
         map.setMinPitch(0);
         map.setMaxPitch(72);
         try {
-          map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5 });
+          map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5, qualityFactor: 4 });
           if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
         } catch (e) {}
         map.easeTo({ pitch: 50, duration: 800 });
@@ -3076,7 +3077,7 @@ function setupOfficeHeaderInteractions(map) {
     if (terrainUpdateFrame) return;
     terrainUpdateFrame = requestAnimationFrame(() => {
       terrainUpdateFrame = 0;
-      map.setTerrain({ source: 'terrain-dem', exaggeration: pendingTerrainExaggeration });
+      map.setTerrain({ source: 'terrain-dem', exaggeration: pendingTerrainExaggeration, qualityFactor: 4 });
     });
   };
   const setExaggerationValue = (v) => {
@@ -6955,7 +6956,7 @@ function ensureSavedRouteLayers(map) {
     map.addSource(SAVED_ROUTES_SOURCE_ID, {
       type: 'geojson',
       data: savedRoutesFeatureCollection(),
-      tolerance: 0.8,
+      tolerance: 0.1,
       buffer: 96,
       promoteId: 'id'
     });
@@ -11503,7 +11504,7 @@ function renderRouteGeometry(map, pathCoords) {
       type: 'geojson',
       data: routeGeojson,
       lineMetrics: true,
-      tolerance: 0.5,
+      tolerance: 0.1,
       buffer: 128
     });
 
