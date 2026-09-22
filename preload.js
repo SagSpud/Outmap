@@ -32,7 +32,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkTileUpdates: () => ipcRenderer.invoke('check-tile-updates'),
   searchLocation: (query) => ipcRenderer.invoke('search-location', query),
   cancelSearchLocation: () => ipcRenderer.invoke('cancel-search-location').catch(() => {}),
-  onPowerStateChange: (callback) => ipcRenderer.on('power-state-change', (event, data) => callback(data)),
+  onPowerStateChange: (callback) => {
+    const listener = (event, data) => callback(data);
+    ipcRenderer.on('power-state-change', listener);
+    return () => ipcRenderer.removeListener('power-state-change', listener);
+  },
   showMapContextMenu: (params) => ipcRenderer.invoke('show-map-context-menu', params),
   saveFileDialog: (params) => ipcRenderer.invoke('save-file-dialog', params),
   openFileDialog: (params) => ipcRenderer.invoke('open-file-dialog', params),

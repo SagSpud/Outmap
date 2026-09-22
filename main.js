@@ -32,6 +32,10 @@ app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 
 let mainWindow;
+let systemPowerSuspended = false;
+let screenLocked = false;
+let runningOnBattery = false;
+let powerMonitorEventsBound = false;
 
 // 更新任务在主进程内做缓存与并发合并：界面切换、重复点击或多个渲染器请求
 // 都复用同一次检查/下载，不会重新联网或从头下载同一个 app.asar。
@@ -356,11 +360,12 @@ const memoryTileEtags = new WeakMap();
 const MAX_MEMORY_TILES = 20000;
 const MAX_MEMORY_TILE_BYTES = 512 * 1024 * 1024;
 const MINIMIZED_MEMORY_TILE_BYTES = 256 * 1024 * 1024;
+const BATTERY_INACTIVE_MEMORY_TILE_BYTES = 192 * 1024 * 1024;
 const PRESSURE_MEMORY_TILE_BYTES = 128 * 1024 * 1024;
 const LONG_MINIMIZED_CACHE_TRIM_MS = 5 * 60 * 1000;
 const MEMORY_PRESSURE_CHECK_INTERVAL_MS = 30 * 1000;
 let memoryTileCacheBytes = 0;
-let minimizedCacheTrimTimer = null;
+let inactiveCacheTrimTimer = null;
 let lastMemoryPressureCheckAt = 0;
 
 function getCachedTile(key) {
@@ -467,30 +472,84 @@ function trimMemoryTileCacheOnPressure() {
   if (getSystemMemoryPressure()) trimMemoryTileCache(PRESSURE_MEMORY_TILE_BYTES);
 }
 
-function cancelMinimizedCacheTrim() {
-  if (!minimizedCacheTrimTimer) return;
-  clearTimeout(minimizedCacheTrimTimer);
-  minimizedCacheTrimTimer = null;
+function cancelInactiveCacheTrim() {
+  if (!inactiveCacheTrimTimer) return;
+  clearTimeout(inactiveCacheTrimTimer);
+  inactiveCacheTrimTimer = null;
 }
 
-function scheduleMinimizedCacheTrim() {
-  cancelMinimizedCacheTrim();
-  minimizedCacheTrimTimer = setTimeout(() => {
-    minimizedCacheTrimTimer = null;
-    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isMinimized()) return;
+function scheduleInactiveCacheTrim() {
+  cancelInactiveCacheTrim();
+  inactiveCacheTrimTimer = setTimeout(() => {
+    inactiveCacheTrimTimer = null;
+    const windowMinimized = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMinimized());
+    if (!windowMinimized && !systemPowerSuspended && !screenLocked) return;
     const targetBytes = getSystemMemoryPressure()
       ? PRESSURE_MEMORY_TILE_BYTES
-      : MINIMIZED_MEMORY_TILE_BYTES;
+      : (runningOnBattery ? BATTERY_INACTIVE_MEMORY_TILE_BYTES : MINIMIZED_MEMORY_TILE_BYTES);
     const trimmed = trimMemoryTileCache(targetBytes);
     if (trimmed.removedTiles > 0) {
       console.log('[Tile Cache Trim]', {
-        reason: targetBytes === PRESSURE_MEMORY_TILE_BYTES ? 'memory-pressure' : 'long-minimized',
+        reason: targetBytes === PRESSURE_MEMORY_TILE_BYTES
+          ? 'memory-pressure'
+          : (runningOnBattery ? 'inactive-on-battery' : 'long-inactive'),
         removedTiles: trimmed.removedTiles,
         remainingMB: Math.round(memoryTileCacheBytes / 1024 / 1024)
       });
     }
   }, LONG_MINIMIZED_CACHE_TRIM_MS);
-  minimizedCacheTrimTimer.unref?.();
+  inactiveCacheTrimTimer.unref?.();
+}
+
+function isAppPowerInactive() {
+  return systemPowerSuspended
+    || screenLocked
+    || Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMinimized());
+}
+
+function sendPowerStateChange(mode, state) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send('power-state-change', { mode, state });
+}
+
+function resumeForegroundRendering(state) {
+  if (isAppPowerInactive()) return;
+  cancelInactiveCacheTrim();
+  sendPowerStateChange('performance', state);
+}
+
+function bindPowerMonitorEvents() {
+  if (powerMonitorEventsBound || !powerMonitor) return;
+  powerMonitorEventsBound = true;
+
+  powerMonitor.on('suspend', () => {
+    systemPowerSuspended = true;
+    setMapInteractionActive(false, true);
+    scheduleInactiveCacheTrim();
+    sendPowerStateChange('saving', 'suspend');
+  });
+  powerMonitor.on('resume', () => {
+    systemPowerSuspended = false;
+    resumeForegroundRendering('resume');
+  });
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+    setMapInteractionActive(false, true);
+    scheduleInactiveCacheTrim();
+    sendPowerStateChange('saving', 'lock-screen');
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+    resumeForegroundRendering('unlock-screen');
+  });
+  powerMonitor.on('on-battery', () => {
+    runningOnBattery = true;
+    if (isAppPowerInactive()) scheduleInactiveCacheTrim();
+  });
+  powerMonitor.on('on-ac', () => {
+    runningOnBattery = false;
+    if (isAppPowerInactive()) scheduleInactiveCacheTrim();
+  });
 }
 
 async function resolveOfmTemplate() {
@@ -1480,63 +1539,19 @@ function createWindow() {
     // 2. 最小化或隐藏到后台时：Chromium 自动限频休眠，释放 CPU/GPU 资源节能降温
     mainWindow.on('minimize', () => {
       setMapInteractionActive(false, true);
-      scheduleMinimizedCacheTrim();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'minimized' });
-      }
+      scheduleInactiveCacheTrim();
+      sendPowerStateChange('saving', 'minimized');
     });
     mainWindow.on('restore', () => {
-      cancelMinimizedCacheTrim();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'restored' });
-      }
+      resumeForegroundRendering('restored');
     });
     mainWindow.on('focus', () => {
-      cancelMinimizedCacheTrim();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'focused' });
-      }
+      resumeForegroundRendering('focused');
     });
 
-    // 3. 深度联动 Windows S0 Modern Standby（现代低功耗待机）与系统休眠/锁屏电源事件：
-    //    系统合盖睡眠或锁屏时彻底刹停 WebGL 渲染，修剪切片缓存，确保 CPU/GPU 进入 0 功耗深度睡眠 (DRIPS)；
-    //    唤醒/解锁后即刻无缝恢复。
-    if (powerMonitor) {
-      powerMonitor.on('suspend', () => {
-        setMapInteractionActive(false, true);
-        scheduleMinimizedCacheTrim();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'suspend' });
-        }
-      });
-      powerMonitor.on('resume', () => {
-        cancelMinimizedCacheTrim();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'resume' });
-        }
-      });
-      powerMonitor.on('lock-screen', () => {
-        setMapInteractionActive(false, true);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'lock-screen' });
-        }
-      });
-      powerMonitor.on('unlock-screen', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'unlock-screen' });
-        }
-      });
-      powerMonitor.on('on-battery', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('power-state-change', { mode: 'battery', state: 'on-battery' });
-        }
-      });
-      powerMonitor.on('on-ac', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'on-ac' });
-        }
-      });
-    }
+    // Windows S0 Modern Standby / lock-screen listeners are process-wide and
+    // must only be registered once even if a window is recreated.
+    bindPowerMonitorEvents();
 
     mainWindow.once('ready-to-show', () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
