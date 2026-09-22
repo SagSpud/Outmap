@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.66';
+const APP_VERSION = '2.0.67';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -4668,7 +4668,7 @@ function setupPyramidModal(map) {
 
     if (isDownloading) {
       btnCancel.style.display = 'inline-block';
-      btnCancel.innerText = '中止下载';
+      btnCancel.innerText = '停止';
       if (btnDone) btnDone.style.display = 'none';
 
       if (isViewingActiveTask) {
@@ -4685,7 +4685,7 @@ function setupPyramidModal(map) {
         const activeNames = activeDownloadSession?.provNames?.join('、') || '其他省份';
         btnStart.style.display = 'inline-block';
         btnStart.disabled = false;
-        btnStart.innerText = '中止当前并下载所选省份';
+        btnStart.innerText = '下载所选';
         if (btnUpdate) btnUpdate.style.display = 'none';
         if (btnRetry) btnRetry.style.display = 'none';
         if (progressBox) {
@@ -4714,7 +4714,7 @@ function setupPyramidModal(map) {
         if (btnUpdate) {
           btnUpdate.style.display = 'inline-block';
           btnUpdate.disabled = false;
-          btnUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 13 }) || ''} <span>增量更新</span>`;
+          btnUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 13 }) || ''} <span>增量</span>`;
         }
         if (btnRetry) btnRetry.style.display = 'inline-block';
         if (btnDone) btnDone.style.display = 'inline-block';
@@ -4741,7 +4741,7 @@ function setupPyramidModal(map) {
 
         btnStart.style.display = 'inline-block';
         btnStart.disabled = false;
-        btnStart.innerText = (hasAnySaved && minSavedZ >= 10) ? `扩充下载 (至 L${maxZ})` : `开始下载 (至 L${maxZ})`;
+        btnStart.innerText = `下载至 L${maxZ}`;
         if (btnUpdate) btnUpdate.style.display = 'none';
         if (btnRetry) btnRetry.style.display = 'none';
         if (btnDone) btnDone.style.display = 'none';
@@ -4799,7 +4799,7 @@ function setupPyramidModal(map) {
     document.body.classList.add('is-downloading');
     btnStart.style.display = 'none';
     btnCancel.style.display = 'inline-block';
-    btnCancel.innerText = '中止下载';
+    btnCancel.innerText = '停止';
     if (btnRetry) btnRetry.style.display = 'none';
     if (btnUpdate) btnUpdate.style.display = 'none';
     if (btnDone) btnDone.style.display = 'none';
@@ -4844,28 +4844,28 @@ function setupPyramidModal(map) {
 
   btnCheckUpdate?.addEventListener('click', async () => {
     btnCheckUpdate.disabled = true;
-    btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查中...</span>`;
+    btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查中</span>`;
     try {
       if (window.electronAPI && window.electronAPI.checkTileUpdates) {
         const info = await window.electronAPI.checkTileUpdates();
         if (info && info.success) {
           if (info.hasUpdates) {
-            btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 13, color: '#b45309' }) || ''} <span>云端有新路网</span>`;
+            btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('bolt', { size: 13, color: '#b45309' }) || ''} <span>有更新</span>`;
             btnCheckUpdate.style.background = '#fef3c7';
             btnCheckUpdate.style.borderColor = '#fde047';
             btnCheckUpdate.style.color = '#b45309';
           } else {
-            btnCheckUpdate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <span>图层已最新</span>`;
+            btnCheckUpdate.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <span>已最新</span>`;
             btnCheckUpdate.style.background = '#ecfdf5';
             btnCheckUpdate.style.borderColor = '#a7f3d0';
             btnCheckUpdate.style.color = '#047857';
           }
         } else {
-          btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查更新</span>`;
+          btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>更新</span>`;
         }
       }
     } catch (e) {
-      btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>检查更新</span>`;
+      btnCheckUpdate.innerHTML = `${window.OutmapFavoriteInteractions?.svg('search', { size: 13 }) || ''} <span>更新</span>`;
     } finally {
       setTimeout(() => {
         btnCheckUpdate.disabled = false;
@@ -4883,7 +4883,7 @@ function setupPyramidModal(map) {
     }
     btnStart.style.display = 'inline-block';
     btnStart.disabled = false;
-    btnStart.innerText = '开始下载';
+    btnStart.innerText = '下载';
     btnCancel.style.display = 'none';
     if (btnRetry) btnRetry.style.display = 'none';
     if (btnUpdate) btnUpdate.style.display = 'none';
@@ -5076,7 +5076,7 @@ function setupPyramidModal(map) {
 
         btnStart.style.display = completedCleanly ? 'none' : 'inline-block';
         btnStart.disabled = false;
-        btnStart.innerText = completedCleanly ? '开始下载' : '继续补齐';
+        btnStart.innerText = completedCleanly ? '下载' : '继续补齐';
         btnCancel.style.display = 'none';
         if (btnDone) btnDone.style.display = completedCleanly ? 'inline-block' : 'none';
         if (btnRetry) btnRetry.style.display = completedCleanly ? 'inline-block' : 'none';

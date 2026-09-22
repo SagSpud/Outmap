@@ -34,7 +34,7 @@ assert(appJs.includes('downloadVec: true,'), 'startPyramidDownload must set down
 // Check tile update button moved to footer
 assert(indexHtml.includes('<button type="button" class="modal-btn secondary" id="btn-check-tile-update"'), 'btn-check-tile-update must be a modal-btn secondary');
 assert(styleCss.includes('#pyramid-modal #btn-check-tile-update {\n  margin-right: auto;\n}'), 'style.css must set margin-right: auto on #pyramid-modal #btn-check-tile-update');
-assert(appJs.includes('<span>检查更新</span>'), 'app.js must use 检查更新 label');
+assert(appJs.includes('<span>更新</span>'), 'app.js must use the compact 更新 label');
 
 console.log('✓ Static assertions passed!');
 
@@ -116,8 +116,8 @@ async function run() {
   assert(evaluation.chkVecPresent && evaluation.chkVecType === 'hidden' && evaluation.chkVecChecked, 'chk-dl-vec must be hidden and checked');
 
   // Text contents
-  assert.strictEqual(evaluation.btnStorageText, '存储体检', 'Storage button text must be 存储体检');
-  assert.strictEqual(evaluation.btnCheckUpdateText, '检查更新', 'Check update button text must be 检查更新');
+  assert.strictEqual(evaluation.btnStorageText, '存储', 'Storage button text must be 存储');
+  assert.strictEqual(evaluation.btnCheckUpdateText, '更新', 'Check update button text must be 更新');
 
   // Heights match for visual harmony
   assert.strictEqual(evaluation.storageHeight, evaluation.checkUpdateHeight, 'Both footer secondary buttons must have identical height');

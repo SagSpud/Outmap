@@ -2253,6 +2253,7 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
 }
 
@@ -7553,4 +7554,3 @@ body.app-immersive-mode #map-wrap {
 body.app-immersive-mode #map {
   height: 100% !important;
 }
-

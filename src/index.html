@@ -7,7 +7,7 @@
   <title>Outmap</title>
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="stylesheet" href="vendor/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=2.0.66" />
+  <link rel="stylesheet" href="style.css?v=2.0.67" />
   <script>
     if (!window.electronAPI) {
       document.documentElement.classList.add('web-mode');
@@ -28,7 +28,7 @@
                 <div class="brand-flip-face brand-flip-front">Outmap</div>
                 <div class="brand-flip-face brand-flip-back" id="brand-flip-back-face">
                   <div class="brand-progress-bar" id="brand-update-progress-bar"></div>
-                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.66</span>
+                  <span class="brand-ver-badge" id="brand-ver-badge-txt">v2.0.67</span>
                 </div>
               </div>
             </div>
@@ -696,21 +696,21 @@
       </div>
 
       <div class="modal-footer">
-        <button class="modal-btn secondary" id="btn-storage-maintenance" title="离线切片存储体检、PMTiles健康度与碎片整理">
+        <button class="modal-btn secondary" id="btn-storage-maintenance">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          <span>存储体检</span>
+          <span>存储</span>
         </button>
-        <button type="button" class="modal-btn secondary" id="btn-check-tile-update" title="检查源站是否有更新的图层瓦片">
+        <button type="button" class="modal-btn secondary" id="btn-check-tile-update">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35"/></svg>
-          <span>检查更新</span>
+          <span>更新</span>
         </button>
-        <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">中止</button>
-        <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">快速校验</button>
+        <button class="modal-btn secondary" id="btn-cancel-dl" style="display: none;">停止</button>
+        <button class="modal-btn secondary" id="btn-retry-dl" style="display: none;">校验</button>
         <button class="modal-btn accent" id="btn-update-dl" style="display: none;">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          <span>增量更新</span>
+          <span>增量</span>
         </button>
-        <button class="modal-btn primary" id="btn-start-dl">开始下载</button>
+        <button class="modal-btn primary" id="btn-start-dl">下载</button>
         <button class="modal-btn success" id="btn-done-dl" style="display: none;">完成</button>
       </div>
     </div>
@@ -790,6 +790,6 @@
     </div>
   </div>
 
-  <script type="module" src="map-bootstrap.js?v=2.0.66"></script>
+  <script type="module" src="map-bootstrap.js?v=2.0.67"></script>
 </body>
 </html>
