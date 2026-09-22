@@ -11,7 +11,8 @@ const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 const js = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 
-assert.strictEqual(pkg.version, '2.0.67');
+assert(Number(pkg.version.split('.').at(-1)) >= 67,
+  'compact download action behavior must remain available after v2.0.67');
 assert(html.includes('id="btn-storage-maintenance"'), 'storage action must exist');
 assert(html.includes('<span>存储</span>'), 'storage label must be compact');
 assert(html.includes('<span>更新</span>'), 'update label must be compact');

@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.68';
+const APP_VERSION = '2.0.69';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1657,7 +1657,10 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 2.0, // 支持大洲大洋宏观视野与全球自由漫游
-    maxZoom: 18, // 畅享微观矢量与卫星超高清切片，解除层级阻尼
+    // DEM 的真实数据到 L12、矢量底图到 L14、等高线到 L15。L16 允许
+    // 一档原生 overzoom 看清道路/建筑，同时避免进入只有背景的无效放大区。
+    // MapLibre 在该硬上限直接截停滚轮，不需要任何 zoomend 回拉修正。
+    maxZoom: 16,
     // 不在每次手势结束后让 MapLibre 重新反算 center/zoom。陡峭地形下该反算会把一次
     // 连续滚轮操作改成反向缩放或二次放大；飞掠仍通过 location-camera 的目标高程完成落地。
     centerClampedToGround: false,
@@ -1698,13 +1701,9 @@ async function initApplication() {
   const map = mapInstance;
   window.mapInstance = map;
 
-  // 地形手势的 aroundElevation 冻结与碰撞保护交由 MapLibre 6.9 原生相机完成；
-  // 仅通过上面的公开选项禁用手势结束后的二次 center/zoom 反算。不要覆盖私有
-  // Transform/Camera 方法，否则各状态会互相修正，表现为回弹、突然变大或陡坡近裁切。
-  // 仅通过公开 API 轻微降低单个滚轮脉冲的增量，改善 L10+ 与高俯仰角下的细腻度；
-  // 这不会改变 MapLibre 的相机状态链，也不会降低画质。
-  map.scrollZoom?.setWheelZoomRate?.(1 / 450);
-  map.scrollZoom?.setZoomRate?.(1 / 100);
+  // 滚轮缩放完整交给 MapLibre 6.9：保留鼠标锚点、原生惯性、原生速率和
+  // maxZoom 边界钳制。不要在 zoomend/moveend 后二次修改中心或缩放，否则
+  // 会把正确的指针跟随误表现为拖动、回拉或到顶反弹。
   window.OutmapLocationCamera?.install?.(map);
 
 
@@ -1802,8 +1801,7 @@ async function initApplication() {
 
     map.setTerrain({
       source: 'terrain-dem',
-      exaggeration: currentExaggeration,
-      qualityFactor: 4
+      exaggeration: currentExaggeration
     });
 
     // 地形 RTT 与中心地表高程都由 MapLibre 自身的生命周期管理。
@@ -3018,7 +3016,7 @@ function setupOfficeHeaderInteractions(map) {
         map.setMinPitch(0);
         map.setMaxPitch(72);
         try {
-          map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5, qualityFactor: 4 });
+          map.setTerrain({ source: 'terrain-dem', exaggeration: currentExaggeration || 1.5 });
           if (map.getLayer('hillshade-layer')) map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
         } catch (e) {}
         map.easeTo({ pitch: 50, duration: 800 });
@@ -3077,7 +3075,7 @@ function setupOfficeHeaderInteractions(map) {
     if (terrainUpdateFrame) return;
     terrainUpdateFrame = requestAnimationFrame(() => {
       terrainUpdateFrame = 0;
-      map.setTerrain({ source: 'terrain-dem', exaggeration: pendingTerrainExaggeration, qualityFactor: 4 });
+      map.setTerrain({ source: 'terrain-dem', exaggeration: pendingTerrainExaggeration });
     });
   };
   const setExaggerationValue = (v) => {
