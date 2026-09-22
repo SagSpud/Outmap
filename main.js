@@ -25,11 +25,11 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
-// 稳健化 GPU 共享图像与 WebGL 显存配额，消除 3D 大倾角立体视角海量瓦片下的 Context Lost
+// 稳健化 GPU 共享图像与 WebGL 显存配额，消除 3D 大倾角立体视角海量瓦片下的 Context Lost。
+// 遵循 GPU 黑名单策略（不强制忽略黑名单），确保在老旧/异常显卡驱动下保持稳定性与安全沙箱。
 app.commandLine.appendSwitch('max-active-webgl-contexts', '32');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 let mainWindow;
 
