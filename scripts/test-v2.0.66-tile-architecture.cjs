@@ -25,10 +25,11 @@ const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
 const appJs = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 
-assert.strictEqual(packageJson.version, '2.0.66');
+const [major, minor, patch] = packageJson.version.split('.').map(Number);
+assert(major > 2 || (major === 2 && (minor > 0 || (minor === 0 && patch >= 66))), 'package.json version must be >= 2.0.66');
 assert.strictEqual(packageLock.version, packageJson.version);
-assert(appJs.includes("const APP_VERSION = '2.0.66';"));
-assert(indexHtml.includes('map-bootstrap.js?v=2.0.66'));
+assert(appJs.includes(`const APP_VERSION = '${packageJson.version}';`));
+assert(indexHtml.includes(`map-bootstrap.js?v=${packageJson.version}`));
 assert(mainJs.includes('async function resolveDesktopTile('));
 assert(!mainJs.includes('const httpFallbackUrl = `http://127.0.0.1:${localServerPort}/${type}/'));
 
