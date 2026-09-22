@@ -34,7 +34,7 @@ async function main() {
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
     '1. 【规范 GPU 黑名单兼容策略】移除强制忽略 GPU 黑名单开关，遵循 Chromium 原生 GPU 驱动白名单与安全沙箱防护，杜绝老旧/异常显卡驱动下的崩溃闪退与渲染管道死锁；',
-    '2. 【精简重构自动化测试套件】彻底清理过往数十个跨大版本的陈旧冗余测试脚本，收敛构建轻量、纯净的高可靠核心自检链路，彻底告别测试阻塞与管道假死；',
+    '2. 【重构自动化发布检查】排除已失效的历史断言与重复执行，同时保留路线、收藏、离线下载、移动端、3D 连续性和高分屏等有效回归覆盖；',
     '3. 【原生架构与 3D 地形着陆稳健化】维持 MapLibre 6.9 官方零补丁内核与光标锚定缩放，结合高海拔冷启动着陆高程自适应，保障全场景丝滑稳定。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;

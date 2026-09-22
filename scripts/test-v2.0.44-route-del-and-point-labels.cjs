@@ -86,14 +86,17 @@ app.whenReady().then(async () => {
         check(tag === String(idx + 1), 'DOM tag mismatch at ' + idx + ': expected ' + (idx + 1) + ', got ' + tag);
       });
 
-      // Post-check in MapLibre GeoJSON Source
-      const rawFeatures = map.querySourceFeatures('outmap-route-points');
-      const seenIds = new Set();
-      const srcFeatures = rawFeatures.filter(f => {
-        if (seenIds.has(f.id)) return false;
-        seenIds.add(f.id);
-        return true;
-      });
+      // Post-check the canonical MapLibre GeoJSON source data. querySourceFeatures()
+      // only returns features from currently loaded render tiles, so a slower or
+      // blocklisted GPU can legitimately report zero while the source is correct.
+      const routeSource = map.getSource('outmap-route-points');
+      let routeData = null;
+      for (let i = 0; i < 80; i++) {
+        routeData = await routeSource.getData();
+        if (routeData?.features?.length === 21) break;
+        await sleep(25);
+      }
+      const srcFeatures = routeData?.features || [];
       check(srcFeatures.length === 21, 'Expected 21 MapLibre features after deletion, got ' + srcFeatures.length);
       for (const sf of srcFeatures) {
         check(sf.properties.label !== undefined, 'Feature label MUST NOT be undefined: id ' + sf.id);
