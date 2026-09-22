@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard, shell, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, dialog, clipboard, shell, protocol, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -1497,6 +1497,46 @@ function createWindow() {
         mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'focused' });
       }
     });
+
+    // 3. 深度联动 Windows S0 Modern Standby（现代低功耗待机）与系统休眠/锁屏电源事件：
+    //    系统合盖睡眠或锁屏时彻底刹停 WebGL 渲染，修剪切片缓存，确保 CPU/GPU 进入 0 功耗深度睡眠 (DRIPS)；
+    //    唤醒/解锁后即刻无缝恢复。
+    if (powerMonitor) {
+      powerMonitor.on('suspend', () => {
+        setMapInteractionActive(false, true);
+        scheduleMinimizedCacheTrim();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'suspend' });
+        }
+      });
+      powerMonitor.on('resume', () => {
+        cancelMinimizedCacheTrim();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'resume' });
+        }
+      });
+      powerMonitor.on('lock-screen', () => {
+        setMapInteractionActive(false, true);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('power-state-change', { mode: 'saving', state: 'lock-screen' });
+        }
+      });
+      powerMonitor.on('unlock-screen', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'unlock-screen' });
+        }
+      });
+      powerMonitor.on('on-battery', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('power-state-change', { mode: 'battery', state: 'on-battery' });
+        }
+      });
+      powerMonitor.on('on-ac', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('power-state-change', { mode: 'performance', state: 'on-ac' });
+        }
+      });
+    }
 
     mainWindow.once('ready-to-show', () => {
       if (mainWindow && !mainWindow.isDestroyed()) {

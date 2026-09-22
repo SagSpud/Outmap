@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.73';
+const APP_VERSION = '2.0.74';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -6497,10 +6497,16 @@ function setupStatusBar(map) {
     map.easeTo({ pitch: target, duration: 400 });
   });
 
-  // Count actual map render events instead of running a permanent RAF loop.
+  // 智能系统电源与 Windows S0 Modern Standby 待机事件联动：
+  // 1. 进入睡眠(suspend)、锁屏(lock-screen)或最小化(saving)时：立即刹停相机惯性缓动动画，冻结渲染，使 CPU/GPU 彻底归零进入深空闲；
+  // 2. 唤醒(resume)、解锁或还原前台时：单次触发重绘更新画面，瞬间恢复满血 60FPS+ 状态。
   if (window.electronAPI && window.electronAPI.onPowerStateChange) {
     window.electronAPI.onPowerStateChange((info) => {
-      if (info.mode === 'performance' && mapInstance) {
+      if (info.mode === 'saving' || info.state === 'suspend' || info.state === 'lock-screen') {
+        if (mapInstance && typeof mapInstance.stop === 'function') {
+          mapInstance.stop(); // 立即刹停相机飞掠或缓动，停止一切 WebGL 帧绘制
+        }
+      } else if (info.mode === 'performance' && mapInstance) {
         mapInstance.triggerRepaint();
       }
     });
