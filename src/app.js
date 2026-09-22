@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.72';
+const APP_VERSION = '2.0.73';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -3865,36 +3865,6 @@ function getOfflineProvState() {
     return offlineProvCache;
   } catch (e) {
     return {};
-  }
-}
-
-function saveOfflineProvState(key, maxZ, details = {}) {
-  const state = getOfflineProvState();
-  const prev = state[key] || {};
-  const mergedLayers = {
-    ...(prev.layers || {}),
-    ...(details.layers || {})
-  };
-  if (details.dem !== undefined) {
-    mergedLayers.dem = { ...(mergedLayers.dem || {}), maxZ: Math.max(mergedLayers.dem?.maxZ || 0, maxZ) };
-  }
-  if (details.vec !== undefined) {
-    mergedLayers.vector = { ...(mergedLayers.vector || {}), maxZ: Math.max(mergedLayers.vector?.maxZ || 0, maxZ) };
-  }
-  state[key] = {
-    ...prev,
-    ...details,
-    layers: Object.keys(mergedLayers).length > 0 ? mergedLayers : (prev.layers || undefined),
-    maxZ: Math.max(prev.maxZ || 0, maxZ),
-    updatedAt: Date.now()
-  };
-  offlineProvCache = state;
-  try {
-    localStorage.setItem('outmap_offline_provinces', JSON.stringify(state));
-  } catch (e) {}
-
-  if (window.electronAPI && window.electronAPI.saveOfflineManifest) {
-    window.electronAPI.saveOfflineManifest({ provinces: state }).catch(() => {});
   }
 }
 
@@ -10006,6 +9976,27 @@ function buildRouteScreenProjection(map, coords, maxSegments = Number.POSITIVE_I
   return points.length >= 2 ? { points, coords } : null;
 }
 
+// A route click and the following "add as via point" action use the same
+// camera projection. Cache the exact full projection between those actions so
+// a long imported GPX is not projected twice. Public camera values form the
+// key; any pan, zoom, pitch, bearing or viewport change invalidates it.
+const routeScreenProjectionCache = new WeakMap();
+function getCachedRouteScreenProjection(map, coords) {
+  if (!map || !Array.isArray(coords) || coords.length < 2) return null;
+  const center = map.getCenter();
+  const container = map.getContainer();
+  const fingerprint = [
+    center.lng.toFixed(7), center.lat.toFixed(7), map.getZoom().toFixed(5),
+    map.getPitch().toFixed(3), map.getBearing().toFixed(3),
+    container?.clientWidth || 0, container?.clientHeight || 0
+  ].join(':');
+  const cached = routeScreenProjectionCache.get(coords);
+  if (cached?.fingerprint === fingerprint) return cached.projection;
+  const projection = buildRouteScreenProjection(map, coords);
+  routeScreenProjectionCache.set(coords, { fingerprint, projection });
+  return projection;
+}
+
 // 使用 MapLibre 的公开 project/unproject 在当前 2D/3D 相机下求最近线段，
 // 避免经纬度欧氏距离在稀疏、折返或自交路线中选错顶点。
 function projectScreenPointOntoRoute(map, screenPoint, projection) {
@@ -10041,12 +10032,14 @@ function projectScreenPointOntoRoute(map, screenPoint, projection) {
 }
 if (typeof window !== 'undefined') {
   window.buildRouteScreenProjection = buildRouteScreenProjection;
+  window.getCachedRouteScreenProjection = getCachedRouteScreenProjection;
   window.projectScreenPointOntoRoute = projectScreenPointOntoRoute;
 }
 
 let routePointInspectCardEl = null;
 let currentInspectedPoint = null;
 let inspectCardMoveBound = false;
+const routeCumulativeDistanceCache = new WeakMap();
 
 function hideRoutePointInspectCard() {
   currentInspectedPoint = null;
@@ -10058,30 +10051,44 @@ function hideRoutePointInspectCard() {
 
 function computeRouteCumulativeDistance(coords, targetProgressOrCoord) {
   if (!Array.isArray(coords) || coords.length < 2) return 0;
+  const first = coords[0];
+  const middle = coords[Math.floor(coords.length / 2)];
+  const last = coords[coords.length - 1];
+  const fingerprint = `${coords.length}:${first?.[0]},${first?.[1]}:${middle?.[0]},${middle?.[1]}:${last?.[0]},${last?.[1]}`;
+  let cache = routeCumulativeDistanceCache.get(coords);
+  if (!cache || cache.fingerprint !== fingerprint) {
+    const cumulative = new Float64Array(coords.length);
+    for (let i = 1; i < coords.length; i++) {
+      cumulative[i] = cumulative[i - 1] + calculateDistanceKm(coords[i - 1], coords[i]);
+    }
+    cache = { fingerprint, cumulative, nearestProgress: new Map() };
+    routeCumulativeDistanceCache.set(coords, cache);
+  }
   let targetProgress = null;
   if (typeof targetProgressOrCoord === 'number') {
     targetProgress = targetProgressOrCoord;
   } else if (Array.isArray(targetProgressOrCoord)) {
-    let bestDistSq = Infinity;
-    let bestIdx = 0;
-    for (let i = 0; i < coords.length; i++) {
-      const dSq = (coords[i][0] - targetProgressOrCoord[0]) ** 2 + (coords[i][1] - targetProgressOrCoord[1]) ** 2;
-      if (dSq < bestDistSq) {
-        bestDistSq = dSq;
-        bestIdx = i;
+    const nearestKey = `${Number(targetProgressOrCoord[0]).toFixed(6)},${Number(targetProgressOrCoord[1]).toFixed(6)}`;
+    targetProgress = cache.nearestProgress.get(nearestKey);
+    if (!Number.isFinite(targetProgress)) {
+      let bestDistSq = Infinity;
+      let bestIdx = 0;
+      for (let i = 0; i < coords.length; i++) {
+        const dSq = (coords[i][0] - targetProgressOrCoord[0]) ** 2 + (coords[i][1] - targetProgressOrCoord[1]) ** 2;
+        if (dSq < bestDistSq) {
+          bestDistSq = dSq;
+          bestIdx = i;
+        }
       }
+      targetProgress = bestIdx;
+      cache.nearestProgress.set(nearestKey, bestIdx);
     }
-    targetProgress = bestIdx;
   }
   if (targetProgress === null) return 0;
 
   const segIdx = Math.max(0, Math.min(coords.length - 1, Math.floor(targetProgress)));
   const frac = Math.max(0, Math.min(1, targetProgress - segIdx));
-
-  let totalDist = 0;
-  for (let i = 0; i < segIdx; i++) {
-    totalDist += calculateDistanceKm(coords[i], coords[i + 1]);
-  }
+  let totalDist = cache.cumulative[segIdx] || 0;
   if (frac > 0 && segIdx < coords.length - 1) {
     totalDist += frac * calculateDistanceKm(coords[segIdx], coords[segIdx + 1]);
   }
@@ -10261,7 +10268,7 @@ function showRoutePointInspectCard(map, pointInfo, screenPoint) {
   routePointInspectCardEl.querySelector('.btn-inspect-add-via')?.addEventListener('click', (e) => {
     e.stopPropagation();
     if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
-    const fullProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords);
+    const fullProjection = getCachedRouteScreenProjection(map, currentPlannedRouteCoords);
     const proj = projectScreenPointOntoRoute(map, map.project(coords), fullProjection);
     const progress = proj?.progress ?? pointInfo.progress ?? 0;
     const viaIndices = routeViaPoints.map(via => {
@@ -10548,14 +10555,21 @@ function bindRoutePointLayerEvents(map) {
         zoom: curZoom < 12.0 ? 12.0 : curZoom,
         pitch: map.getPitch() ?? 50,
         centered: true,
-        elevation: point.ele ?? point.elevation
+        elevation: point.ele ?? point.elevation,
+        // Keep the glass inspection card out of the compositor while the
+        // terrain and route are moving. Recreate it only at the final native
+        // projection so no per-frame DOM tracking or backdrop blur competes
+        // with MapLibre's 3D flight.
+        onArrival: () => {
+          if (!point?.coords) return;
+          showRoutePointInspectCard(map, point, map.project(point.coords));
+        }
       });
       // 浏览模式下确保路线编辑面板绝不被意外展开
       if (routeInteractionState === 'viewing') {
         const routePanel = document.getElementById('route-panel');
         if (routePanel) routePanel.style.display = 'none';
       }
-      showRoutePointInspectCard(map, point, e.point);
     });
     map.on('contextmenu', layerId, e => {
       if (e.originalEvent) {
@@ -10572,57 +10586,8 @@ function bindRoutePointLayerEvents(map) {
     map.on('touchstart', layerId, handleRoutePointTouchStart);
   });
 
-  // 路线上直接悬浮提示与单击插入途经点
-  let routeInsertMarker = null;
-  let routeInsertMarkerAttached = false;
-  let routeInsertProjection = null;
-  let routeInsertMoveFrame = 0;
-  let pendingRouteInsertPoint = null;
-  const ensureRouteInsertMarker = () => {
-    if (!routeInsertMarker) {
-      const el = document.createElement('div');
-      el.className = 'route-insert-hover-marker';
-      routeInsertMarker = new maplibregl.Marker({ element: el, anchor: 'center' });
-    }
-    return routeInsertMarker;
-  };
-
-  const removeRouteInsertMarker = () => {
-    if (routeInsertMoveFrame) cancelAnimationFrame(routeInsertMoveFrame);
-    routeInsertMoveFrame = 0;
-    pendingRouteInsertPoint = null;
-    if (routeInsertMarker) {
-      routeInsertMarker.remove();
-      routeInsertMarkerAttached = false;
-    }
-  };
-
-  const showRouteInsertMarker = screenPoint => {
-    pendingRouteInsertPoint = { x: screenPoint.x, y: screenPoint.y };
-    if (routeInsertMoveFrame) return;
-    routeInsertMoveFrame = requestAnimationFrame(() => {
-      routeInsertMoveFrame = 0;
-      if (!pendingRouteInsertPoint || routeInteractionState === 'viewing') return;
-      if (!routeInsertProjection || routeInsertProjection.coords !== currentPlannedRouteCoords) {
-        // 悬浮预览限制投影段数，超长 GPX 也不会因鼠标移动阻塞主线程。
-        routeInsertProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords, 8000);
-      }
-      const projected = projectScreenPointOntoRoute(map, pendingRouteInsertPoint, routeInsertProjection);
-      if (!projected) return;
-      const marker = ensureRouteInsertMarker();
-      marker.setLngLat(projected.coords);
-      if (!routeInsertMarkerAttached) {
-        marker.addTo(map);
-        routeInsertMarkerAttached = true;
-      }
-    });
-  };
-
-  map.on('movestart', () => {
-    routeInsertProjection = null;
-    removeRouteInsertMarker();
-  });
-
+  // 路线上单击可查看并插入途经点。旧版曾注册一个逐帧 mousemove
+  // 投影预览，但实际入口已经停用；保留监听只会在长路线悬停时制造无效主线程工作。
   ['outdoor-route-casing'].forEach(layerId => {
     map.on('mouseenter', layerId, () => {
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
@@ -10633,28 +10598,13 @@ function bindRoutePointLayerEvents(map) {
       map.getCanvas().style.cursor = 'pointer';
     });
 
-    map.on('mousemove', layerId, e => {
-      if (pickingRoutePt || isPickingPoint || activeRouteMapDrag || routeInteractionState === 'viewing') {
-        removeRouteInsertMarker();
-        if (routeInteractionState === 'viewing') {
-          map.getCanvas().style.cursor = '';
-        }
-        return;
-      }
-      map.getCanvas().style.cursor = 'pointer';
-      removeRouteInsertMarker();
-    });
-
     map.on('mouseleave', layerId, () => {
-      removeRouteInsertMarker();
-      routeInsertProjection = null;
       if (!activeRouteMapDrag && !document.body.classList.contains('map-is-dragging') && !document.body.classList.contains('route-point-is-dragging')) {
         map.getCanvas().style.cursor = '';
       }
     });
 
     map.on('click', layerId, e => {
-      removeRouteInsertMarker();
       if (e.originalEvent?._outmapHandled) return;
       if (pickingRoutePt || isPickingPoint || activeRouteMapDrag) return;
       if (routeInteractionState === 'viewing') {
@@ -10663,7 +10613,7 @@ function bindRoutePointLayerEvents(map) {
       }
       if (!Array.isArray(currentPlannedRouteCoords) || currentPlannedRouteCoords.length < 2) return;
 
-      const fullProjection = buildRouteScreenProjection(map, currentPlannedRouteCoords);
+      const fullProjection = getCachedRouteScreenProjection(map, currentPlannedRouteCoords);
       const projectedClick = projectScreenPointOntoRoute(map, e.point, fullProjection);
       if (!projectedClick) return;
 

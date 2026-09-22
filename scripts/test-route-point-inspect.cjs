@@ -34,6 +34,15 @@ async function run() {
   check(appJsSource.includes('computeRouteCumulativeDistance'), 'app.js missing computeRouteCumulativeDistance');
   check(appJsSource.includes('savePointToFavorites'), 'app.js missing savePointToFavorites');
   check(appJsSource.includes('_outmapHandled'), 'app.js missing _outmapHandled event isolation');
+  const routePointLayerStart = appJsSource.indexOf("const pointLayers = ['outmap-route-point-circles']");
+  const routePointClickBlock = appJsSource.slice(
+    appJsSource.indexOf("map.on('click', layerId", routePointLayerStart),
+    appJsSource.indexOf("map.on('contextmenu', layerId", routePointLayerStart)
+  );
+  check(routePointClickBlock.includes('onArrival: () =>'),
+    'route point inspection card must be deferred until flight arrival');
+  check(routePointClickBlock.indexOf('showRoutePointInspectCard') > routePointClickBlock.indexOf('onArrival: () =>'),
+    'route point inspection card must not be shown before the flight starts');
 
   const win = new BrowserWindow({
     show: false,

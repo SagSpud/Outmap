@@ -10,7 +10,7 @@ const mainSource = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
 assert(!mainSource.includes("appendSwitch('ignore-gpu-blocklist')"), 'GPU compatibility blocklist must remain active');
 assert(!mainSource.includes("appendSwitch('disable-features', 'Win32kLockdown')"), 'desktop must not weaken Chromium sandboxing');
 assert(!mainSource.includes("appendSwitch('js-flags'"), 'desktop must use adaptive V8 memory limits');
-assert(mainSource.includes('mapInteractionActive && workerIndex >= interactiveConcurrency'),
+assert(mainSource.includes('(mapInteractionActive || framePressureActive) && workerIndex >= interactiveConcurrency'),
   'downloads must yield CPU/disk lanes while the map is moving');
 assert(mainSource.includes('!finalInventoryUpdated &&'), 'exception recovery must avoid a duplicate full inventory scan');
 assert(mainSource.includes('const finalStats = applyOfflineDownloadManifest({'),
@@ -140,13 +140,12 @@ app.whenReady().then(async () => {
   // Worker feature insertion order is not route order; identity/role must survive diffs.
   assert.deepStrictEqual(result.roles.slice().sort(), ['end', 'start', 'via', 'via'], 'route roles must remain unchanged');
   assert(result.sourceCoordinatesExact, 'route marker source must always use exact route coordinates');
-  assert(result.hasClusterLayers, 'route overlaps must use native MapLibre cluster layers');
-  assert.strictEqual(result.sourceConfigAt10?.cluster, true, 'overview overlaps must use native source clustering');
-  assert.strictEqual(result.sourceConfigAt10?.clusterRadius, 26, 'route clustering must remain compact and local');
+  assert.strictEqual(result.hasClusterLayers, false, 'route stops must not be hidden inside overview clusters');
+  assert.strictEqual(result.sourceConfigAt10?.cluster, false, 'route source must preserve independently editable stops');
   assert(result.pitch70CoordinatesExact, '70-degree view must not alter route marker coordinates');
   assert.strictEqual(result.manyPointCount, 52, 'dense route stress test must preserve fifty waypoints plus endpoints');
   assert(result.zoom15CoordinatesExact, 'high zoom must reveal route points at their exact coordinates');
-  assert(result.routeStateCoordinatesPreserved, 'native clustering must never mutate route planning coordinates');
+  assert(result.routeStateCoordinatesPreserved, 'native route layers must never mutate route planning coordinates');
   assert(result.idleRenders <= 3, `idle map rendered ${result.idleRenders} frames in 1.6s`);
   // v1.9.22 removed the FPS label. Actual idle render count above is the
   // performance contract; adaptive desktop/mobile glass must remain uniform.
@@ -154,7 +153,7 @@ app.whenReady().then(async () => {
     'panels must share the adaptive acrylic recipe');
   assert.strictEqual(result.persistentDomMarkers, 0, 'native route layers must remain DOM-free outside active dragging');
   clearTimeout(watchdog);
-  console.log('Exact route positions, native clustering, 3D, idle GPU, download and visual consistency checks passed.');
+  console.log('Exact route positions, native layers, 3D, idle GPU, download and visual consistency checks passed.');
   app.quit();
 }).catch(error => {
   console.error(error);

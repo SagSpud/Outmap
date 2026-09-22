@@ -179,40 +179,29 @@ button,
 .tool-btn,
 .fab-btn,
 .landing-act-btn,
-.route-btn,
 .route-mode-btn,
 .type-pill,
 .fav-tab,
-.quick-action-btn,
-.pill-btn,
-.header-btn,
-.route-act-btn {
+.pill-btn {
   transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease !important;
 }
 
 button:active,
-.tool-btn:active,
 .fab-btn:active,
 .landing-act-btn:active,
-.route-btn:active,
 .route-mode-btn:active,
 .type-pill:active,
 .fav-tab:active,
-.quick-action-btn:active,
-.pill-btn:active,
-.header-btn:active,
-.route-act-btn:active {
+.pill-btn:active {
   transform: scale(0.95) !important;
 }
 
 .search-result-item,
-.route-search-item,
 .fav-item-card {
   transition: background-color 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.16s ease !important;
 }
 
 .search-result-item:active,
-.route-search-item:active,
 .fav-item-card:active {
   transform: scale(0.98);
 }
@@ -397,21 +386,6 @@ button:active,
   z-index: 1;
 }
 
-.btn-fast-install {
-  background: #34c759;
-  color: #ffffff;
-  border: none;
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 10px;
-  font-weight: 700;
-  margin-left: 4px;
-  cursor: pointer;
-}
-.btn-fast-install:hover {
-  background: #248a3d;
-}
-
 .brand-wrapper::after {
   content: "";
   display: inline-block;
@@ -420,35 +394,6 @@ button:active,
   background: #cbd5e1;
   margin-left: 8px;
 }
-
-/* 绿色圆点已下载标识 */
-.downloaded-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  background-color: #22c55e;
-  border-radius: 50%;
-  box-shadow: 0 0 5px rgba(34, 197, 94, 0.7);
-  margin-left: 5px;
-  vertical-align: middle;
-}
-
-.layer-download-dot {
-  display: none;
-  width: 7px;
-  height: 7px;
-  background-color: #22c55e;
-  border-radius: 50%;
-  box-shadow: 0 0 5px rgba(34, 197, 94, 0.7);
-  margin-left: 6px;
-  vertical-align: middle;
-}
-
-.layer-download-dot.active {
-  display: inline-block;
-}
-
-
 
 /* 容器本身保持 drag，只有具体按钮和输入框才设为 no-drag */
 .header-left, .header-center, .header-right {
@@ -1744,76 +1689,6 @@ body.web-mode #manage-modal {
   background: linear-gradient(to bottom, rgba(210, 230, 245, 0.4) 0%, rgba(210, 230, 245, 0) 100%);
   pointer-events: none;
   z-index: 10;
-}
-
-/* =========================================================
-   3. 全量注记与地标样式 (微观全量要素)
-   ========================================================= */
-
-/* 各省大字 (如 SICHUAN PROVINCE 四川省) */
-.province-title-marker {
-  pointer-events: none;
-  text-align: center;
-  transform: translate(-50%, -50%);
-}
-
-.province-en {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  color: rgba(90, 105, 95, 0.85);
-  text-shadow: 0 1px 3px #ffffff, 0 -1px 3px #ffffff, 1px 0 3px #ffffff, -1px 0 3px #ffffff;
-  text-transform: uppercase;
-}
-
-.province-cn {
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 3px;
-  color: #2e4438;
-  text-shadow: 0 1px 3px #ffffff, 0 -1px 3px #ffffff, 1px 0 3px #ffffff, -1px 0 3px #ffffff;
-}
-
-/* 地级市与重点城镇注记 */
-.city-label-marker {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  cursor: pointer;
-  transform: translate(-50%, -100%);
-  transition: transform 0.15s ease;
-}
-
-.city-label-marker:hover {
-  transform: translate(-50%, -100%) scale(1.15);
-  z-index: 50;
-}
-
-.city-name-cn {
-  font-size: 11.5px;
-  font-weight: 800;
-  color: #1f2937;
-  white-space: nowrap;
-  text-shadow: 0 1px 2px #fff, 0 -1px 2px #fff, 1px 0 2px #fff, -1px 0 2px #fff;
-  line-height: 1.1;
-}
-
-.city-name-en {
-  font-size: 9px;
-  font-weight: 600;
-  color: #64748b;
-  white-space: nowrap;
-  text-shadow: 0 1px 1px #fff;
-  margin-bottom: 2px;
-}
-
-.city-dot {
-  width: 6px;
-  height: 6px;
-  background: #ffffff;
-  border: 2px solid #1f2937;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 /* =========================================================
@@ -3141,18 +3016,6 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   color: #0f172a;
 }
 
-/* 路线插点微端点指示器 */
-.route-insert-hover-marker {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #0284c7;
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 6px rgba(2, 132, 199, 0.6);
-  pointer-events: none;
-  transition: transform 0.08s ease;
-}
-
 /* 收藏路线查看态：保留玻璃质感与浏览交互，只弱化真正会修改路线的控件。 */
 .route-viewing-readonly .route-pt-input[readonly] {
   color: #334155;
@@ -3373,63 +3236,6 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.route-search-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.12s ease;
-  text-align: left;
-}
-
-.route-search-item:hover, .route-search-item.active {
-  background: #f0f9ff;
-}
-
-.route-search-item-icon {
-  font-size: 13px;
-  flex-shrink: 0;
-}
-
-.route-search-item-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.route-search-item-name {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.route-search-item-desc {
-  font-size: 10px;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.route-search-empty {
-  padding: 10px;
-  font-size: 11px;
-  color: #94a3b8;
-  text-align: center;
-}
-
-.route-search-pick-map {
-  border-top: 1px dashed #e2e8f0;
-  margin-top: 2px;
-  padding-top: 6px;
-  color: #0284c7;
-  font-weight: 600;
 }
 
 .btn-drag-handle {
@@ -4418,217 +4224,6 @@ body.is-downloading .dl-unified-box .progress-bar-fill {
   gap: 2px;
 }
 
-
-/* =========================================================
-   7. 软件自动热更新弹窗与进度 (Office / Fluent 极简现代风格)
-   ========================================================= */
-.update-modal-card {
-  width: 490px;
-  max-width: 92vw;
-  background: #ffffff;
-  border-radius: 10px;
-  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28), 0 2px 6px rgba(0, 0, 0, 0.08);
-  border: 1px solid #cbd5e1;
-}
-
-.update-version-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 10px 14px;
-}
-
-.version-badge-group {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-}
-
-.version-label {
-  color: #64748b;
-  font-weight: 500;
-}
-
-.version-val {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 700;
-}
-
-.version-val.current {
-  background: #e2e8f0;
-  color: #475569;
-}
-
-.version-arrow {
-  color: #0284c7;
-  font-weight: 800;
-  font-size: 13px;
-}
-
-.version-val.latest {
-  background: #e0f2fe;
-  color: #0284c7;
-  border: 1px solid #bae6fd;
-}
-
-.update-meta-info {
-  font-size: 11px;
-  color: #64748b;
-  font-family: var(--font-mono);
-}
-
-.update-notes-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.update-notes-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: #1e293b;
-}
-
-.update-notes-content {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 12px;
-  color: #334155;
-  line-height: 1.65;
-  max-height: 150px;
-  overflow-y: auto;
-  font-family: var(--font-base);
-  word-break: break-word;
-}
-
-.update-notes-content::-webkit-scrollbar {
-  width: 5px;
-}
-
-.update-notes-content::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
-}
-
-.update-btn-pulse {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  border: none !important;
-  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
-}
-
-.update-btn-pulse:hover {
-  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45);
-}
-
-.update-btn-pulse:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-/* =========================================================
-   8. 软件版本与在线更新状态呈现组件
-   ========================================================= */
-.update-info-state-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 24px 20px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-
-.update-spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid #e2e8f0;
-  border-top-color: #0284c7;
-  border-radius: 50%;
-  animation: updateSpin 0.8s linear infinite;
-  margin-bottom: 12px;
-}
-
-@keyframes updateSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.update-checking-text {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: #1e293b;
-  margin-bottom: 6px;
-}
-
-.update-checking-ver {
-  font-size: 12px;
-  color: #64748b;
-  font-family: var(--font-mono);
-}
-
-.update-state-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  margin-bottom: 12px;
-}
-
-.update-state-icon.uptodate {
-  background: #dcfce7;
-  color: #16a34a;
-  border: 1px solid #bbf7d0;
-}
-
-.update-state-icon.offline {
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #cbd5e1;
-}
-
-.update-state-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 6px;
-}
-
-.update-state-badge {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #0284c7;
-  background: #e0f2fe;
-  padding: 3px 12px;
-  border-radius: 6px;
-  margin-bottom: 10px;
-  border: 1px solid #bae6fd;
-}
-
-.update-state-desc {
-  font-size: 12.5px;
-  color: #64748b;
-  line-height: 1.6;
-  max-width: 380px;
-}
 
 /* 系统标准光标适配 */
 .maplibregl-canvas-container.maplibregl-interactive {
@@ -6369,33 +5964,6 @@ body.web-mode .office-prov-group {
   font-weight: 700;
 }
 
-/* 收藏夹地图标记：外层零延迟绝对定位，内层平滑悬浮放大，彻底消除缩放与平移乱飞 */
-.fav-marker-wrap {
-  cursor: pointer;
-  user-select: none;
-}
-.fav-marker-pin {
-  box-sizing: border-box;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  line-height: 1;
-  padding: 0;
-  margin: 0;
-  font-size: 13px;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-  transform-origin: center center;
-}
-.fav-marker-wrap:hover .fav-marker-pin {
-  transform: scale(1.22);
-}
-
 /* Production compositor budget: keep one acrylic surface per panel. Nested
    backdrop filters repeatedly sample the WebGL map and were the main source of
    frame drops in 1.6.8-1.7.5. Translucent fills preserve the visual depth. */
@@ -7325,150 +6893,6 @@ body.dark-mode .route-point-inspect-card .inspect-btn.primary {
 
 body.dark-mode .route-point-inspect-card .inspect-btn.primary:hover {
   background: #38bdf8;
-}
-
-/* =========================================================
-   3D 路线低空航拍漫游模拟器悬浮控制条 (Fluent Glassmorphism)
-   ========================================================= */
-.route-sim-bar {
-  position: fixed;
-  bottom: 32px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 999;
-  width: min(520px, calc(100vw - 32px));
-  background: rgba(15, 23, 42, 0.88);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
-  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  padding: 10px 16px;
-  color: #f8fafc;
-  animation: routeSimSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-  user-select: none;
-}
-
-@keyframes routeSimSlideUp {
-  from { opacity: 0; transform: translate(-50%, 20px) scale(0.96); }
-  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
-}
-
-.route-sim-inner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.route-sim-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: #0284c7;
-  border: none;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.route-sim-btn:hover {
-  background: #0369a1;
-  transform: scale(1.05);
-}
-
-.route-sim-track-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.route-sim-label-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-}
-
-.route-sim-title {
-  font-weight: 600;
-  color: #38bdf8;
-  letter-spacing: -0.01em;
-}
-
-.route-sim-progress-txt {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.route-sim-slider {
-  width: 100%;
-  height: 5px;
-  border-radius: 3px;
-  appearance: none;
-  background: rgba(255, 255, 255, 0.2);
-  outline: none;
-  cursor: pointer;
-}
-
-.route-sim-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #38bdf8;
-  cursor: pointer;
-  box-shadow: 0 0 6px rgba(56, 189, 248, 0.8);
-  transition: transform 0.1s ease;
-}
-
-.route-sim-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-}
-
-.route-sim-speed-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  color: #38bdf8;
-  font-weight: 600;
-  font-size: 12px;
-  padding: 6px 9px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.route-sim-speed-btn:hover {
-  background: rgba(56, 189, 248, 0.2);
-  border-color: #38bdf8;
-}
-
-.route-sim-close-btn {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  font-size: 15px;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.route-sim-close-btn:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.15);
 }
 
 /* -------------------------------------------------------------

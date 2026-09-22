@@ -9,7 +9,7 @@ const read = file => fs.readFileSync(path.join(root, file));
 const text = file => read(file).toString('utf8');
 const hash = file => crypto.createHash('sha256').update(read(file)).digest('hex');
 
-console.log('🧪 Testing v2.0.72 architecture, GPU blocklist policy, and native camera...');
+console.log('🧪 Testing v2.0.73 architecture, cleanup, and native camera...');
 
 // 1. Version consistency check
 const pkg = JSON.parse(text('package.json'));
@@ -19,12 +19,12 @@ const html = text('src/index.html');
 const bootstrap = text('src/map-bootstrap.js');
 const main = text('main.js');
 
-assert.strictEqual(pkg.version, '2.0.72', 'package.json version must be 2.0.72');
-assert.strictEqual(lock.version, '2.0.72', 'package-lock.json version must be 2.0.72');
-assert(app.includes("const APP_VERSION = '2.0.72';"), 'src/app.js APP_VERSION must be 2.0.72');
-assert(html.includes('v2.0.72'), 'src/index.html must reference v2.0.72');
-assert(bootstrap.includes('app.js?v=2.0.72'), 'src/map-bootstrap.js must reference ?v=2.0.72');
-console.log('  ✅ Version consistency verified (2.0.72)');
+assert.strictEqual(pkg.version, '2.0.73', 'package.json version must be 2.0.73');
+assert.strictEqual(lock.version, '2.0.73', 'package-lock.json version must be 2.0.73');
+assert(app.includes("const APP_VERSION = '2.0.73';"), 'src/app.js APP_VERSION must be 2.0.73');
+assert(html.includes('v2.0.73'), 'src/index.html must reference v2.0.73');
+assert(bootstrap.includes('app.js?v=2.0.73'), 'src/map-bootstrap.js must reference ?v=2.0.73');
+console.log('  ✅ Version consistency verified (2.0.73)');
 
 // 2. GPU Blocklist policy verification
 assert(!main.includes("appendSwitch('ignore-gpu-blocklist')"),
@@ -62,7 +62,22 @@ assert(locCam.includes('reconcileColdTerrainLanding'), 'location-camera must inc
 assert(locCam.includes('verifyTerrainVisibility'), 'location-camera must include terrain visibility guard');
 console.log('  ✅ Cold terrain landing guards in location-camera verified');
 
-// 6. Syntax validation
+// 6. Runtime cleanup without removing data compatibility
+const css = text('src/style.css');
+for (const retiredToken of [
+  '.route-sim-bar', '.update-modal-card', '.fav-marker-wrap',
+  '.city-label-marker', '.route-search-item'
+]) {
+  assert(!css.includes(retiredToken), `retired CSS must be removed: ${retiredToken}`);
+}
+assert(!app.includes('function saveOfflineProvState('), 'retired duplicate offline state writer must be removed');
+assert(app.includes('routeScreenProjectionCache'), 'exact route projection cache must be retained');
+assert(app.includes('routeCumulativeDistanceCache'), 'route distance cache must be retained');
+assert(main.includes('legacyFiles'), 'legacy loose tile compatibility must remain');
+assert(text('src/tile-archive.cjs').includes('legacyFlat'), 'legacy PMTiles compatibility must remain');
+console.log('  ✅ Retired runtime residue removed and offline compatibility retained');
+
+// 7. Syntax validation
 for (const file of [
   'main.js',
   'preload.js',
@@ -77,4 +92,4 @@ for (const file of [
 }
 console.log('  ✅ Production JavaScript files parsed cleanly without syntax errors');
 
-console.log('🎉 All v2.0.72 architecture, GPU blocklist, and camera checks passed successfully!');
+console.log('🎉 All v2.0.73 architecture, cleanup, and camera checks passed successfully!');
