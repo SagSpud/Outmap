@@ -34,7 +34,7 @@ async function main() {
   const targetVersion = process.argv[2] || pkg.version;
   const defaultNotes = [
     '1. 【原生指针锚定缩放】滚轮缩放完全交还 MapLibre 6.9 原生相机，鼠标位于左侧时自然向左推进，结束后不再二次拖动、回拉或突变；',
-    '2. 【有效层级硬边界】依据 DEM L12、矢量 L14、等高线 L15 的真实数据范围，将地图原生上限收敛至 L16，到顶直接停止，避免越界空白与回弹；',
+    '2. 【清晰度优先的层级边界】依据 DEM L12、矢量 L14、等高线 L15 的真实数据范围，将地图原生上限收敛至 L15，到顶直接停止，避免过度放大造成模糊、空白与回弹；',
     '3. 【恢复官方渲染引擎】移除非官方 MapLibre vendor 与地形 RTT 扩容补丁，降低复杂 3D 地形的显存压力、输入积压和发热，同时保留路线精细容差与画质。'
   ].join('\n');
   const customNotes = process.argv[3] || defaultNotes;

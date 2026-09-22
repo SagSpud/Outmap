@@ -15,11 +15,11 @@ const app = text('src/app.js');
 const html = text('src/index.html');
 const bootstrap = text('src/map-bootstrap.js');
 
-assert.strictEqual(pkg.version, '2.0.69');
-assert.strictEqual(lock.version, '2.0.69');
-assert(app.includes("const APP_VERSION = '2.0.69';"));
-assert(html.includes('v2.0.69'));
-assert(bootstrap.includes('app.js?v=2.0.69'));
+assert.strictEqual(pkg.version, '2.0.70');
+assert.strictEqual(lock.version, '2.0.70');
+assert(app.includes("const APP_VERSION = '2.0.70';"));
+assert(html.includes('v2.0.70'));
+assert(bootstrap.includes('app.js?v=2.0.70'));
 
 for (const file of ['maplibre-gl.mjs', 'maplibre-gl-shared.mjs']) {
   assert.strictEqual(
@@ -29,7 +29,7 @@ for (const file of ['maplibre-gl.mjs', 'maplibre-gl-shared.mjs']) {
   );
 }
 
-assert(/maxZoom:\s*16\s*,/.test(app), 'map must stop natively at L16');
+assert(/maxZoom:\s*15\s*,/.test(app), 'map must stop natively at L15');
 assert(/scrollZoom:\s*true\s*,/.test(app), 'wheel zoom must retain native cursor anchoring');
 assert(/aroundCenter:\s*false\s*,/.test(app), 'right-drag rotation direction must remain consistent');
 assert(/centerClampedToGround:\s*false\s*,/.test(app), 'terrain must not resettle the camera after a gesture');
@@ -40,4 +40,4 @@ assert(!/map\.on\(['"](?:zoomend|moveend)['"][\s\S]{0,240}(?:jumpTo|easeTo|flyTo
   'gesture end handlers must not apply a second camera move');
 
 new vm.Script(require('module').wrap(app), { filename: 'src/app.js' });
-console.log('v2.0.69 native pointer zoom and L16 boundary checks passed');
+console.log('v2.0.70 native pointer zoom and L15 boundary checks passed');

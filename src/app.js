@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.69';
+const APP_VERSION = '2.0.70';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -1657,10 +1657,10 @@ async function initApplication() {
     pitch: 50,
     bearing: 0,
     minZoom: 2.0, // 支持大洲大洋宏观视野与全球自由漫游
-    // DEM 的真实数据到 L12、矢量底图到 L14、等高线到 L15。L16 允许
-    // 一档原生 overzoom 看清道路/建筑，同时避免进入只有背景的无效放大区。
+    // DEM 的真实数据到 L12、矢量底图到 L14、等高线到 L15。地图在 L15
+    // 原生硬停止，避免继续放大低精度地形/矢量造成模糊或进入空白区。
     // MapLibre 在该硬上限直接截停滚轮，不需要任何 zoomend 回拉修正。
-    maxZoom: 16,
+    maxZoom: 15,
     // 不在每次手势结束后让 MapLibre 重新反算 center/zoom。陡峭地形下该反算会把一次
     // 连续滚轮操作改成反向缩放或二次放大；飞掠仍通过 location-camera 的目标高程完成落地。
     centerClampedToGround: false,

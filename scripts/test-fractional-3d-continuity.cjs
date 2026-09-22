@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
       dem.setupMaplibre(maplibregl);
       const map = new maplibregl.Map({
         container: 'map', center: [101.3451, 30.06], zoom: 11.55,
-        pitch: 50, minZoom: 2, maxZoom: 16, maxPitch: 72,
+        pitch: 50, minZoom: 2, maxZoom: 15, maxPitch: 72,
         centerClampedToGround: false, fadeDuration: 180,
         scrollZoom: true,
         cancelPendingTileRequestsWhileZooming: false,
@@ -135,7 +135,7 @@ app.whenReady().then(async () => {
       // Exercise the whole production range, with extra samples around the
       // DEM L11/L12 and vector/contour overzoom hand-offs that previously
       // exposed flashing in steep terrain.
-      const ascending = [2.1, 3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 14.8, 15.8];
+      const ascending = [2.1, 3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 14.8, 14.95];
       const zooms = [...ascending, ...ascending.slice().reverse()];
       for (const pitch of [50, 70]) {
         map.jumpTo({ pitch });
@@ -221,7 +221,7 @@ app.whenReady().then(async () => {
           xRatio, maxFrameDelta, centerDrift, postEndZoomDrift });
         return { endZoom, center: [endCenter.lng, endCenter.lat] };
       };
-      const wheelLevels = [2.1, 3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 14.8, 15.8];
+      const wheelLevels = [2.1, 3.9, 4.45, 5.5, 6.15, 7.4, 8.25, 9.6, 10.4, 11.55, 11.8, 12.05, 12.65, 13.4, 14.2, 14.8, 14.95];
       for (const pitch of [0, 50, 70]) {
         for (const startZoom of wheelLevels) {
           await wheelOnce(pitch, startZoom, -120);
@@ -247,13 +247,13 @@ app.whenReady().then(async () => {
         }
       }
 
-      // Repeated input at the native L16 ceiling must be clamped in-place.
+      // Repeated input at the native L15 ceiling must be clamped in-place.
       // The camera may still reach the ceiling from a collision-adjusted 3D
       // start, but after it settles there must be no delayed rebound.
       const boundaryMatrix = [];
       for (const pitch of [0, 50, 70]) {
         map.stop();
-        map.jumpTo({ center: [101.3451, 30.06], pitch, zoom: 16 });
+        map.jumpTo({ center: [101.3451, 30.06], pitch, zoom: 15 });
         await sleep(120);
         const canvas = map.getCanvas();
         for (let i = 0; i < 6; i++) {
@@ -274,10 +274,10 @@ app.whenReady().then(async () => {
           finalCenter.lng - settledCenter.lng,
           finalCenter.lat - settledCenter.lat
         );
-        if (settledZoom > 16.000001 || finalZoom > 16.000001
+        if (settledZoom > 15.000001 || finalZoom > 15.000001
           || Math.abs(finalZoom - settledZoom) > 0.002
           || postBoundaryDrift > 1e-8) {
-          throw new Error('L16 boundary rebounded at ' + pitch + '°');
+          throw new Error('L15 boundary rebounded at ' + pitch + '°');
         }
         boundaryMatrix.push({ pitch, settledZoom, finalZoom, postBoundaryDrift });
       }
@@ -313,7 +313,7 @@ app.whenReady().then(async () => {
     assert.strictEqual(result.wheelMatrix.length, 118,
       'all 2D/50°/70° wheel levels and foreground/sky anchors must be exercised');
     assert.strictEqual(result.boundaryMatrix.length, 3,
-      'L16 native ceiling must be tested in 2D, 50° and 70° terrain views');
+      'L15 native ceiling must be tested in 2D, 50° and 70° terrain views');
     clearTimeout(watchdog);
     win.destroy();
     fixtureServer.close();
