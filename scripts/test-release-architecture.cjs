@@ -9,7 +9,7 @@ const read = file => fs.readFileSync(path.join(root, file));
 const text = file => read(file).toString('utf8');
 const hash = file => crypto.createHash('sha256').update(read(file)).digest('hex');
 
-console.log('Testing v2.0.75 power lifecycle, compatibility, and release gate...');
+console.log('Testing current release architecture, compatibility, and release gate...');
 
 const pkg = JSON.parse(text('package.json'));
 const lock = JSON.parse(text('package-lock.json'));
@@ -18,15 +18,15 @@ const html = text('src/index.html');
 const bootstrap = text('src/map-bootstrap.js');
 const main = text('main.js');
 const preload = text('preload.js');
+const favoriteInteractions = text('src/favorite-interactions.js');
+const version = pkg.version;
 
-assert.strictEqual(pkg.version, '2.0.75');
-assert.strictEqual(lock.version, '2.0.75');
-assert(app.includes("const APP_VERSION = '2.0.75';"));
-assert(html.includes('v2.0.75'));
-assert(bootstrap.includes('app.js?v=2.0.75'));
+assert(/^\d+\.\d+\.\d+$/.test(version), `invalid release version: ${version}`);
+assert.strictEqual(lock.version, version);
+assert(app.includes(`const APP_VERSION = '${version}';`));
+assert(html.includes(`v${version}`));
+assert(bootstrap.includes(`app.js?v=${version}`));
 
-// Process-wide power listeners must be idempotent and every inactive state
-// must participate in the delayed cache trim without reducing foreground quality.
 assert(main.includes('powerMonitorEventsBound'));
 assert(main.includes('if (powerMonitorEventsBound || !powerMonitor) return;'));
 assert(main.includes('systemPowerSuspended = true;'));
@@ -35,18 +35,18 @@ assert(main.includes('runningOnBattery = true;'));
 assert(main.includes('!windowMinimized && !systemPowerSuspended && !screenLocked'));
 assert(main.includes('BATTERY_INACTIVE_MEMORY_TILE_BYTES'));
 
-// Background transitions may throttle naturally but must never strand an
-// in-flight native camera animation halfway to its destination.
 assert(!app.includes('mapInstance.stop()'));
+assert(app.includes('recoverTransientInputState(mapInstance, { resetHandlers: true })'));
+assert(app.includes("document.getElementById('fav-folder-tabs')?._cancelSort?.()"));
+assert(favoriteInteractions.includes('container._cancelSort = () => finish(true)'));
 assert(app.includes('mapInstance.resize();'));
 assert(app.includes('mapInstance.triggerRepaint();'));
 assert(preload.includes("removeListener('power-state-change', listener)"));
 
-// Keep the full production regression gate instead of replacing it with a
-// handful of string checks.
 const releaseChecks = pkg.scripts['pretest:release'].split('&&').map(item => item.trim());
-assert(releaseChecks.length >= 36, `release gate is too small: ${releaseChecks.length}`);
+assert(releaseChecks.length >= 37, `release gate is too small: ${releaseChecks.length}`);
 for (const required of [
+  'test-v2.0.76-input-recovery.cjs',
   'test-route-point-inspect.cjs',
   'test-fractional-3d-continuity.cjs',
   'test-v2.0.65-download-flow-and-locating-transition.cjs',
@@ -101,4 +101,4 @@ for (const file of [
   new vm.Script(require('module').wrap(text(file)), { filename: file });
 }
 
-console.log('v2.0.75 power lifecycle, compatibility, and release-gate checks passed.');
+console.log(`Release ${version} architecture, compatibility, and release-gate checks passed.`);

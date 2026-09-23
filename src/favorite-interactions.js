@@ -89,7 +89,12 @@
     window.addEventListener('keydown', e => { if (e.key === 'Escape') finish(true); }, options);
     container.addEventListener('contextmenu', e => { if (state?.active) e.preventDefault(); }, options);
     container.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); e.stopImmediatePropagation(); suppressClick = false; } }, { ...options, capture: true });
-    container._disposeSort = () => { finish(true); controller.abort(); };
+    container._cancelSort = () => finish(true);
+    container._disposeSort = () => {
+      finish(true);
+      controller.abort();
+      container._cancelSort = null;
+    };
   }
   const paths = {
     view: 'M3 18 9 7 13 13 16 9 22 18Z M7 10 10 12',

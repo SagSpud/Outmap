@@ -4,7 +4,7 @@
  * 整合 Office 365 紧凑一体化顶栏、视角倾角锁定与金字塔多级离线下载系统
  */
 // Outmap 核心业务逻辑 (生产环境严格脱敏纯净版)
-const APP_VERSION = '2.0.75';
+const APP_VERSION = '2.0.76';
 window.OUTMAP_APP_VERSION = APP_VERSION;
 
 // 基础文本转义防注入
@@ -508,6 +508,73 @@ const MAJOR_CITIES = window.MAJOR_CITIES || [];
 
 let mapInstance = null;
 let currentExaggeration = 2.0;
+
+function finishInterruptedElementCloses() {
+  document.querySelectorAll('.panel-closing, .modal-overlay-closing, .popover-closing, .ctx-closing').forEach(el => {
+    const pending = pendingElementCloses.get(el);
+    if (pending?.finish) {
+      pending.finish();
+    } else {
+      el.classList.remove('panel-closing', 'modal-overlay-closing', 'popover-closing', 'ctx-closing');
+      el.style.display = 'none';
+    }
+  });
+  document.querySelectorAll('.fluent-prompt-overlay.prompt-closing').forEach(el => el.remove());
+}
+
+function resetEnabledMapInputHandlers(map) {
+  if (!map) return;
+  for (const key of [
+    'dragPan', 'dragRotate', 'scrollZoom', 'boxZoom',
+    'doubleClickZoom', 'keyboard', 'touchZoomRotate', 'touchPitch'
+  ]) {
+    const handler = map[key];
+    if (!handler || typeof handler.isEnabled !== 'function' || !handler.isEnabled()) continue;
+    try {
+      handler.disable();
+      handler.enable();
+    } catch (_) {}
+  }
+}
+
+// Losing focus can drop the final pointerup/touchcancel event. Consolidate all
+// transient gesture cleanup so an unfinished route drag or pointer capture can
+// never leave MapLibre's native input handlers disabled after a long sleep.
+function recoverTransientInputState(map = mapInstance, { resetHandlers = false } = {}) {
+  document.getElementById('fav-folder-tabs')?._cancelSort?.();
+  if (typeof activeRouteMapDrag !== 'undefined' && activeRouteMapDrag) {
+    activeRouteMapDrag.cancel?.();
+    activeRouteMapDrag = null;
+  }
+  if (typeof activeRouteDragSession !== 'undefined' && activeRouteDragSession) {
+    activeRouteDragSession.cancel?.();
+    activeRouteDragSession = null;
+    if (typeof routeDragGeneration !== 'undefined') routeDragGeneration++;
+  }
+
+  document.body.classList.remove('map-is-dragging', 'route-point-is-dragging', 'map-is-moving', 'sorting-folders');
+  document.querySelectorAll('.is-route-reordering').forEach(el => el.classList.remove('is-route-reordering'));
+  document.querySelectorAll('.is-dragging, .is-settling').forEach(el => {
+    el.classList.remove('is-dragging', 'is-settling');
+    el.style.transform = '';
+    el.style.transition = '';
+    el.style.visibility = '';
+  });
+  document.querySelectorAll('.folder-drag-preview').forEach(el => el.remove());
+  document.querySelectorAll('.track-drop-overlay.active').forEach(el => el.classList.remove('active'));
+  finishInterruptedElementCloses();
+
+  const canvas = map?.getCanvas?.();
+  if (canvas) {
+    const picking = (typeof pickingRoutePt !== 'undefined' && pickingRoutePt)
+      || (typeof isPickingPoint !== 'undefined' && isPickingPoint);
+    canvas.style.cursor = picking ? 'var(--cursor-crosshair)' : '';
+  }
+  window.electronAPI?.setMapInteractionState?.(false);
+  window.electronAPI?.setFramePressureState?.(false);
+  if (resetHandlers) resetEnabledMapInputHandlers(map);
+}
+window.recoverTransientInputState = recoverTransientInputState;
 let currentStyle = 'outmap';
 let is3DView = true;
 let isPitchLocked = true;
@@ -1719,6 +1786,10 @@ async function initApplication() {
   window.addEventListener('touchend', clearMapDraggingState, { passive: true });
   window.addEventListener('touchcancel', clearMapDraggingState, { passive: true });
   window.addEventListener('blur', clearMapDraggingState);
+  window.addEventListener('blur', () => recoverTransientInputState(map));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') recoverTransientInputState(map);
+  });
   map.on('movestart', () => {
     document.body.classList.add('map-is-moving');
     window.electronAPI?.setMapInteractionState?.(true);
@@ -6503,9 +6574,15 @@ function setupStatusBar(map) {
   // and destination when the user restores or unlocks the computer.
   if (window.electronAPI && window.electronAPI.onPowerStateChange) {
     const removePowerStateListener = window.electronAPI.onPowerStateChange((info) => {
-      if (info.mode !== 'performance' || !mapInstance) return;
+      if (!mapInstance) return;
+      if (info.mode === 'saving') {
+        recoverTransientInputState(mapInstance);
+        return;
+      }
+      if (info.mode !== 'performance') return;
       requestAnimationFrame(() => {
         if (!mapInstance) return;
+        recoverTransientInputState(mapInstance, { resetHandlers: true });
         mapInstance.resize();
         mapInstance.triggerRepaint();
       });
